@@ -119,16 +119,78 @@ def link_wechat_account(db, code: str, wx_user: dict) -> dict:
             "agent_bindings_moved": agent_bindings_moved}
 
 
-def unlink_wechat(db, user_id: int) -> None:
-    """解除账号与微信的绑定：清空 openid 并吊销全部会话。
-
-    小程序下次请求 401 后静默重新登录，将得到一个全新的独立账号；
-    App/网页的 JWT 不受影响。
+def unlink_wechat(db, user_id: int) -> dict:
+    """解除账号与微信的绑定：
+    1. 清空目标账号（App/邮箱）的 openid；
+    2. 为独立微信小程序恢复/创建专属账号（以 openid 为准）；
+    3. 将微信专属渠道身份（ClawBot weixin_ilink 与 wecom）、渠道账号（channel_accounts）、未消费绑定码转移至独立小程序账号；
+    4. 课表保全：若独立微信账号下尚无课表，从原账号复制一份最新课表与课程，确保解绑后小程序与微信 ClawBot 仍可正常查课；
+    5. 吊销原账号的小程序会话，小程序端静默重新登录即可无缝衔接独立微信账号，且 ClawBot 保持已绑定状态。
     """
     row = db.execute("SELECT openid FROM users WHERE id=%s", (user_id,)).fetchone()
     if row is None:
         raise AccountLinkError("NOT_FOUND", "账号不存在")
     if not row["openid"]:
         raise AccountLinkError("NOT_BOUND", "当前账号未绑定微信")
+    openid = row["openid"]
+
+    # 1. 解除目标账号上的 openid 绑定
     db.execute("UPDATE users SET openid=NULL WHERE id=%s", (user_id,))
+
+    # 2. 为独立微信小程序恢复/创建专属账号
+    wx_user = db.execute("""INSERT INTO users(openid) VALUES(%s)
+        ON CONFLICT(openid) DO UPDATE SET last_login_at=CURRENT_TIMESTAMP
+        RETURNING id""", (openid,)).fetchone()
+    wx_id = wx_user["id"] if wx_user else None
+
+    # 3. 微信专属渠道身份（ClawBot weixin_ilink 与 wecom）转移给独立微信账号
+    agent_bindings_moved = 0
+    if wx_id:
+        for identity in db.execute(
+            "SELECT id, provider FROM user_identities WHERE user_id=%s AND provider=ANY(%s)",
+            (user_id, ["weixin_ilink", "wecom"])
+        ).fetchall():
+            db.execute("DELETE FROM user_identities WHERE user_id=%s AND provider=%s",
+                       (wx_id, identity["provider"]))
+            agent_bindings_moved += db.execute(
+                "UPDATE user_identities SET user_id=%s WHERE id=%s",
+                (wx_id, identity["id"])
+            ).rowcount
+
+        db.execute(
+            "UPDATE channel_accounts SET owner_user_id=%s WHERE owner_user_id=%s AND provider='weixin_ilink'",
+            (wx_id, user_id)
+        )
+        db.execute(
+            "UPDATE identity_binding_codes SET user_id=%s WHERE user_id=%s AND provider=ANY(%s) AND consumed_at IS NULL",
+            (wx_id, user_id, ["weixin_ilink", "wecom"])
+        )
+
+        # 4. 课表复制保全：若独立微信账号下无课表，复制一份 App 账号的最新课表，确保解绑后小程序有课表、ClawBot 查课正常
+        wx_sched = db.execute("SELECT id FROM schedules WHERE user_id=%s LIMIT 1", (wx_id,)).fetchone()
+        if not wx_sched:
+            app_sched = db.execute(
+                "SELECT id, name, term, start_date, end_date, background FROM schedules WHERE user_id=%s ORDER BY id DESC LIMIT 1",
+                (user_id,)
+            ).fetchone()
+            if app_sched:
+                new_sched = db.execute(
+                    """INSERT INTO schedules(user_id, name, term, start_date, end_date, background)
+                       VALUES(%s, %s, %s, %s, %s, %s) RETURNING id""",
+                    (wx_id, app_sched["name"], app_sched["term"], app_sched["start_date"], app_sched["end_date"], app_sched.get("background") or "")
+                ).fetchone()
+                if new_sched:
+                    courses = db.execute(
+                        "SELECT name, teacher, room, weekday, start_section, end_section, weeks, color FROM courses WHERE schedule_id=%s",
+                        (app_sched["id"],)
+                    ).fetchall()
+                    for c in courses:
+                        db.execute(
+                            """INSERT INTO courses(schedule_id, name, teacher, room, weekday, start_section, end_section, weeks, color)
+                               VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (new_sched["id"], c["name"], c["teacher"], c["room"], c["weekday"], c["start_section"], c["end_section"], c["weeks"], c["color"])
+                        )
+
+    # 5. 吊销原账号的小程序会话（小程序下次请求凭 openid 登录进入 wx_id）
     db.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
+    return {"wx_user_id": wx_id, "agent_bindings_moved": agent_bindings_moved}
