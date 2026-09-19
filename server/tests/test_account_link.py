@@ -82,12 +82,10 @@ class FakeLinkDb:
             return FakeResult([{"id": 99}])
         if sql.startswith("SELECT id FROM schedules WHERE user_id"):
             return FakeResult([])
-        if sql.startswith("SELECT id, name, term, start_date, end_date, background FROM schedules WHERE user_id"):
-            return FakeResult([{"id": 1, "name": "默认课表", "term": "2026秋", "start_date": "2026-09-01", "end_date": "2027-01-20", "background": ""}])
+        if sql.startswith("SELECT id, name, term, start_date, end_date, background, variant_type FROM schedules WHERE user_id"):
+            return FakeResult([{"id": 1, "name": "默认课表", "term": "2026秋", "start_date": "2026-09-01", "end_date": "2027-01-20", "background": "", "variant_type": "original"}])
         if sql.startswith("INSERT INTO schedules"):
             return FakeResult([{"id": 101}])
-        if sql.startswith("SELECT name, teacher, room, weekday, start_section, end_section, weeks, color FROM courses"):
-            return FakeResult([{"name": "高等数学", "teacher": "张老师", "room": "101", "weekday": 1, "start_section": 1, "end_section": 2, "weeks": [1, 2], "color": "#1890ff"}])
         if sql.startswith("INSERT INTO courses"):
             return FakeResult([], rowcount=1)
         if sql.startswith("DELETE FROM sessions"):
@@ -243,7 +241,7 @@ def test_unlink_migrates_identities_and_preserves_schedule():
     assert call("DELETE FROM user_identities WHERE user_id=%s AND provider=%s", db) == [(99, "weixin_ilink")]
     assert call("UPDATE user_identities SET user_id=%s WHERE id=%s", db) == [(99, 3)]
     assert call("UPDATE channel_accounts SET owner_user_id=%s WHERE owner_user_id=%s AND provider='weixin_ilink'", db) == [(99, 9)]
-    assert call("INSERT INTO schedules(user_id, name, term, start_date, end_date, background)", db)
+    assert call("INSERT INTO schedules(user_id, name, term, start_date, end_date, background, variant_type)", db)
     assert call("INSERT INTO courses(schedule_id, name, teacher, room, weekday, start_section, end_section, weeks, color)", db)
 
 
