@@ -16,7 +16,9 @@ GOLD = (201, 160, 99, 255)
 WHITE = (255, 255, 255, 255)
 
 src = Image.open("public/app-icon.png")
-glyph = src.crop(src.getbbox())  # 透明底原始图形
+# 阈值裁剪：源图上方有一圈近不可见的低透明度像素，直接 getbbox 会把包围盒撑大
+_tight = src.getchannel("A").point(lambda v: 255 if v > 24 else 0).getbbox()
+glyph = src.crop(_tight)  # 透明底原始图形（真实边界）
 gw, gh = glyph.size
 ratio = gw / gh
 
@@ -40,8 +42,8 @@ def circle(img):
 densities = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432}
 for dpi, size in densities.items():
     d = f"android/app/src/main/res/mipmap-{dpi}"
-    on_white(size, 0.76).convert("RGB").save(f"{d}/ic_launcher.png")
-    circle(on_white(size, 0.66)).save(f"{d}/ic_launcher_round.png")
+    on_white(size, 0.88).convert("RGB").save(f"{d}/ic_launcher.png")
+    circle(on_white(size, 0.74)).save(f"{d}/ic_launcher_round.png")
 
 # ---- 开屏：白底 + 图形 + “序时” + 金色短横线 ----
 S = 512
