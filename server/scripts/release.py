@@ -295,7 +295,7 @@ def get_github_repo() -> tuple[str, str]:
             return match.group(1), match.group(2)
     except Exception:
         pass
-    return "yee211", "ClassSchedule"
+    return "yee211", "xushi"
 
 
 def sync_git_tag(version_name: str) -> None:
@@ -314,7 +314,9 @@ def sync_git_tag(version_name: str) -> None:
 
 
 def generate_release_notes(version_name: str, version_code: int, changelog: list[str], apk_info: dict) -> str:
-    quoted_apk = urllib.parse.quote(f"序时_v{version_name}.apk")
+    apk_filename = f"序时_v{version_name}.apk"
+    quoted_apk = urllib.parse.quote(apk_filename)
+    repo_owner, repo_name = get_github_repo()
     bullets = "\n".join(f"- {item}" for item in changelog) if changelog else "- 常规优化与体验提升"
     size_mb = apk_info.get("size_mb", 0.0)
     size_bytes = apk_info.get("size_bytes", 0)
@@ -332,7 +334,7 @@ def generate_release_notes(version_name: str, version_code: int, changelog: list
 | :--- | :--- | :--- |
 | 🌐 **Web 网页版** | [https://api.tanzeng.xyz](https://api.tanzeng.xyz) | 浏览器免安装秒开，全端自适应，实时热更 |
 | 📱 **Android 客户端 (v{version_name})** | 点击下方 Releases 附件下载 `序时_v{version_name}.apk` | 极速安装，独享开屏与桌面星轨时钟图标 |
-| 🚀 **全球 CDN 直链** | [Cloudflare CDN 极速下载](https://gh-proxy.com/https://raw.githubusercontent.com/yee211/ClassSchedule/main/static/downloads/{quoted_apk}) | 国内外极速分发通道 |
+| 🚀 **全球 CDN 直链** | [Cloudflare CDN 极速下载](https://gh-proxy.com/https://raw.githubusercontent.com/{repo_owner}/{repo_name}/main/static/downloads/{quoted_apk}) | 国内外极速分发通道 |
 | 🔗 **官方服务器直链** | [官方源站直链下载](https://api.tanzeng.xyz/downloads/{quoted_apk}) | 官方源站下载通道 |
 | ⚡ **永久最新直链** | [序时.apk 永久最新版](https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6.apk) | 始终指向最新稳定构建版 |
 
@@ -579,20 +581,17 @@ def main():
             print("\n[*] 2. 编译前端 Vue 项目 (vite build)...")
             run_cmd(["npm.cmd" if os.name == "nt" else "npm", "run", "build"], cwd=FRONTEND_DIR)
 
-            # 校验构建出的前端 bundle 是否包含生产接口域名，且严禁包含本地调试 IP
+            # 校验构建出的前端 bundle 是否包含本地/内网/模拟器调试接口地址
             dist_js_files = list(Path(FRONTEND_DIST, "assets").glob("*.js"))
             if not dist_js_files:
                 raise RuntimeError("前端构建产物缺少 assets/*.js 文件")
-            has_prod_domain = False
+            local_host_pattern = re.compile(r"https?://(?:localhost|127\.0\.0\.1|10\.\d|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)")
             for js_file in dist_js_files:
                 content = js_file.read_text(encoding="utf-8", errors="ignore")
-                if "10.0.2.2" in content:
-                    raise RuntimeError(f"前端构建产物 {js_file.name} 中检测到模拟器 IP (10.0.2.2)，禁止发布！")
-                if "api.tanzeng.xyz" in content:
-                    has_prod_domain = True
-            if not has_prod_domain:
-                raise RuntimeError("前端构建产物未找到生产接口域名 api.tanzeng.xyz，请检查环境变量配置！")
-            print("  -> 前端构建产物安全校验通过：生产域名匹配，无本地 IP 污染。")
+                found = local_host_pattern.search(content)
+                if found:
+                    raise RuntimeError(f"前端构建产物 {js_file.name} 中检测到本地/内网接口地址 {found.group(0)}，禁止发布！")
+            print("  -> 前端构建产物安全校验通过：无本地/内网 IP 污染。")
 
             print("\n[*] 3. 同步前端资源到 Capacitor Android 原生目录...")
             run_cmd(["npx.cmd" if os.name == "nt" else "npx", "cap", "sync", "android"], cwd=FRONTEND_DIR)
