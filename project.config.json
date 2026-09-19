@@ -38,8 +38,40 @@
         "value": ".github"
       },
       {
+        "type": "folder",
+        "value": ".idea"
+      },
+      {
+        "type": "folder",
+        "value": "design"
+      },
+      {
+        "type": "folder",
+        "value": "miniapp/design"
+      },
+      {
+        "type": "folder",
+        "value": "scripts"
+      },
+      {
+        "type": "folder",
+        "value": "miniapp/scripts"
+      },
+      {
         "type": "file",
         "value": "README.md"
+      },
+      {
+        "type": "suffix",
+        "value": ".md"
+      },
+      {
+        "type": "suffix",
+        "value": ".py"
+      },
+      {
+        "type": "suffix",
+        "value": ".log"
       }
     ],
     "include": []

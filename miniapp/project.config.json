@@ -46,6 +46,10 @@
         "value": "\\.py$"
       },
       {
+        "type": "suffix",
+        "value": ".log"
+      },
+      {
         "type": "regexp",
         "value": "\\.tar\\.gz$"
       }
