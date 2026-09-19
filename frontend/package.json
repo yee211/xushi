@@ -1,7 +1,7 @@
 {
   "name": "class-schedule-web",
   "private": true,
-  "version": "2.4.1",
+  "version": "2.4.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -31,5 +31,5 @@
     "autoprefixer": "^10.6.1",
     "tailwindcss": "^4.3.3"
   },
-  "versionCode": 23
+  "versionCode": 24
 }
