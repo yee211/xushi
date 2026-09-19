@@ -1,0 +1,104 @@
+<view class="page">
+  <view class="hero">
+    <text class="spark">✦</text>
+    <text class="title">课表助手</text>
+    <text class="subtitle">连接微信 ClawBot 后，就可以在微信里自然地询问每天的课程。</text>
+  </view>
+
+  <view class="card" wx:if="{{loading}}"><text>正在读取绑定状态…</text></view>
+  <block wx:else>
+    <!-- 账号互通：把本微信与 App 账号合并为同一份课表 -->
+    <view class="card">
+      <view class="status-row">
+        <text class="status-dot {{account.linked ? '' : 'off'}}"></text>
+        <text class="status-title">{{account.linked ? '已绑定 App 账号' : '绑定 App 账号（同步课表）'}}</text>
+      </view>
+      <block wx:if="{{account.linked}}">
+        <text class="description">当前微信已与 App 账号{{account.email ? '（' + account.email + '）' : ''}}共用同一份课表，在 App 里导入教务系统课表或调课，这里都会同步。</text>
+        <button class="button danger" loading="{{linking}}" disabled="{{linking}}" bindtap="unlinkAccount">解除绑定</button>
+      </block>
+      <block wx:else>
+        <text class="description">在序时 App「个人中心 → 账号互通 → 微信小程序」生成六位绑定码，输入后本微信将与 App 账号合并，课表立即同步。</text>
+        <view class="verify-row">
+          <input class="verify-input" type="text" maxlength="6" value="{{linkCode}}" bindinput="onLinkCodeInput" placeholder="输入六位绑定码"></input>
+          <button class="verify-button" loading="{{linking}}" disabled="{{linking}}" bindtap="submitLinkCode">绑定</button>
+        </view>
+      </block>
+    </view>
+
+    <view class="card">
+      <view class="status-row">
+        <text class="status-dot {{claw.bound ? '' : 'off'}}"></text>
+        <text class="status-title">{{claw.bound ? '微信 ClawBot 已连接' : '连接微信 ClawBot（推荐）'}}</text>
+      </view>
+      <block wx:if="{{claw.bound}}">
+        <text class="description">微信 ClawBot 已经可以读取你的课表。你可以试着问：</text>
+        <view class="examples">
+          <text>“今天下午有什么课？”</text>
+          <text>“明天要带伞吗？”</text>
+          <text>“下一节课是什么？”</text>
+        </view>
+        <button class="button danger" bindtap="unbind" data-provider="weixin_ilink">解除绑定</button>
+      </block>
+      <block wx:else>
+        <text class="description">点击生成二维码，放大后长按保存图片，再回到微信用扫一扫从相册选择该图片，确认后即可绑定当前课表账号。</text>
+        <button class="button primary" wx:if="{{!qrDataUrl}}" loading="{{connecting}}" disabled="{{connecting}}" bindtap="connectClawBot">生成连接二维码</button>
+        <view class="qr-box" wx:if="{{qrDataUrl}}">
+          <image class="qr-image" src="{{qrDataUrl}}" mode="aspectFit" show-menu-by-longpress bindtap="previewQrcode"></image>
+          <text class="qr-tip">{{loginStatus}}</text>
+          <text class="qr-hint">点按二维码放大 · 长按保存图片 · 回到微信扫一扫，从相册选择该图片</text>
+          <view class="verify-row" wx:if="{{needVerifyCode}}">
+            <input class="verify-input" type="number" maxlength="20" value="{{verifyCode}}" bindinput="onVerifyInput" placeholder="输入数字验证码"></input>
+            <button class="verify-button" bindtap="submitVerifyCode">确认</button>
+          </view>
+        </view>
+      </block>
+    </view>
+
+    <!-- 企业微信机器人入口暂时隐藏，后端能力保留。 -->
+    <view class="card" wx:if="{{false}}">
+      <view class="status-row">
+        <text class="status-dot {{wecom.bound ? '' : 'off'}}"></text>
+        <text class="status-title">{{wecom.bound ? '企业微信机器人已连接' : '连接企业微信机器人'}}</text>
+      </view>
+      <block wx:if="{{wecom.bound}}">
+        <text class="description">企业微信机器人已绑定，可直接在企微对话里查询课表。</text>
+        <button class="button danger" bindtap="unbind" data-provider="wecom">解除绑定</button>
+      </block>
+      <block wx:else>
+        <text class="description">生成六位绑定码，复制后在企业微信机器人对话中发送「绑定 XXXXXX」。</text>
+        <button class="button secondary" loading="{{generating}}" disabled="{{generating}}" bindtap="generateCode" data-provider="wecom">生成六位绑定码</button>
+        <view class="code-box" wx:if="{{code && codeProvider === 'wecom'}}" bindtap="copyCommand" bindlongpress="copyCommand">
+          <text class="code">{{code}}</text>
+          <text class="expiry">请在 {{expiresAt}} 前发送“绑定 {{code}}”</text>
+          <text class="copy">点击或长按复制完整命令</text>
+        </view>
+      </block>
+    </view>
+  </block>
+
+  <view class="notice">
+    <text class="notice-title">隐私与安全</text>
+    <text>助手仅用于为你查询当前绑定的个人课表与提醒，数据严格隔离且仅限本人访问，不会修改你的课表内容。</text>
+  </view>
+
+  <view class="feedback-entry" bindtap="openFeedback" hover-class="feedback-entry-hover">
+    <view class="feedback-entry-copy">
+      <text class="feedback-entry-title">遇到问题？</text>
+      <text class="feedback-entry-desc">提交问题反馈，帮助我们继续改进序时</text>
+    </view>
+    <text class="feedback-entry-arrow">›</text>
+  </view>
+
+  <!-- 自定义高透毛玻璃确认弹窗（替代原生 wx.showModal） -->
+  <view class="confirm-mask" wx:if="{{confirmModal.visible}}" catchtouchmove="noop" bindtap="onModalCancel">
+    <view class="confirm-dialog" catchtap="noop">
+      <text class="confirm-title" wx:if="{{confirmModal.title}}">{{confirmModal.title}}</text>
+      <text class="confirm-content" wx:if="{{confirmModal.content}}">{{confirmModal.content}}</text>
+      <view class="confirm-actions">
+        <button class="confirm-btn confirm-btn-cancel" bindtap="onModalCancel">{{confirmModal.cancelText || '取消'}}</button>
+        <button class="confirm-btn {{confirmModal.danger ? 'confirm-btn-danger' : 'confirm-btn-primary'}}" bindtap="onModalConfirm">{{confirmModal.confirmText || '确定'}}</button>
+      </view>
+    </view>
+  </view>
+</view>

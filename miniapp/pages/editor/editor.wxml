@@ -1,0 +1,67 @@
+<scroll-view class="page {{nightMode ? 'night' : ''}}" scroll-y enhanced show-scrollbar="{{false}}">
+  <view class="page-content">
+    <view class="editor-header">
+      <text class="editor-eyebrow">COURSE DETAILS</text>
+      <text class="editor-title">{{id ? '编辑课程' : (name ? '校对课程' : '添加课程')}}</text>
+      <text class="editor-subtitle">填写课程时间与地点，保存后会立即显示在课表中。</text>
+    </view>
+
+    <view class="form-card card">
+      <view class="field">
+        <text class="field-label">课程名称 <text class="required">*</text></text>
+        <input class="input" value="{{name}}" placeholder="例如：计算机网络" placeholder-class="placeholder" maxlength="80" data-key="name" bindinput="field" />
+      </view>
+      <view class="field">
+        <text class="field-label">教师</text>
+        <input class="input" value="{{teacher}}" placeholder="选填" placeholder-class="placeholder" maxlength="40" data-key="teacher" bindinput="field" />
+      </view>
+      <view class="field">
+        <text class="field-label">教室</text>
+        <input class="input" value="{{room}}" placeholder="选填" placeholder-class="placeholder" maxlength="40" data-key="room" bindinput="field" />
+      </view>
+      <view class="field">
+        <text class="field-label">星期</text>
+        <picker mode="selector" range="{{days}}" value="{{weekday-1}}" bindchange="weekday"><view class="picker">{{days[weekday-1]}}<text>›</text></view></picker>
+      </view>
+      <view class="field-row">
+        <view class="field field-half">
+          <text class="field-label">开始节次</text>
+          <picker mode="selector" range="{{sections}}" value="{{startSection-1}}" bindchange="startSection"><view class="picker">第 {{startSection}} 节<text>›</text></view></picker>
+        </view>
+        <view class="field field-half">
+          <text class="field-label">结束节次</text>
+          <picker mode="selector" range="{{sections}}" value="{{endSection-1}}" bindchange="endSection"><view class="picker">第 {{endSection}} 节<text>›</text></view></picker>
+        </view>
+      </view>
+      <view class="field field-last">
+        <text class="field-label">上课周次</text>
+        <input class="input" value="{{weeks}}" placeholder="如：1-16，或 1,3,5" placeholder-class="placeholder" data-key="weeks" bindinput="field" />
+        <text class="field-tip">支持连续周次和逗号分隔，例如 1-8,10,12-16</text>
+      </view>
+      <view class="field field-last">
+        <text class="field-label">课程颜色</text>
+        <view class="color-grid">
+          <view class="color-swatch {{color == item ? 'selected' : ''}}" wx:for="{{colors}}" wx:key="*this" style="background-color:{{item}}" data-color="{{item}}" bindtap="pickColor"></view>
+        </view>
+      </view>
+    </view>
+
+    <view class="form-actions">
+      <button wx:if="{{id}}" class="btn delete-button" disabled="{{saving}}" bindtap="remove">删除</button>
+      <button class="btn cancel-button" disabled="{{saving}}" bindtap="cancel">取消</button>
+      <button class="btn primary save-button" loading="{{saving}}" disabled="{{saving}}" bindtap="save">保存课程</button>
+    </view>
+  </view>
+
+  <!-- 自定义高透毛玻璃确认弹窗（替代原生 wx.showModal） -->
+  <view class="confirm-mask {{nightMode ? 'night' : ''}}" wx:if="{{confirmModal.visible}}" catchtouchmove="noop" bindtap="onModalCancel">
+    <view class="confirm-dialog" catchtap="noop">
+      <text class="confirm-title" wx:if="{{confirmModal.title}}">{{confirmModal.title}}</text>
+      <text class="confirm-content" wx:if="{{confirmModal.content}}">{{confirmModal.content}}</text>
+      <view class="confirm-actions">
+        <button class="confirm-btn confirm-btn-cancel" bindtap="onModalCancel">{{confirmModal.cancelText || '取消'}}</button>
+        <button class="confirm-btn {{confirmModal.danger ? 'confirm-btn-danger' : 'confirm-btn-primary'}}" bindtap="onModalConfirm">{{confirmModal.confirmText || '确定'}}</button>
+      </view>
+    </view>
+  </view>
+</scroll-view>

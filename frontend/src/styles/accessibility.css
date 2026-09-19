@@ -1,0 +1,23 @@
+:where(button, input, select, summary, .schedule):focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.72);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .video-wallpaper {
+    display: none;
+  }
+
+  .ambient-canvas {
+    background:
+      linear-gradient(135deg, rgba(15, 23, 42, 0.08), rgba(59, 130, 246, 0.05)),
+      url('/wallpaper-fallback.jpg') center / cover no-repeat;
+  }
+}

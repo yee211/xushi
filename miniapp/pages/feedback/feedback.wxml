@@ -1,0 +1,46 @@
+<scroll-view class="page" scroll-y enhanced show-scrollbar="{{false}}">
+  <view class="page-content">
+    <view class="hero">
+      <view class="hero-icon">✦</view>
+      <text class="hero-title">问题反馈</text>
+      <text class="hero-desc">你的反馈会直接同步给开发者，我们将尽快排查解决。</text>
+    </view>
+
+    <view class="success-card" wx:if="{{submitted}}">
+      <view class="success-icon">✓</view>
+      <text class="success-title">反馈已收到</text>
+      <text class="success-desc">感谢你的帮助，我们会尽快确认并处理该问题。</text>
+      <view class="feedback-no" wx:if="{{feedbackNo}}" bindtap="copyFeedbackNo" hover-class="feedback-no-hover">
+        <text>反馈编号：{{feedbackNo}}</text>
+        <text class="copy-tip">复制</text>
+      </view>
+      <button class="button primary back-button" bindtap="back">返回</button>
+    </view>
+
+    <view class="form-card" wx:else>
+      <view class="field">
+        <text class="field-label">问题类型</text>
+        <picker mode="selector" range="{{categoryLabels}}" value="{{categoryIndex}}" bindchange="selectCategory">
+          <view class="picker-value">
+            <text>{{categoryLabels[categoryIndex]}}</text>
+            <text class="picker-arrow">›</text>
+          </view>
+        </picker>
+      </view>
+
+      <view class="field">
+        <text class="field-label">详细描述 <text class="required">*</text></text>
+        <textarea class="textarea" value="{{description}}" maxlength="1000" auto-height="{{false}}" placeholder="请描述发生了什么、在哪个页面或操作中出现，以及期望的效果" placeholder-class="placeholder" bindinput="setDescription"></textarea>
+        <text class="counter">{{description.length}} / 1000</text>
+      </view>
+
+      <view class="field field-last">
+        <text class="field-label">联系邮箱（选填）</text>
+        <input class="input" value="{{contact}}" maxlength="120" placeholder="请填写你的邮箱地址" placeholder-class="placeholder" bindinput="setContact" />
+        <text class="field-tip">仅用于向你同步修复进度，绝不对外公开</text>
+      </view>
+
+      <button class="button primary submit-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">提交反馈</button>
+    </view>
+  </view>
+</scroll-view>

@@ -1,0 +1,191 @@
+name: xushi
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: xushi_schedule
+      POSTGRES_USER: xushi
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?请通过环境变量注入数据库密码}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xushi -d xushi_schedule"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # 定时备份：启动时立即全量一次，之后每 24 小时一次；自动清理 14 天前的旧文件
+  db-backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:?请通过环境变量注入数据库密码}
+    volumes:
+      - ./backups:/backups
+    command:
+      - /bin/sh
+      - -c
+      - |
+        while :; do
+          file="/backups/xushi_$$(date +%F).dump"
+          if pg_dump -h db -U xushi -Fc xushi_schedule -f "$$file.tmp" && mv "$$file.tmp" "$$file"; then
+            echo "backup ok: $$file"
+            find /backups -name 'xushi_*.dump' -mtime +14 -delete
+          else
+            rm -f "$$file.tmp"
+            echo "backup failed, will retry next cycle"
+          fi
+          sleep 86400
+        done
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 统一 API：网页端 SPA + Android 更新 + 微信小程序，同域同库
+  api:
+    build:
+      context: ../..
+      dockerfile: server/deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://xushi:${DB_PASSWORD}@db:5432/xushi_schedule
+      # 网页端鉴权
+      JWT_SECRET: ${JWT_SECRET:?请配置至少32字符随机密钥}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-10080}
+      TRUST_PROXY_HEADERS: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost,capacitor://localhost}
+      # 演示账号（接管无主数据）
+      DEFAULT_USERNAME: ${DEFAULT_USERNAME:-demo}
+      DEFAULT_EMAIL: ${DEFAULT_EMAIL:-demo@example.com}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:?生产环境必须设置 DEFAULT_PASSWORD}
+      # 小程序鉴权
+      WECHAT_APP_ID: ${WECHAT_APP_ID:?请配置小程序 AppID}
+      WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:?请配置小程序 AppSecret}
+      SESSION_DAYS: "30"
+      # 上传与解析
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-75}
+      AI_MAX_INPUT_CHARS: ${AI_MAX_INPUT_CHARS:-60000}
+      VISION_BASE_URL: ${VISION_BASE_URL:-}
+      VISION_API_KEY: ${VISION_API_KEY:-}
+      VISION_MODEL: ${VISION_MODEL:-}
+      VISION_TIMEOUT_SECONDS: ${VISION_TIMEOUT_SECONDS:-45}
+      VISION_MAX_OUTPUT_TOKENS: ${VISION_MAX_OUTPUT_TOKENS:-2000}
+      VISION_ENABLE_THINKING: ${VISION_ENABLE_THINKING:-false}
+      # Agent 渠道
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      BINDING_CODE_TTL_SECONDS: ${BINDING_CODE_TTL_SECONDS:-300}
+      AGENT_BASE_URL: ${AGENT_BASE_URL:-}
+      AGENT_API_KEY: ${AGENT_API_KEY:-}
+      AGENT_MODEL: ${AGENT_MODEL:-}
+      AGENT_TIMEOUT_SECONDS: ${AGENT_TIMEOUT_SECONDS:-15}
+      AGENT_CHANNEL_PROVIDER: ${AGENT_CHANNEL_PROVIDER:-weixin_ilink}
+      AGENT_REDIS_URL: redis://redis:6379/0
+      AGENT_CONTEXT_TTL_SECONDS: ${AGENT_CONTEXT_TTL_SECONDS:-7200}
+      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-4}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-30}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-15.0}
+      WEIXIN_ILINK_CREDENTIAL_KEY: ${WEIXIN_ILINK_CREDENTIAL_KEY:?请配置32字节Base64凭证加密密钥}
+      WEIXIN_ILINK_CHANNEL_VERSION: ${WEIXIN_ILINK_CHANNEL_VERSION:-2.4.8}
+      WEIXIN_ILINK_APP_ID: ${WEIXIN_ILINK_APP_ID:-bot}
+      WEIXIN_ILINK_BOT_AGENT: ${WEIXIN_ILINK_BOT_AGENT:-XuShiSchedule/1.0.0}
+      WEIXIN_ILINK_ROUTE_TAG: ${WEIXIN_ILINK_ROUTE_TAG:-}
+      WECOM_CALLBACK_TOKEN: ${WECOM_CALLBACK_TOKEN:-}
+      WECOM_ENCODING_AES_KEY: ${WECOM_ENCODING_AES_KEY:-}
+      WECOM_AIBOT_ID: ${WECOM_AIBOT_ID:-}
+      WECOM_CORP_ID: ${WECOM_CORP_ID:-}
+      WECOM_FEEDBACK_WEBHOOK_URL: ${WECOM_FEEDBACK_WEBHOOK_URL:-}
+      FEEDBACK_ANON_SALT: ${FEEDBACK_ANON_SALT:-}
+      # 管理后台
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请配置管理后台密码}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?请配置管理后台会话密钥}
+      ADMIN_SESSION_SECONDS: ${ADMIN_SESSION_SECONDS:-28800}
+      LLM_CONFIG_ENCRYPTION_KEY: ${LLM_CONFIG_ENCRYPTION_KEY:-}
+      # 推送与天气
+      WEATHER_LATITUDE: ${WEATHER_LATITUDE:-}
+      WEATHER_LONGITUDE: ${WEATHER_LONGITUDE:-}
+      WEATHER_CACHE_MINUTES: ${WEATHER_CACHE_MINUTES:-60}
+      MORNING_PUSH_TIME: ${MORNING_PUSH_TIME:-07:30}
+      MORNING_PUSH_ENABLED: ${MORNING_PUSH_ENABLED:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      # 仅绑定回环，由外层 Nginx 统一对外；网页端与小程序 API 可共用同一域名
+      - "127.0.0.1:8010:8000"
+    volumes:
+      # APK 分发包、版本元数据与网页端构建产物挂载，git pull + npm build 后即刻热更生效
+      - ../../static:/app/static
+      - ../../data:/app/data
+      - ../../frontend/dist:/app/frontend/dist
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # 普通微信 ClawBot 长轮询 Worker：必须与 Uvicorn 分离，保持单副本运行
+  weixin-worker:
+    build:
+      context: ../..
+      dockerfile: server/deploy/Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "app.channels.weixin", "worker"]
+    environment:
+      DATABASE_URL: postgresql://xushi:${DB_PASSWORD}@db:5432/xushi_schedule
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      AGENT_BASE_URL: ${AGENT_BASE_URL:-}
+      AGENT_API_KEY: ${AGENT_API_KEY:-}
+      AGENT_MODEL: ${AGENT_MODEL:-}
+      AGENT_TIMEOUT_SECONDS: ${AGENT_TIMEOUT_SECONDS:-15}
+      AGENT_REDIS_URL: redis://redis:6379/0
+      AGENT_CONTEXT_TTL_SECONDS: ${AGENT_CONTEXT_TTL_SECONDS:-7200}
+      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-4}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-30}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-15.0}
+      WEIXIN_WORKER_CONCURRENCY: ${WEIXIN_WORKER_CONCURRENCY:-16}
+      WEIXIN_ILINK_POLL_TIMEOUT_SECONDS: ${WEIXIN_ILINK_POLL_TIMEOUT_SECONDS:-2.0}
+      WEIXIN_ILINK_CREDENTIAL_KEY: ${WEIXIN_ILINK_CREDENTIAL_KEY:?请配置32字节Base64凭证加密密钥}
+      WEIXIN_ILINK_CHANNEL_VERSION: ${WEIXIN_ILINK_CHANNEL_VERSION:-2.4.8}
+      WEIXIN_ILINK_APP_ID: ${WEIXIN_ILINK_APP_ID:-bot}
+      WEIXIN_ILINK_BOT_AGENT: ${WEIXIN_ILINK_BOT_AGENT:-XuShiSchedule/1.0.0}
+      WEIXIN_ILINK_ROUTE_TAG: ${WEIXIN_ILINK_ROUTE_TAG:-}
+      LLM_CONFIG_ENCRYPTION_KEY: ${LLM_CONFIG_ENCRYPTION_KEY:-}
+      WEATHER_LATITUDE: ${WEATHER_LATITUDE:-}
+      WEATHER_LONGITUDE: ${WEATHER_LONGITUDE:-}
+      WEATHER_CACHE_MINUTES: ${WEATHER_CACHE_MINUTES:-60}
+      MORNING_PUSH_TIME: ${MORNING_PUSH_TIME:-07:30}
+      MORNING_PUSH_ENABLED: ${MORNING_PUSH_ENABLED:-true}
+    depends_on:
+      api:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.pytest_cache/
+.ruff_cache/
+.pytest_temp/
+
+# 环境与密钥
+.env
+server/.env
+server/deploy/.env
+*.pem
+
+# 前端
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/build/
+frontend/android/local.properties
+
+# 数据与备份
+server/data/
+server/deploy/backups/
+data/uploads/
+tmp/
+
+# IDE
+.idea/
+.vscode/
+
+# 本地测试专用覆盖
+frontend/.env*.local

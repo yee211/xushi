@@ -1,0 +1,60 @@
+page {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  background-color: #f3f6fb;
+  color: #172033;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "HarmonyOS Sans", "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif;
+  /* ===== 液态玻璃光学令牌（亮色）===== */
+  --glass-bg: linear-gradient(135deg, rgba(255,255,255,.14) 0%, rgba(255,255,255,.035) 52%, rgba(255,255,255,.08) 100%);
+  --glass-border: rgba(255,255,255,.55);
+  --glass-highlight: inset 0 1.5px 0.5px rgba(255,255,255,.9);
+  --glass-refraction: inset 0 -1px 1px rgba(170,192,224,.18);
+  --glass-shadow: 0 16px 36px -10px rgba(42,65,105,.08), 0 6px 16px -4px rgba(42,65,105,.04);
+  --hairline: rgba(255,255,255,.38);
+  --spring: cubic-bezier(.34,1.56,.64,1);
+}
+/* 夜色模式：维持高透光,底色切深青黑半透,高光转微白 */
+.night {
+  --glass-bg: linear-gradient(135deg, rgba(2,6,23,.34) 0%, rgba(15,23,42,.16) 100%);
+  --glass-border: rgba(148,163,184,.25);
+  --glass-highlight: inset 0 1.5px 0.5px rgba(255,255,255,.16);
+  --glass-refraction: inset 0 -1px 1px rgba(148,163,184,.10);
+  --glass-shadow: 0 16px 36px -10px rgba(2,6,23,.4), 0 6px 16px -4px rgba(2,6,23,.22);
+  --hairline: rgba(148,163,184,.22);
+}
+page, view, scroll-view, input, button, picker { box-sizing: border-box; }
+button { margin: 0; padding: 0; width: auto; border-radius: 0; background: transparent; color: inherit; font-size: inherit; line-height: normal; }
+button::after { border: 0; }
+.btn {
+  display: flex;
+  min-height: 76rpx;
+  padding: 0 28rpx;
+  align-items: center;
+  justify-content: center;
+  /* L3 实体胶囊：晶体胶囊渐变,不用实色 */
+  border: 1rpx solid var(--glass-border);
+  border-radius: 22rpx;
+  background: linear-gradient(135deg, rgba(255,255,255,.28), rgba(255,255,255,.10));
+  box-shadow: var(--glass-highlight), var(--glass-refraction);
+  color: #285269;
+  font-size: 27rpx;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: transform .25s var(--spring);
+}
+.btn[disabled] { opacity: .42; }
+.btn.primary { border-color: transparent; color: #ffffff; background: linear-gradient(135deg, #0ea5e9, #2563eb); box-shadow: 0 12rpx 26rpx rgba(37,99,235,.22), inset 0 1.5px 0.5px rgba(255,255,255,.45); }
+.night .btn { color: #cbd5e1; }
+.card {
+  /* 容器面板：禁用 backdrop-filter,靠 3.5%~14% 极限透明 + 微棱高光折射(液态玻璃规范) */
+  border: 1rpx solid var(--glass-border);
+  border-radius: 28rpx;
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow), var(--glass-highlight), var(--glass-refraction);
+  backdrop-filter: none;
+}
+
+/* 按钮 universal 按压反馈（button 默认 hover-class） */
+.button-hover { opacity: .82; transform: scale(.97); }

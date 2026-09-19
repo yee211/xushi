@@ -1,0 +1,22 @@
+server/.env
+server/deploy/.env
+server/venv/
+server/data/
+server/deploy/backups/
+__pycache__/
+*.py[cod]
+project.private.config.json
+*.log
+
+# 构建产物与临时打包
+*.tar.gz
+*.tgz
+*.zip
+node_modules/
+
+# 缓存与测试
+.pytest_cache/
+.ruff_cache/
+
+# IDE
+.idea/

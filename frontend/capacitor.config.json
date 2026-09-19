@@ -1,0 +1,22 @@
+{
+  "appId": "io.github.yee211.classschedule",
+  "appName": "序时",
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "SplashScreen": {
+      "launchShow": true,
+      "launchAutoHide": false,
+      "backgroundColor": "#F6F5F2",
+      "splashImageName": "splash_icon",
+      "androidScaleType": "CENTER",
+      "launchFadeOutDuration": 400
+    }
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "backgroundColor": "#F6F5F2"
+}

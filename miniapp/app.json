@@ -1,0 +1,19 @@
+{
+  "pages": ["pages/index/index", "pages/editor/editor", "pages/agent/agent", "pages/feedback/feedback"],
+  "window": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#f3f6fb",
+    "navigationBarTitleText": "序时课表",
+    "backgroundColor": "#f3f6fb",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "networkTimeout": {
+    "request": 15000,
+    "uploadFile": 120000,
+    "downloadFile": 30000
+  },
+  "sitemapLocation": "sitemap.json",
+  "__usePrivacyCheck__": true,
+  "lazyCodeLoading": "requiredComponents"
+}

@@ -1,0 +1,14 @@
+{
+  "versionCode": 22,
+  "versionName": "2.4.0",
+  "minVersionCode": 1,
+  "title": "发现新版本 v2.4.0",
+  "changelog": [
+    "全新应用图标与开屏",
+    "统一后端架构升级，网页端与小程序账号互通",
+    "稳定性与体验优化"
+  ],
+  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.0.apk",
+  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.0.apk",
+  "forceUpdate": false
+}

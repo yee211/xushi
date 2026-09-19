@@ -1,0 +1,53 @@
+# 序时统一后端部署说明（Nginx 反向代理示例）
+
+统一后端同时服务三类客户端：网页端 SPA、Android APK 更新、微信小程序 API。
+生产上只需要一个 API 服务；网页端与小程序可以把**同一个域名**指到这里，
+也可以保留两个域名（api.tanzeng.xyz 与 wx-api.tanzeng.xyz）同时反代到
+127.0.0.1:8010——两套前端代码无需任何修改。
+
+## 1. 证书签发（以 api.tanzeng.xyz 为例）
+
+```bash
+certbot certonly --nginx -d api.tanzeng.xyz
+# 如保留小程序独立域名，同样为 wx-api.tanzeng.xyz 签发一份
+cp /etc/letsencrypt/live/api.tanzeng.xyz/fullchain.pem /etc/nginx/ssl/
+cp /etc/letsencrypt/live/api.tanzeng.xyz/privkey.pem  /etc/nginx/ssl/
+```
+
+## 2. 站点配置
+
+```nginx
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name api.tanzeng.xyz;
+
+    ssl_certificate     /etc/nginx/ssl/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+
+    # 大于服务端 10MB 上传上限；导入接口前端超时 120s
+    client_max_body_size 12m;
+    proxy_read_timeout  180s;
+    proxy_send_timeout  180s;
+
+    location / {
+        proxy_pass http://127.0.0.1:8010;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+## 3. 验证
+
+```bash
+nginx -t && nginx -s reload
+curl https://api.tanzeng.xyz/api/live     # -> {"ok":true}
+curl https://api.tanzeng.xyz/api/health   # -> {"ok":true}（含数据库探活）
+```
+
+若保留 `wx-api.tanzeng.xyz`：复制本配置改 `server_name` 与证书路径即可，
+`proxy_pass` 仍指向 `127.0.0.1:8010`。小程序公众平台的 request/uploadFile
+合法域名无需变更。
