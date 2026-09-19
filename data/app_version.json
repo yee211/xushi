@@ -1,12 +1,12 @@
 {
-  "versionCode": 27,
-  "versionName": "2.4.5",
+  "versionCode": 28,
+  "versionName": "2.4.6",
   "minVersionCode": 1,
-  "title": "发现新版本 v2.4.5",
+  "title": "发现新版本 v2.4.6",
   "changelog": [
-    "修复生产打包环境变量污染导致的安卓联网失败问题"
+    "优化安卓桌面图标与圆形图标尺寸，中心图形适度放小居中"
   ],
-  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.5.apk",
-  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.5.apk",
+  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.6.apk",
+  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.6.apk",
   "forceUpdate": false
 }

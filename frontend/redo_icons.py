@@ -38,12 +38,23 @@ def circle(img):
     return img
 
 
-# ---- 桌面图标：白底单张 PNG（无自适应层，任何 ROM 所见即所得） ----
+# ---- 桌面图标：白底单张 PNG（适度缩放居中，预留呼吸感与圆角/圆圈安全区） ----
 densities = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432}
 for dpi, size in densities.items():
     d = f"android/app/src/main/res/mipmap-{dpi}"
-    on_white(size, 0.88).convert("RGB").save(f"{d}/ic_launcher.png")
-    circle(on_white(size, 0.74)).save(f"{d}/ic_launcher_round.png")
+    on_white(size, 0.54).convert("RGB").save(f"{d}/ic_launcher.png")
+    circle(on_white(size, 0.50)).save(f"{d}/ic_launcher_round.png")
+
+# ---- Web / PWA / Touch 图标同步刷新 ----
+on_white(256, 0.60).convert("RGB").save("public/favicon.png")
+Image.open("public/favicon.png").save("public/favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)])
+for name, size, gr in [("apple-touch-icon.png", 180, 0.58),
+                       ("apple-touch-icon-precomposed.png", 180, 0.58),
+                       ("pwa-192x192.png", 192, 0.56),
+                       ("pwa-512x512.png", 512, 0.56)]:
+    on_white(size, gr).convert("RGB").save(f"public/{name}")
+for size in (192, 512):
+    circle(on_white(size, 0.50)).save(f"public/pwa-maskable-{size}x{size}.png")
 
 # ---- 开屏：白底 + 图形 + “序时” + 金色短横线 ----
 S = 512
