@@ -1,14 +1,13 @@
 {
-  "versionCode": 22,
-  "versionName": "2.4.0",
+  "versionCode": 23,
+  "versionName": "2.4.1",
   "minVersionCode": 1,
-  "title": "发现新版本 v2.4.0",
+  "title": "发现新版本 v2.4.1",
   "changelog": [
-    "全新应用图标与开屏",
-    "统一后端架构升级，网页端与小程序账号互通",
-    "稳定性与体验优化"
+    "修复应用图标显示为黑底的问题，更换为白底新图标",
+    "稳定性优化"
   ],
-  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.0.apk",
-  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.0.apk",
+  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.1.apk",
+  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.1.apk",
   "forceUpdate": false
 }
