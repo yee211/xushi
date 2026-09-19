@@ -68,7 +68,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?请配置至少32字符随机密钥}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-10080}
       TRUST_PROXY_HEADERS: "true"
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost,capacitor://localhost}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost,http://localhost,capacitor://localhost}
       # 演示账号（接管无主数据）
       DEFAULT_USERNAME: ${DEFAULT_USERNAME:-demo}
       DEFAULT_EMAIL: ${DEFAULT_EMAIL:-demo@example.com}

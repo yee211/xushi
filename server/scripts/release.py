@@ -33,8 +33,6 @@ FRONTEND_DIST = os.path.join(FRONTEND_DIR, "dist")
 ANDROID_WEB_ASSETS = os.path.join(ANDROID_DIR, "app", "src", "main", "assets", "public")
 APPLICATION_ID = "io.github.yee211.classschedule"
 VERSION_FILES = [
-    os.path.join(FRONTEND_DIR, "src", "utils", "version.js"),
-    os.path.join(ANDROID_DIR, "app", "build.gradle"),
     os.path.join(FRONTEND_DIR, "package.json"),
     os.path.join(FRONTEND_DIR, "package-lock.json"),
     os.path.join(ROOT_DIR, "data", "app_version.json"),
@@ -59,31 +57,12 @@ def calc_sha256(filepath):
 def update_version_files(version_name: str, version_code: int, changelog: list):
     print(f"[*] 1. 更新各处版本配置文件为 v{version_name} (code: {version_code})...")
 
-    # 1.1 frontend/src/utils/version.js
-    version_js_path = os.path.join(FRONTEND_DIR, "src", "utils", "version.js")
-    with open(version_js_path, encoding="utf-8") as f:
-        content = f.read()
-    content = re.sub(r"export const CURRENT_VERSION_NAME = '.*?';", f"export const CURRENT_VERSION_NAME = '{version_name}';", content)
-    content = re.sub(r"export const CURRENT_VERSION_CODE = \d+;", f"export const CURRENT_VERSION_CODE = {version_code};", content)
-    with open(version_js_path, "w", encoding="utf-8") as f:
-        f.write(content)
-    print("  -> 已更新 frontend/src/utils/version.js")
-
-    # 1.2 frontend/android/app/build.gradle
-    build_gradle_path = os.path.join(ANDROID_DIR, "app", "build.gradle")
-    with open(build_gradle_path, encoding="utf-8") as f:
-        content = f.read()
-    content = re.sub(r"versionCode \d+", f"versionCode {version_code}", content)
-    content = re.sub(r'versionName ".*?"', f'versionName "{version_name}"', content)
-    with open(build_gradle_path, "w", encoding="utf-8") as f:
-        f.write(content)
-    print("  -> 已更新 frontend/android/app/build.gradle")
-
-    # 1.3 frontend/package.json
+    # 1.1 frontend/package.json (版本号唯一真值源)
     pkg_json_path = os.path.join(FRONTEND_DIR, "package.json")
     with open(pkg_json_path, encoding="utf-8") as f:
         pkg = json.load(f)
     pkg["version"] = version_name
+    pkg["versionCode"] = version_code
     with open(pkg_json_path, "w", encoding="utf-8") as f:
         json.dump(pkg, f, indent=2, ensure_ascii=False)
         f.write("\n")
@@ -101,7 +80,7 @@ def update_version_files(version_name: str, version_code: int, changelog: list):
         f.write("\n")
     print("  -> 已更新 frontend/package-lock.json")
 
-    # 1.4 data/app_version.json
+    # 1.2 data/app_version.json
     app_version_path = os.path.join(ROOT_DIR, "data", "app_version.json")
     with open(app_version_path, encoding="utf-8") as f:
         ver_info = json.load(f)
@@ -112,7 +91,8 @@ def update_version_files(version_name: str, version_code: int, changelog: list):
     # 支持带版本号的中文命名（序时）及标准 URL 编码
     apk_filename = f"序时_v{version_name}.apk"
     quoted_apk = urllib.parse.quote(apk_filename)
-    ver_info["downloadUrl"] = f"https://gh-proxy.com/https://raw.githubusercontent.com/yee211/ClassSchedule/main/static/downloads/{quoted_apk}"
+    repo_owner, repo_name = get_github_repo()
+    ver_info["downloadUrl"] = f"https://gh-proxy.com/https://raw.githubusercontent.com/{repo_owner}/{repo_name}/main/static/downloads/{quoted_apk}"
     ver_info["backupDownloadUrl"] = f"https://api.tanzeng.xyz/downloads/{quoted_apk}"
 
     if changelog:
@@ -175,17 +155,12 @@ def find_android_tool(name: str) -> str:
 
 
 def validate_version_files(version_name: str, version_code: int) -> None:
-    version_js = Path(FRONTEND_DIR, "src", "utils", "version.js").read_text(encoding="utf-8")
-    gradle = Path(ANDROID_DIR, "app", "build.gradle").read_text(encoding="utf-8")
     package = json.loads(Path(FRONTEND_DIR, "package.json").read_text(encoding="utf-8"))
     lock = json.loads(Path(FRONTEND_DIR, "package-lock.json").read_text(encoding="utf-8"))
     remote = json.loads(Path(ROOT_DIR, "data", "app_version.json").read_text(encoding="utf-8"))
     checks = {
-        "version.js versionName": f"CURRENT_VERSION_NAME = '{version_name}'" in version_js,
-        "version.js versionCode": f"CURRENT_VERSION_CODE = {version_code}" in version_js,
-        "build.gradle versionName": f'versionName "{version_name}"' in gradle,
-        "build.gradle versionCode": f"versionCode {version_code}" in gradle,
-        "package.json": package.get("version") == version_name,
+        "package.json version": package.get("version") == version_name,
+        "package.json versionCode": package.get("versionCode") == version_code,
         "package-lock.json": lock.get("version") == version_name and lock.get("packages", {}).get("", {}).get("version") == version_name,
         "app_version.json": remote.get("versionName") == version_name and remote.get("versionCode") == version_code,
     }
@@ -267,14 +242,16 @@ def validate_release(version_name: str, version_code: int) -> None:
         raise ValueError("versionCode 必须是正整数")
     try:
         published_text = run_capture(
-            ["git", "show", "HEAD:frontend/src/utils/version.js"],
+            ["git", "show", "HEAD:frontend/package.json"],
             cwd=ROOT_DIR,
         )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        published_text = Path(FRONTEND_DIR, "src", "utils", "version.js").read_text(encoding="utf-8")
-    published_match = re.search(r"CURRENT_VERSION_CODE = (\d+)", published_text)
-    if published_match and version_code <= int(published_match.group(1)):
-        raise ValueError(f"versionCode 必须大于已提交版本 {published_match.group(1)}")
+        published_pkg = json.loads(published_text)
+        published_code = published_pkg.get("versionCode")
+    except Exception:
+        package = json.loads(Path(FRONTEND_DIR, "package.json").read_text(encoding="utf-8"))
+        published_code = package.get("versionCode")
+    if published_code and version_code <= int(published_code):
+        raise ValueError(f"versionCode 必须大于已提交版本 {published_code}")
     required_signing = (
         "ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD",
         "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD",
@@ -592,8 +569,31 @@ def main():
             # 版本同步后严格执行 Vite -> Capacitor -> Gradle -> 校验 -> 原子分发。
             update_version_files(version_name, version_code, changelog)
             validate_version_files(version_name, version_code)
+            prod_local_env = Path(FRONTEND_DIR) / ".env.production.local"
+            if prod_local_env.exists():
+                raise RuntimeError(
+                    f"检测到 {prod_local_env} 存在！该文件会覆盖生产环境接口域名，"
+                    "请删除或移至 .env.development.local 后再发布。"
+                )
+
             print("\n[*] 2. 编译前端 Vue 项目 (vite build)...")
             run_cmd(["npm.cmd" if os.name == "nt" else "npm", "run", "build"], cwd=FRONTEND_DIR)
+
+            # 校验构建出的前端 bundle 是否包含生产接口域名，且严禁包含本地调试 IP
+            dist_js_files = list(Path(FRONTEND_DIST, "assets").glob("*.js"))
+            if not dist_js_files:
+                raise RuntimeError("前端构建产物缺少 assets/*.js 文件")
+            has_prod_domain = False
+            for js_file in dist_js_files:
+                content = js_file.read_text(encoding="utf-8", errors="ignore")
+                if "10.0.2.2" in content:
+                    raise RuntimeError(f"前端构建产物 {js_file.name} 中检测到模拟器 IP (10.0.2.2)，禁止发布！")
+                if "api.tanzeng.xyz" in content:
+                    has_prod_domain = True
+            if not has_prod_domain:
+                raise RuntimeError("前端构建产物未找到生产接口域名 api.tanzeng.xyz，请检查环境变量配置！")
+            print("  -> 前端构建产物安全校验通过：生产域名匹配，无本地 IP 污染。")
+
             print("\n[*] 3. 同步前端资源到 Capacitor Android 原生目录...")
             run_cmd(["npx.cmd" if os.name == "nt" else "npx", "cap", "sync", "android"], cwd=FRONTEND_DIR)
             print("\n[*] 4. 编译并签名 Android Release APK...")

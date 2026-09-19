@@ -1,12 +1,12 @@
 {
-  "versionCode": 26,
-  "versionName": "2.4.4",
+  "versionCode": 27,
+  "versionName": "2.4.5",
   "minVersionCode": 1,
-  "title": "发现新版本 v2.4.4",
+  "title": "发现新版本 v2.4.5",
   "changelog": [
-    "修复部分机型登录请求卡住的问题"
+    "修复生产打包环境变量污染导致的安卓联网失败问题"
   ],
-  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.4.apk",
-  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.4.apk",
+  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.5.apk",
+  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.5.apk",
   "forceUpdate": false
 }
