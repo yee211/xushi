@@ -3,9 +3,6 @@
   "appName": "序时",
   "webDir": "dist",
   "plugins": {
-    "CapacitorHttp": {
-      "enabled": true
-    },
     "SplashScreen": {
       "launchShow": true,
       "launchAutoHide": false,
