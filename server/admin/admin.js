@@ -218,18 +218,20 @@ async function loadUsers(page = 1) {
     const data = await api(`/users?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`)
     const items = data.items || []
     if (!items.length) {
-      $('usersList').innerHTML = '<div class="glass empty" style="grid-column:1/-1;">未检索到符合条件的用户</div>'
+      $('usersList').innerHTML = '<div class="glass empty" style="grid-column:1/-1;">未检索到符合条件的用户或课表（支持输入用户ID、邮箱、用户名、微信OpenID、课表名或课程名）</div>'
       return
     }
     $('usersList').innerHTML = items.map(user => {
       const providers = (user.providers || []).map(p => `<span class="provider-badge ${esc(p)}">${esc(p)}</span>`).join('')
+      const displayName = user.username || user.nickname || (user.openid ? '微信用户 ' + user.openid.slice(-6) : '用户 #' + user.id)
       return `<article class="glass user-card" onclick="openUserDetail(${user.id})">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
           <span style="font-weight:750;font-size:16px;color:#0369a1;">UID: ${user.id}</span>
           <span class="tag ${user.schedule_count > 0 ? 'good' : 'closed'}">${user.schedule_count} 张课表</span>
         </div>
-        <div style="font-weight:600;font-size:14px;color:#1e293b;margin-bottom:4px;">${esc(user.nickname || '未设置昵称')}</div>
+        <div style="font-weight:600;font-size:14px;color:#1e293b;margin-bottom:4px;">${esc(displayName)}</div>
         <div class="meta" style="word-break:break-all;">邮箱：${esc(user.email || '未绑定')}</div>
+        ${user.openid ? `<div class="meta" style="word-break:break-all;margin-top:2px;">OpenID：<code>${esc(user.openid)}</code></div>` : ''}
         <div style="margin-top:8px;">${providers || '<span class="meta">无关联三方身份</span>'}</div>
         <div class="meta" style="margin-top:8px;font-size:11px;">注册时间：${timeText(user.created_at)}</div>
       </article>`
@@ -260,9 +262,10 @@ async function openUserDetail(userId) {
     const u = data.user
     const identities = data.identities || []
     const schedules = data.schedules || []
-    const bots = data.agent_bindings || []
+    const bots = data.bots || data.agent_bindings || []
+    const displayName = u.username || u.nickname || (u.openid ? '微信用户 ' + u.openid.slice(-6) : '用户 #' + u.id)
 
-    const hasWechat = identities.some(i => i.provider === 'wechat')
+    const hasWechat = identities.some(i => i.provider === 'wechat') || Boolean(u.openid)
     const idCards = identities.map(i => `
       <div class="metric-row">
         <span><span class="provider-badge ${esc(i.provider)}">${esc(i.provider)}</span> 标识: <code>${esc(i.provider_user_id)}</code></span>
@@ -272,8 +275,8 @@ async function openUserDetail(userId) {
 
     const botRows = bots.map(b => `
       <div class="metric-row">
-        <span><b>${esc(b.channel)}</b> [${esc(b.bot_account_id)}] 别名: ${esc(b.custom_nickname || '-')}</span>
-        <small>启用: ${b.is_active ? '是' : '否'}</small>
+        <span><b>${esc(b.provider)}</b> (${esc(b.account_id)})</span>
+        <span class="tag ${b.status === 'active' || b.status === 'online' ? 'good' : 'bad'}">${esc(b.status)}</span>
       </div>
     `).join('') || '<div class="meta" style="padding:8px 0;">未绑定任何机器人通道</div>'
 
@@ -281,7 +284,7 @@ async function openUserDetail(userId) {
       <div class="schedule-card">
         <div>
           <div style="font-weight:700;font-size:15px;color:#1e293b;">${esc(s.name)} ${s.is_active ? '<span class="tag good" style="margin-left:6px;">当前主课表</span>' : ''}</div>
-          <div class="meta" style="margin-top:4px;">学期: ${esc(s.semester || '-')} · 起始日: ${esc(s.start_date || '-')} · 共 ${s.total_weeks} 周</div>
+          <div class="meta" style="margin-top:4px;">学期: ${esc(s.term || s.semester || '-')} · 起始日: ${esc(s.start_date || '-')} · ${s.course_count ?? '-'} 门课程</div>
         </div>
         <button type="button" class="save" style="margin:0;width:auto;padding:8px 16px;font-size:12px;" onclick="viewScheduleCourses(${userId}, ${s.id})">透视课程清单</button>
       </div>
@@ -290,13 +293,15 @@ async function openUserDetail(userId) {
     $('userDetailContent').innerHTML = `
       <p class="eyebrow">USER PROFILE · UID ${u.id}</p>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h2 style="margin:0;">${esc(u.nickname || '未设置昵称')}</h2>
+        <h2 style="margin:0;">${esc(displayName)}</h2>
         ${hasWechat ? `<button type="button" class="danger-btn" onclick="unbindWechat(${u.id})">解绑微信 (解除账号锁定)</button>` : ''}
       </div>
       <div class="metric-row"><span>用户 ID</span><b>${u.id}</b></div>
+      <div class="metric-row"><span>用户名</span><b>${esc(u.username || '未设置')}</b></div>
       <div class="metric-row"><span>绑定邮箱</span><b>${esc(u.email || '未绑定')}</b></div>
+      <div class="metric-row"><span>微信 OpenID</span><b><code>${esc(u.openid || '未绑定')}</code></b></div>
       <div class="metric-row"><span>注册时间</span><b>${timeText(u.created_at)}</b></div>
-      <div class="metric-row"><span>最近更新</span><b>${timeText(u.updated_at)}</b></div>
+      <div class="metric-row"><span>最近活跃</span><b>${timeText(u.last_login_at || u.updated_at)}</b></div>
 
       <h3 style="margin:20px 0 8px;font-size:16px;">三方身份绑定 (${identities.length})</h3>
       ${idCards}
@@ -505,20 +510,42 @@ let searchTimer; $('feedbackSearch').oninput=()=>{clearTimeout(searchTimer);sear
 $('feedbackStatus').onchange=loadFeedback
 $('feedbackCategory').onchange=loadFeedback
 
+let userSearchTimer
+if ($('userSearch')) {
+  $('userSearch').oninput = () => {
+    clearTimeout(userSearchTimer)
+    userSearchTimer = setTimeout(() => {
+      state.usersQuery = $('userSearch').value.trim()
+      loadUsers(1)
+    }, 300)
+  }
+  $('userSearch').onkeydown = e => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      clearTimeout(userSearchTimer)
+      state.usersQuery = $('userSearch').value.trim()
+      loadUsers(1)
+    }
+  }
+}
+if ($('userSearchForm')) {
+  $('userSearchForm').onsubmit = e => {
+    e.preventDefault()
+    clearTimeout(userSearchTimer)
+    state.usersQuery = $('userSearch').value.trim()
+    loadUsers(1)
+  }
+}
 $('btnSearchUser').onclick = () => {
+  clearTimeout(userSearchTimer)
   state.usersQuery = $('userSearch').value.trim()
   loadUsers(1)
 }
 $('btnResetUser').onclick = () => {
+  clearTimeout(userSearchTimer)
   $('userSearch').value = ''
   state.usersQuery = ''
   loadUsers(1)
-}
-$('userSearch').onkeydown = e => {
-  if (e.key === 'Enter') {
-    state.usersQuery = $('userSearch').value.trim()
-    loadUsers(1)
-  }
 }
 
 $('ratelimitSubmitBtn').onclick = clearRateLimit

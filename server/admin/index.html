@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>序时 · 管理后台</title>
-  <link rel="stylesheet" href="/admin/static/admin.css">
+  <link rel="stylesheet" href="/admin/static/admin.css?v=20260921_01">
 </head>
 <body>
   <div class="ambient"><i></i><i></i><i></i></div>
@@ -53,11 +53,11 @@
       <section id="overviewPage" class="page"></section>
 
       <section id="usersPage" class="page hidden">
-        <div class="glass toolbar">
-          <input id="userSearch" placeholder="搜索用户ID、邮箱或昵称 (支持回车搜索)">
-          <button id="btnSearchUser" class="save" style="margin:0;width:auto;padding:0 24px;">搜索</button>
-          <button id="btnResetUser" class="ghost" style="margin:0;width:auto;padding:0 18px;">重置</button>
-        </div>
+        <form id="userSearchForm" class="glass toolbar" onsubmit="event.preventDefault()">
+          <input id="userSearch" placeholder="搜索用户ID、邮箱、用户名、OpenID、课表名或课程名">
+          <button id="btnSearchUser" type="submit" class="save" style="margin:0;width:auto;padding:0 24px;">搜索</button>
+          <button id="btnResetUser" type="button" class="ghost" style="margin:0;width:auto;padding:0 18px;">重置</button>
+        </form>
         <div id="usersList" class="users-grid" style="margin-top:16px;"></div>
         <div id="usersPagination" class="pagination-bar" style="margin-top:16px;display:flex;justify-content:center;gap:12px;align-items:center;"></div>
       </section>
@@ -184,6 +184,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script src="/admin/static/admin.js" defer></script>
+  <script src="/admin/static/admin.js?v=20260921_01" defer></script>
 </body>
 </html>

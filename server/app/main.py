@@ -91,7 +91,14 @@ def admin_index():
         from fastapi import HTTPException
 
         raise HTTPException(404, "管理后台页面未找到")
-    return FileResponse(index_file)
+    return FileResponse(
+        index_file,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.get("/favicon.ico", include_in_schema=False)

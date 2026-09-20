@@ -388,8 +388,17 @@ def list_users(
 
     clauses, params = [], []
     if kw:
-        clauses.append("(CAST(u.id AS TEXT) = %s OR u.email ILIKE %s OR u.username ILIKE %s OR u.openid ILIKE %s)")
-        params.extend([kw, f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+        like_kw = f"%{kw}%"
+        clauses.append("""(
+            CAST(u.id AS TEXT) ILIKE %s
+            OR u.email ILIKE %s
+            OR u.username ILIKE %s
+            OR u.openid ILIKE %s
+            OR EXISTS (SELECT 1 FROM user_identities ui WHERE ui.user_id = u.id AND ui.provider_user_id ILIKE %s)
+            OR EXISTS (SELECT 1 FROM schedules s WHERE s.user_id = u.id AND (s.name ILIKE %s OR s.term ILIKE %s))
+            OR EXISTS (SELECT 1 FROM schedules s JOIN courses c ON c.schedule_id = s.id WHERE s.user_id = u.id AND (c.name ILIKE %s OR c.teacher ILIKE %s))
+        )""")
+        params.extend([like_kw] * 9)
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
