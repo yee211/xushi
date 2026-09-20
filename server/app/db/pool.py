@@ -63,6 +63,11 @@ def row_dict(row) -> dict:
     """把 dict 行拷贝出来，并将日期时间字段序列化为 ISO 字符串（对齐两版前端约定）。"""
     result = dict(row)
     for key in DATETIME_KEYS:
-        if result.get(key):
-            result[key] = result[key].isoformat()
+        val = result.get(key)
+        if val is not None:
+            if hasattr(val, "isoformat"):
+                result[key] = val.isoformat()
+            else:
+                result[key] = str(val)
     return result
+

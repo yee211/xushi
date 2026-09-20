@@ -22,5 +22,20 @@
 .btn-reset{border:1px solid rgba(225,29,72,.3);color:#e11d48}
 @media(max-width:560px){.llm-grid{grid-template-columns:1fr}.form-grid-3{grid-template-columns:1fr}}
 .admins-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.users-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.user-card{padding:18px;border-radius:20px;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease}
+.user-card:hover{transform:translateY(-2px);box-shadow:0 18px 42px rgba(42,65,105,.12)}
+.provider-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-right:5px;background:rgba(14,165,233,.12);color:#0284c7}
+.provider-badge.wechat{background:rgba(16,185,129,.15);color:#047857}
+.provider-badge.email{background:rgba(99,102,241,.15);color:#4f46e5}
+.courses-table-container{max-height:460px;overflow-y:auto;border-radius:14px;border:1px solid rgba(148,163,184,.2);margin-top:14px}
+.courses-table{width:100%;border-collapse:collapse;font-size:13px;text-align:left}
+.courses-table th{position:sticky;top:0;background:rgba(238,245,250,.95);backdrop-filter:blur(4px);padding:10px 14px;color:#475569;font-weight:700;border-bottom:1px solid rgba(148,163,184,.2)}
+.courses-table td{padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.1)}
+.courses-table tr:hover td{background:rgba(255,255,255,.5)}
+.color-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.danger-btn{padding:8px 14px;border-radius:12px;border:1px solid rgba(225,29,72,.35);color:#e11d48;background:rgba(225,29,72,.05);font-size:12px;font-weight:700}
+.danger-btn:hover{background:rgba(225,29,72,.15)}
+.schedule-card{padding:14px;border-radius:16px;background:rgba(255,255,255,.55);border:1px solid rgba(148,163,184,.2);margin-top:10px;display:flex;justify-content:space-between;align-items:center}
 
 

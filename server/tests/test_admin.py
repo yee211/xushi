@@ -121,6 +121,79 @@ class MockAdminDb:
             self.llm_configs.pop(scope, None)
             return Result(None)
 
+        if "from users" in sql_lower:
+            if sql_lower.strip().startswith("select count(*)"):
+                return Result({"total": 1, "count": 1})
+            if "where id=" in sql_lower or "where id =" in sql_lower or "where id=%" in sql_lower:
+                uid = params[0]
+                if uid == 101:
+                    return Result({
+                        "id": 101,
+                        "email": "alice@example.com",
+                        "username": "Alice",
+                        "nickname": "Alice",
+                        "openid": "wx_alice_openid",
+                        "created_at": datetime.now(UTC),
+                        "updated_at": datetime.now(UTC),
+                        "last_login_at": datetime.now(UTC),
+                    })
+                elif uid == 102:
+                    return Result({
+                        "id": 102,
+                        "email": "bob@example.com",
+                        "username": "Bob",
+                        "nickname": "Bob",
+                        "openid": None,
+                        "created_at": datetime.now(UTC),
+                        "updated_at": datetime.now(UTC),
+                        "last_login_at": datetime.now(UTC),
+                    })
+                return Result(None)
+            return Results([{
+                "id": 101,
+                "email": "alice@example.com",
+                "username": "Alice",
+                "nickname": "Alice",
+                "created_at": datetime.now(UTC),
+                "updated_at": datetime.now(UTC),
+                "schedule_count": 2,
+                "providers": ["wechat"],
+            }])
+
+        if "from user_identities" in sql_lower:
+            return Results([{"provider": "wechat", "provider_user_id": "wx_alice_openid", "created_at": datetime.now(UTC)}])
+
+        if "from channel_agent_bindings" in sql_lower:
+            return Results([{"channel": "weixin", "bot_account_id": "bot1", "custom_nickname": "助手", "is_active": True, "created_at": datetime.now(UTC)}])
+
+        if "from channel_accounts" in sql_lower:
+            return Results([{"account_id": "bot1", "provider": "weixin", "owner_user_id": 101, "status": "online", "error_message": None, "updated_at": datetime.now(UTC)}])
+
+        if "from schedules" in sql_lower:
+            if "where id=" in sql_lower:
+                sched_id = params[0]
+                user_id = params[1]
+                if sched_id == 201 and user_id == 101:
+                    return Result({"id": 201, "user_id": 101, "name": "大三上", "semester": "2025秋", "start_date": "2025-09-01", "total_weeks": 16, "is_active": True})
+                return Result(None)
+            return Results([{"id": 201, "name": "大三上", "semester": "2025秋", "start_date": "2025-09-01", "total_weeks": 16, "is_active": True, "created_at": datetime.now(UTC), "updated_at": datetime.now(UTC)}])
+
+        if "from courses" in sql_lower:
+            return Results([{
+                "id": 301,
+                "name": "高数",
+                "teacher": "张教授",
+                "room": "101",
+                "weekday": 1,
+                "start_section": 1,
+                "end_section": 2,
+                "weeks": [1, 2, 3],
+                "color": "#3b82f6",
+            }])
+
+        if "from sessions where user_id=" in sql_lower:
+            return Results([{"token_hash": "hash_alice_session"}])
+
         return Result(None)
 
 
@@ -377,6 +450,111 @@ def test_favicon_returns_204():
     from app.main import favicon
     res = favicon()
     assert res.status_code == 204
+
+
+def test_admin_list_users():
+    res = admin.list_users(query="alice", limit=20, offset=0, _="operator")
+    assert res["total"] == 1
+    assert len(res["items"]) == 1
+    assert res["items"][0]["id"] == 101
+    assert res["items"][0]["nickname"] == "Alice"
+    assert res["items"][0]["schedule_count"] == 2
+    assert "wechat" in res["items"][0]["providers"]
+
+
+def test_admin_get_user_detail():
+    res = admin.get_user_detail(user_id=101, _="operator")
+    assert res["user"]["id"] == 101
+    assert res["user"]["username"] == "Alice"
+    assert len(res["identities"]) == 1
+    assert res["identities"][0]["provider"] == "wechat"
+    assert len(res["schedules"]) == 1
+    assert res["schedules"][0]["id"] == 201
+    assert len(res["bots"]) == 1
+    assert res["bots"][0]["account_id"] == "bot1"
+
+
+def test_admin_get_user_detail_not_found():
+    with pytest.raises(HTTPException) as exc:
+        admin.get_user_detail(user_id=999, _="operator")
+    assert exc.value.status_code == 404
+
+
+def test_admin_get_schedule_courses():
+    res = admin.get_schedule_courses(user_id=101, schedule_id=201, _="operator")
+    assert res["schedule"]["id"] == 201
+    assert res["schedule"]["name"] == "大三上"
+    assert len(res["courses"]) == 1
+    assert res["courses"][0]["name"] == "高数"
+    assert res["courses"][0]["teacher"] == "张教授"
+
+
+def test_admin_get_schedule_courses_not_found():
+    with pytest.raises(HTTPException) as exc:
+        admin.get_schedule_courses(user_id=101, schedule_id=999, _="operator")
+    assert exc.value.status_code == 404
+
+
+def test_admin_unbind_wechat(monkeypatch):
+    unlinked = []
+    monkeypatch.setattr("app.services.account_link.unlink_wechat", lambda db, uid: unlinked.append(uid))
+    res = admin.admin_unbind_wechat(user_id=101, admin="operator")
+    assert res["ok"] is True
+    assert unlinked == [101]
+
+
+def test_admin_unbind_wechat_no_openid():
+    with pytest.raises(HTTPException) as exc:
+        admin.admin_unbind_wechat(user_id=102, admin="operator")
+    assert exc.value.status_code == 400
+    assert "未绑定微信" in exc.value.detail
+
+
+def test_admin_unbind_wechat_not_found():
+    with pytest.raises(HTTPException) as exc:
+        admin.admin_unbind_wechat(user_id=999, admin="operator")
+    assert exc.value.status_code == 404
+
+
+def test_admin_system_status(monkeypatch):
+    class DummyRedis:
+        def info(self):
+            return {"used_memory_human": "2.5M", "connected_clients": 3, "redis_version": "7.0.5", "uptime_in_days": 12}
+
+        def dbsize(self):
+            return 42
+
+    monkeypatch.setattr("app.redis.get_redis", lambda: DummyRedis())
+    res = admin.system_status(_="operator")
+    assert res["redis"]["connected"] is True
+    assert res["redis"]["used_memory_human"] == "2.5M"
+    assert res["redis"]["total_keys"] == 42
+    assert len(res["bots"]) == 1
+    assert res["bots"][0]["account_id"] == "bot1"
+
+
+def test_admin_clear_ratelimit(monkeypatch):
+    class DummyRedis:
+        def scan_iter(self, match=None, count=None):
+            return ["xushi:ratelimit:api:127.0.0.1", "xushi:ratelimit:auth:127.0.0.1"]
+
+        def delete(self, *keys):
+            return len(keys)
+
+    monkeypatch.setattr("app.redis.get_redis", lambda: DummyRedis())
+    res = admin.clear_ratelimit(admin.ClearRateLimitIn(key="127.0.0.1"), admin="operator")
+    assert res["ok"] is True
+    assert res["deleted_count"] == 2
+
+
+def test_admin_clear_user_sessions(monkeypatch):
+    invalidated = []
+    monkeypatch.setattr("app.auth.deps.invalidate_session_cache", lambda token_digest=None: invalidated.append(token_digest))
+    res = admin.clear_user_sessions(admin.ClearSessionIn(user_id=101), admin="operator")
+    assert res["ok"] is True
+    assert res["cleared_count"] == 1
+    assert invalidated == ["hash_alice_session"]
+
 
 
 

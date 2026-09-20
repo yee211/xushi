@@ -364,3 +364,245 @@ def delete_admin(admin_id: int, admin: str = Depends(require_superadmin)):
         )
     return {"ok": True, "deleted_username": target["username"]}
 
+
+# ==================== 用户与课表管理 ====================
+
+@router.get("/users")
+def list_users(
+    search: str = "",
+    query: str = "",
+    page: int = 1,
+    page_size: int = 20,
+    limit: int = 20,
+    offset: int = 0,
+    _: str = Depends(current_admin),
+):
+    """用户检索列表（支持 ID / 邮箱 / 用户名 / OpenID 搜索）。"""
+    kw = (search or query).strip()
+    if offset > 0 or limit != 20:
+        effective_limit = limit
+        effective_offset = offset
+    else:
+        effective_limit = page_size
+        effective_offset = (page - 1) * page_size
+
+    clauses, params = [], []
+    if kw:
+        clauses.append("(CAST(u.id AS TEXT) = %s OR u.email ILIKE %s OR u.username ILIKE %s OR u.openid ILIKE %s)")
+        params.extend([kw, f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with connect() as db:
+        total_row = db.execute(f"SELECT COUNT(*) AS total FROM users u {where}", params).fetchone()
+        total = int(total_row["total"]) if total_row else 0
+
+        rows = db.execute(f"""
+            SELECT u.id, u.openid, u.email, u.username, u.created_at, u.last_login_at,
+                   (SELECT COUNT(*) FROM schedules s WHERE s.user_id = u.id) AS schedule_count,
+                   (SELECT COALESCE(array_to_json(array_agg(ui.provider)), '[]'::json) FROM user_identities ui WHERE ui.user_id = u.id) AS providers
+            FROM users u
+            {where}
+            ORDER BY u.id DESC
+            LIMIT %s OFFSET %s
+        """, (*params, effective_limit, effective_offset)).fetchall()
+
+    users = []
+    for r in rows:
+        item = row_dict(r)
+        item["providers"] = r.get("providers") or []
+        users.append(item)
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": effective_limit,
+        "users": users,
+        "items": users,
+    }
+
+
+@router.get("/users/{user_id}/detail")
+def user_detail(user_id: int, _: str = Depends(current_admin)):
+    """获取指定用户的名下课表与绑定渠道详情。"""
+    with connect() as db:
+        user = db.execute("SELECT id, openid, email, username, created_at, last_login_at FROM users WHERE id=%s", (user_id,)).fetchone()
+        if not user:
+            raise HTTPException(404, "用户不存在")
+
+        schedules = db.execute("""
+            SELECT s.id, s.name, s.term, s.start_date, s.end_date, s.created_at,
+                   (SELECT COUNT(*) FROM courses c WHERE c.schedule_id = s.id) AS course_count
+            FROM schedules s
+            WHERE s.user_id = %s
+            ORDER BY s.id DESC
+        """, (user_id,)).fetchall()
+
+        identities = db.execute("""
+            SELECT id, provider, provider_user_id, last_seen_at
+            FROM user_identities
+            WHERE user_id = %s
+            ORDER BY id ASC
+        """, (user_id,)).fetchall()
+
+        bots = db.execute("""
+            SELECT account_id, provider, status, error_message, updated_at
+            FROM channel_accounts
+            WHERE owner_user_id = %s
+            ORDER BY id ASC
+        """, (user_id,)).fetchall()
+
+    return {
+        "user": row_dict(user),
+        "schedules": [row_dict(s) for s in schedules],
+        "identities": [row_dict(i) for i in identities],
+        "bots": [row_dict(b) for b in bots],
+    }
+
+
+get_user_detail = user_detail
+
+
+
+@router.get("/users/{user_id}/schedules/{schedule_id}/courses")
+def schedule_courses(user_id: int, schedule_id: int, _: str = Depends(current_admin)):
+    """获取用户某张课表的所有课程明细。"""
+    with connect() as db:
+        sched = db.execute("SELECT id, name, term, start_date, end_date FROM schedules WHERE id=%s AND user_id=%s", (schedule_id, user_id)).fetchone()
+        if not sched:
+            raise HTTPException(404, "课表不存在或不属于该用户")
+
+        courses = db.execute("""
+            SELECT id, name, teacher, room, weekday, start_section, end_section, weeks, color
+            FROM courses
+            WHERE schedule_id = %s
+            ORDER BY weekday, start_section
+        """, (schedule_id,)).fetchall()
+
+    return {
+        "schedule": row_dict(sched),
+        "courses": [row_dict(c) for c in courses],
+    }
+
+
+get_schedule_courses = schedule_courses
+
+
+@router.post("/users/{user_id}/unbind-wechat")
+def admin_unbind_wechat(user_id: int, admin: str = Depends(require_superadmin)):
+    """管理员一键解绑用户的微信（解除死锁并吊销旧会话）。"""
+    with connect() as db:
+        user = db.execute("SELECT id, openid, email FROM users WHERE id=%s", (user_id,)).fetchone()
+        if not user:
+            raise HTTPException(404, "用户不存在")
+        if not user["openid"]:
+            raise HTTPException(400, "该用户未绑定微信")
+
+        from ..services.account_link import unlink_wechat
+        unlink_wechat(db, user_id)
+
+        db.execute(
+            """INSERT INTO admin_audit_logs(admin_name, action, target_type, target_id, details)
+               VALUES(%s, 'user.unbind_wechat', 'user', %s, %s::jsonb)""",
+            (admin, str(user_id), json.dumps({"openid": user["openid"]}, ensure_ascii=False)),
+        )
+
+    return {"ok": True, "message": "微信绑定已解除，对应小程序会话已同步注销"}
+
+
+# ==================== 系统与缓存运维 ====================
+
+class ClearRateLimitIn(BaseModel):
+    key: str = Field(min_length=1, max_length=100)
+
+
+class ClearSessionIn(BaseModel):
+    user_id: int = Field(gt=0)
+
+
+@router.get("/system/status")
+def system_status(_: str = Depends(current_admin)):
+    """获取 Redis 运行状态指标与微信 Bot 账号状态。"""
+    from ..redis import get_redis
+
+    redis_info = {
+        "connected": False,
+        "used_memory_human": "-",
+        "connected_clients": 0,
+        "total_keys": 0,
+        "version": "-",
+        "uptime_days": 0,
+    }
+
+    client = get_redis()
+    if client:
+        try:
+            info = client.info()
+            dbsize = client.dbsize()
+            redis_info = {
+                "connected": True,
+                "used_memory_human": info.get("used_memory_human", "-"),
+                "connected_clients": info.get("connected_clients", 0),
+                "total_keys": dbsize,
+                "version": info.get("redis_version", "-"),
+                "uptime_days": info.get("uptime_in_days", 0),
+            }
+        except Exception as exc:
+            redis_info["error"] = str(exc)
+
+    with connect() as db:
+        bots = db.execute("""
+            SELECT account_id, provider, owner_user_id, status, error_message, updated_at
+            FROM channel_accounts
+            ORDER BY updated_at DESC
+        """).fetchall()
+
+    return {
+        "redis": redis_info,
+        "bots": [row_dict(b) for b in bots],
+        "server_time": datetime.now(UTC).isoformat(),
+    }
+
+
+@router.post("/system/redis/clear-ratelimit")
+def clear_ratelimit(payload: ClearRateLimitIn, admin: str = Depends(current_admin)):
+    """清除指定 IP 或用户标识的限流计数。"""
+    from ..redis import get_redis
+    client = get_redis()
+    if not client:
+        return {"ok": True, "deleted_count": 0, "note": "Redis 未配置或处于内存降级模式"}
+
+    target = payload.key.strip()
+    if "*" in target:
+        patterns = [target]
+    else:
+        patterns = [
+            f"xushi:ratelimit:*{target}*",
+            f"xushi:ratelimit:{target}",
+            f"*{target}*",
+        ]
+    deleted = 0
+    try:
+        found_keys = set()
+        for p in patterns:
+            for k in client.scan_iter(match=p, count=200):
+                found_keys.add(k)
+        if found_keys:
+            deleted = client.delete(*found_keys)
+    except Exception as exc:
+        raise HTTPException(500, f"清理限流缓存异常: {exc}")
+
+    return {"ok": True, "deleted_count": deleted, "key": target}
+
+
+@router.post("/system/redis/clear-session")
+def clear_user_sessions(payload: ClearSessionIn, admin: str = Depends(current_admin)):
+    """清除指定用户的 Redis 会话缓存（强制重新鉴权）。"""
+    from ..auth.deps import invalidate_session_cache
+    with connect() as db:
+        sessions = db.execute("SELECT token_hash FROM sessions WHERE user_id=%s", (payload.user_id,)).fetchall()
+        for s in sessions:
+            invalidate_session_cache(token_digest=s["token_hash"])
+
+    return {"ok": True, "cleared_count": len(sessions), "user_id": payload.user_id}
+

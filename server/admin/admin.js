@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id)
-const state = { token: sessionStorage.getItem('admin_token') || '', page: 'overview', feedback: [] }
+const state = { token: sessionStorage.getItem('admin_token') || '', page: 'overview', feedback: [], usersPage: 1, usersQuery: '' }
 const labels = { pending: '待处理', processing: '处理中', resolved: '已解决', closed: '已关闭' }
+const weekdays = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]))
 const timeText = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 
@@ -206,12 +207,243 @@ async function deleteAdmin(id, username) {
   }
 }
 
+async function loadUsers(page = 1) {
+  state.usersPage = page
+  $('usersList').innerHTML = '<div class="empty">正在加载用户列表…</div>'
+  $('usersPagination').innerHTML = ''
+  const limit = 20
+  const offset = (page - 1) * limit
+  const query = state.usersQuery || ''
+  try {
+    const data = await api(`/users?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`)
+    const items = data.items || []
+    if (!items.length) {
+      $('usersList').innerHTML = '<div class="glass empty" style="grid-column:1/-1;">未检索到符合条件的用户</div>'
+      return
+    }
+    $('usersList').innerHTML = items.map(user => {
+      const providers = (user.providers || []).map(p => `<span class="provider-badge ${esc(p)}">${esc(p)}</span>`).join('')
+      return `<article class="glass user-card" onclick="openUserDetail(${user.id})">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:750;font-size:16px;color:#0369a1;">UID: ${user.id}</span>
+          <span class="tag ${user.schedule_count > 0 ? 'good' : 'closed'}">${user.schedule_count} 张课表</span>
+        </div>
+        <div style="font-weight:600;font-size:14px;color:#1e293b;margin-bottom:4px;">${esc(user.nickname || '未设置昵称')}</div>
+        <div class="meta" style="word-break:break-all;">邮箱：${esc(user.email || '未绑定')}</div>
+        <div style="margin-top:8px;">${providers || '<span class="meta">无关联三方身份</span>'}</div>
+        <div class="meta" style="margin-top:8px;font-size:11px;">注册时间：${timeText(user.created_at)}</div>
+      </article>`
+    }).join('')
+
+    const total = data.total || 0
+    const totalPages = Math.ceil(total / limit)
+    if (totalPages > 1) {
+      let pagerHtml = `<span class="meta">共 ${total} 位用户，第 ${page}/${totalPages} 页</span>`
+      if (page > 1) {
+        pagerHtml += `<button type="button" class="ghost" onclick="loadUsers(${page - 1})">上一页</button>`
+      }
+      if (page < totalPages) {
+        pagerHtml += `<button type="button" class="ghost" onclick="loadUsers(${page + 1})">下一页</button>`
+      }
+      $('usersPagination').innerHTML = pagerHtml
+    }
+  } catch (error) {
+    $('usersList').innerHTML = `<div class="empty bad" style="grid-column:1/-1;">读取用户失败: ${esc(error.message)}</div>`
+  }
+}
+
+async function openUserDetail(userId) {
+  $('userDetailContent').innerHTML = '<div class="empty">正在获取用户详情…</div>'
+  $('userDetailDialog').showModal()
+  try {
+    const data = await api(`/users/${userId}/detail`)
+    const u = data.user
+    const identities = data.identities || []
+    const schedules = data.schedules || []
+    const bots = data.agent_bindings || []
+
+    const hasWechat = identities.some(i => i.provider === 'wechat')
+    const idCards = identities.map(i => `
+      <div class="metric-row">
+        <span><span class="provider-badge ${esc(i.provider)}">${esc(i.provider)}</span> 标识: <code>${esc(i.provider_user_id)}</code></span>
+        <small>${timeText(i.created_at)}</small>
+      </div>
+    `).join('') || '<div class="meta" style="padding:8px 0;">无三方关联身份</div>'
+
+    const botRows = bots.map(b => `
+      <div class="metric-row">
+        <span><b>${esc(b.channel)}</b> [${esc(b.bot_account_id)}] 别名: ${esc(b.custom_nickname || '-')}</span>
+        <small>启用: ${b.is_active ? '是' : '否'}</small>
+      </div>
+    `).join('') || '<div class="meta" style="padding:8px 0;">未绑定任何机器人通道</div>'
+
+    const schedCards = schedules.map(s => `
+      <div class="schedule-card">
+        <div>
+          <div style="font-weight:700;font-size:15px;color:#1e293b;">${esc(s.name)} ${s.is_active ? '<span class="tag good" style="margin-left:6px;">当前主课表</span>' : ''}</div>
+          <div class="meta" style="margin-top:4px;">学期: ${esc(s.semester || '-')} · 起始日: ${esc(s.start_date || '-')} · 共 ${s.total_weeks} 周</div>
+        </div>
+        <button type="button" class="save" style="margin:0;width:auto;padding:8px 16px;font-size:12px;" onclick="viewScheduleCourses(${userId}, ${s.id})">透视课程清单</button>
+      </div>
+    `).join('') || '<div class="empty" style="padding:20px;">该用户尚未创建任何课表</div>'
+
+    $('userDetailContent').innerHTML = `
+      <p class="eyebrow">USER PROFILE · UID ${u.id}</p>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">${esc(u.nickname || '未设置昵称')}</h2>
+        ${hasWechat ? `<button type="button" class="danger-btn" onclick="unbindWechat(${u.id})">解绑微信 (解除账号锁定)</button>` : ''}
+      </div>
+      <div class="metric-row"><span>用户 ID</span><b>${u.id}</b></div>
+      <div class="metric-row"><span>绑定邮箱</span><b>${esc(u.email || '未绑定')}</b></div>
+      <div class="metric-row"><span>注册时间</span><b>${timeText(u.created_at)}</b></div>
+      <div class="metric-row"><span>最近更新</span><b>${timeText(u.updated_at)}</b></div>
+
+      <h3 style="margin:20px 0 8px;font-size:16px;">三方身份绑定 (${identities.length})</h3>
+      ${idCards}
+
+      <h3 style="margin:20px 0 8px;font-size:16px;">微信/企微助手绑定 (${bots.length})</h3>
+      ${botRows}
+
+      <h3 style="margin:20px 0 8px;font-size:16px;">用户课表数据 (${schedules.length})</h3>
+      ${schedCards}
+    `
+  } catch (error) {
+    $('userDetailContent').innerHTML = `<div class="empty bad">读取用户详情失败: ${esc(error.message)}</div>`
+  }
+}
+
+async function unbindWechat(userId) {
+  if (!confirm(`确定要解除 UID: ${userId} 的微信关联吗？\n解绑后该微信可绑定新账号，且原微信登录会话将立即失效。`)) return
+  try {
+    const res = await api(`/users/${userId}/unbind-wechat`, { method: 'POST' })
+    toast(res.message || '微信已成功解绑')
+    await openUserDetail(userId)
+    await loadUsers(state.usersPage)
+  } catch (error) {
+    toast(error.message)
+  }
+}
+
+async function viewScheduleCourses(userId, scheduleId) {
+  $('coursesContent').innerHTML = '<div class="empty">正在透视课表课程…</div>'
+  $('coursesDialog').showModal()
+  try {
+    const data = await api(`/users/${userId}/schedules/${scheduleId}/courses`)
+    const sched = data.schedule
+    const courses = data.courses || []
+
+    const rows = courses.map((c, idx) => {
+      const color = c.color || '#3b82f6'
+      const wDay = weekdays[c.weekday] || `周${c.weekday}`
+      const sec = c.start_section === c.end_section ? `第${c.start_section}节` : `第${c.start_section}-${c.end_section}节`
+      const weeksStr = (c.weeks || []).join(',')
+      return `<tr>
+        <td>${idx + 1}</td>
+        <td><span class="color-dot" style="background:${esc(color)};"></span><b>${esc(c.name)}</b></td>
+        <td>${esc(c.teacher || '-')}</td>
+        <td>${esc(c.room || '-')}</td>
+        <td><span class="tag">${wDay}</span></td>
+        <td>${sec}</td>
+        <td><small class="meta">${esc(weeksStr)} 周</small></td>
+      </tr>`
+    }).join('')
+
+    $('coursesContent').innerHTML = `
+      <p class="eyebrow">SCHEDULE INSPECT</p>
+      <h2>${esc(sched.name)} <small class="meta" style="font-size:14px;font-weight:normal;">(${esc(sched.semester || '无学期')})</small></h2>
+      <p class="meta">共 ${courses.length} 门课程明细 · 用户 UID: ${userId}</p>
+      <div class="courses-table-container">
+        <table class="courses-table">
+          <thead>
+            <tr><th>#</th><th>课程名称</th><th>教师</th><th>教室地点</th><th>星期</th><th>节次</th><th>周次分布</th></tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="7" class="empty">当前课表下无课程记录</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    `
+  } catch (error) {
+    $('coursesContent').innerHTML = `<div class="empty bad">读取课程失败: ${esc(error.message)}</div>`
+  }
+}
+
+async function loadSystemStatus() {
+  const data = await api('/system/status')
+  const r = data.redis || {}
+  const connected = !!r.connected
+  $('redisConnected').textContent = connected ? '正常运行 (Connected)' : '未连接 (内存降级模式)'
+  $('redisConnected').className = connected ? 'good' : 'bad'
+  $('redisStatusTag').textContent = connected ? '正常' : '降级'
+  $('redisStatusTag').className = `tag ${connected ? 'good' : 'bad'}`
+  $('redisVersion').textContent = r.version || '-'
+  $('redisMemory').textContent = r.used_memory_human || '-'
+  $('redisClients').textContent = r.connected_clients ?? '-'
+  $('redisTotalKeys').textContent = r.total_keys ?? '-'
+  $('redisUptime').textContent = r.uptime_days ? `${r.uptime_days} 天` : '-'
+  $('sysServerTime').textContent = timeText(data.server_time)
+
+  const bots = data.bots || []
+  if (!bots.length) {
+    $('botsList').innerHTML = '<div class="meta" style="padding:10px 0;">暂无接入的渠道账号</div>'
+  } else {
+    $('botsList').innerHTML = bots.map(b => `
+      <div class="metric-row">
+        <span><b>${esc(b.provider)}</b> (${esc(b.account_id)})</span>
+        <span class="tag ${b.status === 'active' || b.status === 'online' ? 'good' : 'bad'}">${esc(b.status)}</span>
+      </div>
+    `).join('')
+  }
+}
+
+async function clearRateLimit() {
+  const input = $('ratelimitKeyInput')
+  const key = input.value.trim()
+  if (!key) {
+    toast('请输入要解封的 IP 或 Key')
+    return
+  }
+  if (!confirm(`确定要清除匹配「${key}」的限流计数吗？`)) return
+  try {
+    const res = await api('/system/redis/clear-ratelimit', {
+      method: 'POST',
+      body: JSON.stringify({ key })
+    })
+    toast(`已成功清除 ${res.deleted_count} 个限流键`)
+    input.value = ''
+  } catch (error) {
+    toast(error.message)
+  }
+}
+
+async function clearUserSession() {
+  const input = $('sessionUserIdInput')
+  const userId = parseInt(input.value.trim(), 10)
+  if (!userId || userId <= 0) {
+    toast('请输入合法的用户 ID')
+    return
+  }
+  if (!confirm(`确定清除 UID: ${userId} 的所有 Redis 会话缓存吗？`)) return
+  try {
+    const res = await api('/system/redis/clear-session', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId })
+    })
+    toast(`已清除 ${res.cleared_count} 个会话缓存，用户需重新鉴权`)
+    input.value = ''
+  } catch (error) {
+    toast(error.message)
+  }
+}
+
 async function loadPage() {
   try {
     if (state.page === 'overview') await loadOverview()
+    else if (state.page === 'users') await loadUsers(state.usersPage)
     else if (state.page === 'feedback') await loadFeedback()
     else if (state.page === 'traffic') await loadTraffic()
     else if (state.page === 'llm') await loadLlm()
+    else if (state.page === 'system') await loadSystemStatus()
     else if (state.page === 'admins') await loadAdmins()
   } catch (error) { toast(error.message) }
 }
@@ -220,7 +452,15 @@ function switchPage(page) {
   document.querySelectorAll('.nav').forEach(x => x.classList.toggle('active', x.dataset.page === page))
   document.querySelectorAll('.page').forEach(x => x.classList.add('hidden'))
   $(`${page}Page`).classList.remove('hidden')
-  $('pageTitle').textContent = { overview: '运行概览', feedback: '用户反馈', traffic: '流量监控', llm: '大模型配置', admins: '管理员管理' }[page]
+  $('pageTitle').textContent = {
+    overview: '运行概览',
+    users: '用户与课表管理',
+    feedback: '用户反馈',
+    traffic: '流量监控',
+    llm: '大模型配置',
+    system: '系统运维与缓存',
+    admins: '管理员管理'
+  }[page] || '管理后台'
   loadPage()
 }
 
@@ -257,8 +497,33 @@ $('addAdminForm').onsubmit = async event => {
 }
 
 $('openAddAdmin').onclick = () => { $('addAdminError').textContent = ''; $('adminDialog').showModal() }
-document.querySelectorAll('.nav').forEach(button=>button.onclick=()=>switchPage(button.dataset.page)); $('logout').onclick=logout; $('refresh').onclick=loadPage; $('feedbackList').onclick=e=>{const card=e.target.closest('[data-id]');if(card)openFeedback(card.dataset.id)}
-let searchTimer; $('feedbackSearch').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(loadFeedback,300)}; $('feedbackStatus').onchange=loadFeedback; $('feedbackCategory').onchange=loadFeedback
+document.querySelectorAll('.nav').forEach(button=>button.onclick=()=>switchPage(button.dataset.page))
+$('logout').onclick=logout
+$('refresh').onclick=loadPage
+$('feedbackList').onclick=e=>{const card=e.target.closest('[data-id]');if(card)openFeedback(card.dataset.id)}
+let searchTimer; $('feedbackSearch').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(loadFeedback,300)}
+$('feedbackStatus').onchange=loadFeedback
+$('feedbackCategory').onchange=loadFeedback
+
+$('btnSearchUser').onclick = () => {
+  state.usersQuery = $('userSearch').value.trim()
+  loadUsers(1)
+}
+$('btnResetUser').onclick = () => {
+  $('userSearch').value = ''
+  state.usersQuery = ''
+  loadUsers(1)
+}
+$('userSearch').onkeydown = e => {
+  if (e.key === 'Enter') {
+    state.usersQuery = $('userSearch').value.trim()
+    loadUsers(1)
+  }
+}
+
+$('ratelimitSubmitBtn').onclick = clearRateLimit
+$('sessionSubmitBtn').onclick = clearUserSession
+
 if(state.token){$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');loadPage()}
 
 
