@@ -40,13 +40,9 @@ function toggleWeekMenu() {
 }
 
 function toggleTermMenu() {
-  if (props.schedules.length > 1) {
-    termMenuOpen.value = !termMenuOpen.value;
-    if (termMenuOpen.value) {
-      weekMenuOpen.value = false;
-    }
-  } else {
-    emit('open-semester-settings');
+  termMenuOpen.value = !termMenuOpen.value;
+  if (termMenuOpen.value) {
+    weekMenuOpen.value = false;
   }
 }
 
@@ -85,11 +81,11 @@ function onPickSchedule(id) {
 async function syncSchedules() {
   if (syncing.value) return;
   syncing.value = true;
-  termMenuOpen.value = false;
   try {
     await new Promise(resolve => emit('sync-schedules', resolve));
   } finally {
     syncing.value = false;
+    termMenuOpen.value = false;
   }
 }
 
@@ -114,7 +110,7 @@ onUnmounted(() => {
         @click="toggleTermMenu"
       >
         <span class="term-title-text">{{ schedule?.term || schedule?.name || '我的课表' }}</span>
-        <span v-if="schedules.length > 1" class="dropdown-caret" :class="{ open: termMenuOpen }">⌄</span>
+        <span class="dropdown-caret" :class="{ open: termMenuOpen }">⌄</span>
       </button>
 
       <!-- 学期下拉卡片菜单 -->

@@ -32,15 +32,13 @@ def binding_row(user_id=7, attempt_count=0):
             "attempt_count": attempt_count}
 
 
-def test_conflict_failure_counts_attempt_against_the_code():
-    """渠道身份已绑到其他账号：报错的同时递增该码的尝试次数。"""
+def test_conflict_rebinds_and_deletes_old_identity():
+    """渠道身份已绑到其他账号：提交新绑定码时支持直接授权切换，覆盖旧绑定。"""
     db = RecordingDb(binding_row=binding_row(user_id=7), identity_user_id=99)
-    with pytest.raises(BindingError) as error:
-        consume_binding_code(db, "ABC123", "wecom", "sender-1")
-    assert "已在其他绑定中使用" in str(error.value)
-    assert any("attempt_count=attempt_count+1" in sql for sql, _ in db.updates)
-    # 消费标记不应执行（绑定未成功）
-    assert not any("consumed_at=CURRENT_TIMESTAMP" in sql for sql, _ in db.updates)
+    user_id = consume_binding_code(db, "ABC123", "wecom", "sender-1")
+    assert user_id == 7
+    # 应成功消费并标记
+    assert any("consumed_at=CURRENT_TIMESTAMP" in sql for sql, _ in db.updates)
 
 
 def test_success_does_not_count_an_attempt():

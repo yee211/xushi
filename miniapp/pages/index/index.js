@@ -381,6 +381,7 @@ Page({
       // 缓存最近一次完整课表：刷新更快，断网时也能兜底展示
       wx.setStorageSync('schedules_cache', schedules)
       this.applySchedules(schedules, preferredId)
+      return true
     } catch (error) {
       const cached = wx.getStorageSync('schedules_cache')
       if (Array.isArray(cached) && cached.length) {
@@ -390,6 +391,7 @@ Page({
         if (!silent) this.setData({ loading: false })
         this.toast(error.message)
       }
+      return false
     }
   },
   // 选中优先级：指定 id > 本地记忆 > 包含今天的进行中学期 > 第一个
@@ -546,9 +548,15 @@ Page({
     if (this.data.syncing) return
     this.closeTermSheet()
     this.setData({ syncing: true })
+    const prevWeek = this.data.week
     try {
-      await this.load(this.data.schedule && this.data.schedule.id, true)
-      wx.showToast({ title: '课表已同步到最新', icon: 'success', duration: 1800 })
+      const ok = await this.load(this.data.schedule && this.data.schedule.id, true)
+      if (ok) {
+        if (prevWeek > 0 && prevWeek <= this.data.weekCount) {
+          this.applyWeek(prevWeek)
+        }
+        wx.showToast({ title: '课表已同步到最新', icon: 'success', duration: 1800 })
+      }
     } catch (error) {
       wx.showToast({ title: error.message || '同步失败，请稍后重试', icon: 'none', duration: 2000 })
     } finally {

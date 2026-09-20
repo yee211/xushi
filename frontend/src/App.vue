@@ -354,20 +354,28 @@ async function load(preferredId = null) {
         currentWeek.value = termWeek(schedule.value?.start_date, totalWeeks, schedule.value);
         week.value = currentWeek.value;
         notify('当前离线，展示本地缓存的课表');
-        return;
+        return false;
       }
     }
     notify(error.message);
+    return false;
   } finally {
     loading.value = false;
   }
+  return true;
 }
 
 // 手动同步课表：从服务器拉取最新数据并更新本地缓存
 async function syncSchedules(resolve) {
+  const prevWeek = week.value;
   try {
-    await load(schedule.value?.id);
-    notify('课表已同步到最新');
+    const ok = await load(schedule.value?.id);
+    if (ok) {
+      if (prevWeek > 0 && prevWeek <= weekOptions.value.length) {
+        week.value = prevWeek;
+      }
+      notify('课表已同步到最新');
+    }
   } catch (error) {
     notify(error.message || '同步失败，请稍后重试');
   } finally {
