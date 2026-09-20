@@ -401,6 +401,7 @@
         <text class="dialog-eyebrow">学期课表</text>
         <text class="dialog-title">切换课表</text>
       </view>
+      <button class="sheet-close-btn" bindtap="closeTermSheet">✕</button>
     </view>
     <scroll-view class="term-sheet-list" scroll-y enhanced show-scrollbar="{{false}}">
       <view class="term-card {{item.isSelected ? 'selected' : ''}}" hover-class="term-card-hover" hover-stay-time="100" wx:for="{{scheduleList}}" wx:key="id" data-id="{{item.id}}" bindtap="selectScheduleItem">
@@ -428,14 +429,13 @@
     </scroll-view>
     <view class="term-sheet-actions">
       <view class="term-actions-row">
-        <button class="btn dialog-cancel term-action-half" bindtap="openShareModal">📤 分享课表</button>
-        <button class="btn dialog-cancel term-action-half" bindtap="openShareImportModal">🔑 口令导入</button>
+        <button class="btn dialog-cancel" bindtap="openShareModal">📤 分享课表</button>
+        <button class="btn dialog-cancel" bindtap="openShareImportModal">🔑 口令导入</button>
       </view>
       <view class="term-actions-row">
-        <button class="btn dialog-cancel term-action-half" bindtap="openSemesterFromSheet">⚙ 学期设置</button>
-        <button class="btn primary term-action-half" bindtap="openImportFromSheet">＋ 导入新课表</button>
+        <button class="btn dialog-cancel" bindtap="openSemesterFromSheet">⚙ 学期设置</button>
+        <button class="btn primary" bindtap="openImportFromSheet">＋ 导入新课表</button>
       </view>
-      <button class="btn dialog-cancel" bindtap="closeTermSheet">关闭</button>
     </view>
   </view>
 </view>

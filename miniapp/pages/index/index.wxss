@@ -561,11 +561,9 @@ button.empty-button::after { display:none !important; }
 .term-card-info { display:flex; flex-direction:column; gap:6rpx; font-size:22rpx; color:#64748b; line-height:1.35; }
 .term-card-tag { flex:none; display:inline-flex; align-items:center; justify-content:center; height:48rpx; padding:0 18rpx; border-radius:14rpx; font-size:21rpx; font-weight:650; }
 .term-card-tag.selected { background:rgba(2,132,199,.12); color:#0284c7; border:1rpx solid rgba(2,132,199,.28); }
-.term-card-tag.unselected { background:rgba(148,163,184,.12); color:#64748b; }
-.term-sheet-actions { display:flex; gap:14rpx; margin-top:16rpx; }
-.term-sheet-actions .term-settings-btn { flex:1.2; height:80rpx; min-height:80rpx; font-size:26rpx; border-radius:22rpx; margin:0 !important; padding:0 !important; }
-.term-sheet-actions .term-import-btn { flex:1.6; height:80rpx; min-height:80rpx; font-size:28rpx; border-radius:22rpx; }
-.term-sheet-actions .dialog-cancel { flex:1; height:80rpx; min-height:80rpx; font-size:28rpx; border-radius:22rpx; }
+.term-sheet-actions { display:flex; flex-direction:column; gap:14rpx; margin-top:16rpx; width:100%; box-sizing:border-box; }
+.term-actions-row { display:flex; gap:14rpx; width:100%; box-sizing:border-box; }
+.term-actions-row .btn { flex:1; height:80rpx; min-height:80rpx; font-size:26rpx; border-radius:22rpx; margin:0 !important; padding:0 !important; display:flex; align-items:center; justify-content:center; }
 
 .night .sheet-close-btn { background:rgba(255,255,255,.1); color:#94a3b8; }
 .night .sheet-close-btn:active { background:rgba(255,255,255,.2); }
@@ -875,16 +873,6 @@ button.empty-button::after { display:none !important; }
   color:#e2e8f0;
   border-color:rgba(148,163,184,.25);
   box-shadow:0 8rpx 20rpx -4rpx rgba(0,0,0,.4);
-}
-.term-actions-row {
-  display:flex;
-  gap:16rpx;
-  width:100%;
-  margin-bottom:12rpx;
-}
-.term-action-half {
-  flex:1;
-  margin:0 !important;
 }
 
 /* 分享弹窗内容 */
