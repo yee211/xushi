@@ -1,7 +1,4 @@
 """Tests verifying in-place edits on original schedules without creating adjusted copies."""
-import json
-import pytest
-from fastapi import HTTPException
 
 from app.routers import adjustments, courses, schedules
 from app.schemas import AdjustmentApplyItem, AdjustmentApplyRequest, CourseAdjustmentIn, CourseIn

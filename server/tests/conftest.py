@@ -16,8 +16,18 @@ def llm_off_by_default(monkeypatch):
     """
     monkeypatch.setattr("app.agent.orchestrator.llm_configured", lambda: False)
     monkeypatch.setattr("app.agent.orchestrator.run_agent", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.agent.orchestrator.extract_intent", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.agent.orchestrator.polish_answer", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.agent.orchestrator.small_talk", lambda *args, **kwargs: None)
+
+    class _NoDb:
+        def __enter__(self):
+            raise RuntimeError("DB disabled by default in tests")
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("app.services.llm_config.connect", lambda: _NoDb())
 
 
 @pytest.fixture

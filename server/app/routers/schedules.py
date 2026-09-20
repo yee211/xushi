@@ -1,5 +1,4 @@
 """课表路由：列表、更新、删除、调课版派生、示例课表。"""
-import json
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException

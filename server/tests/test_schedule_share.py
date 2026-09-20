@@ -2,11 +2,11 @@
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from fakes import FakeResult
 from fastapi.testclient import TestClient
 
 from app.services import schedule_share
 from app.services.schedule_share import ShareError
-from fakes import FakeResult
 
 
 class FakeShareDb:
