@@ -106,10 +106,6 @@ onMounted(() => {
     <main class="m3-main">
       <!-- Hero 区域 -->
       <section class="m3-hero">
-        <div class="m3-badge-pill">
-          <span class="m3-badge-dot"></span>
-          <span>Google Material 3 · 统一全栈驱动</span>
-        </div>
 
         <h1 class="m3-hero-headline">
           课表装进微信，<br />
