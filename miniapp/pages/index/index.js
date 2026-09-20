@@ -290,6 +290,9 @@ Page({
     moveMode: false, movingCourse: null, moveOpen: false, moveForm: null, moveSaving: false,
     parseStage: 'idle', parseItems: [], parseFile: '', parsePath: '', parseApplying: false,
     termSheetOpen: false, scheduleList: [],
+    shareModalOpen: false, shareCode: '', shareGenerating: false,
+    shareImportModalOpen: false, inputShareCode: '', sharePreview: null,
+    checkingShareCode: false, importingShare: false,
     courseEditorOpen: false, courseSaving: false, courseForm: null,
     editorColors: [DEFAULT_COLOR, ...courseColors],
     sectionPickerOptions,
@@ -537,6 +540,111 @@ Page({
   openImportFromSheet() {
     this.closeTermSheet()
     this.onImportTap()
+  },
+  async openShareModal() {
+    const schedule = this.data.schedule
+    if (!schedule || !schedule.id) {
+      this.toast('当前没有可分享的课表')
+      return
+    }
+    this.closeTermSheet()
+    this.setData({ shareModalOpen: true, shareCode: '', shareGenerating: true })
+    try {
+      const res = await app.request(`/api/schedules/${schedule.id}/share`, { method: 'POST' })
+      this.setData({
+        shareCode: res.code,
+        shareGenerating: false,
+      })
+    } catch (err) {
+      this.setData({ shareModalOpen: false, shareGenerating: false })
+      this.toast(err.message || '生成分享码失败')
+    }
+  },
+  closeShareModal() {
+    this.setData({ shareModalOpen: false })
+  },
+  copyShareCode() {
+    const code = this.data.shareCode
+    if (!code) return
+    const schedule = this.data.schedule
+    const name = schedule ? (schedule.name || schedule.term) : '课表'
+    const text = `【序时课表】你的好友向你分享了课表“${name}”，在小程序内点击「口令导入」输入口令【${code}】即可一键导入！`
+    wx.setClipboardData({
+      data: text,
+      success: () => {
+        this.toast('口令已复制到剪贴板')
+      }
+    })
+  },
+  openShareImportModal() {
+    this.closeTermSheet()
+    this.setData({
+      shareImportModalOpen: true,
+      inputShareCode: '',
+      sharePreview: null,
+      checkingShareCode: false,
+      importingShare: false,
+    })
+  },
+  closeShareImportModal() {
+    this.setData({ shareImportModalOpen: false })
+  },
+  async pasteShareCode() {
+    try {
+      const clip = await wx.getClipboardData()
+      if (clip && clip.data) {
+        const match = String(clip.data).match(/\b([A-HJ-NP-Z2-9]{6})\b/i) || String(clip.data).match(/【([A-HJ-NP-Z2-9]{6})】/i)
+        const code = (match ? match[1] : clip.data.trim().slice(0, 6)).toUpperCase()
+        this.setData({ inputShareCode: code })
+        if (code.length === 6) {
+          this.previewShareCode(code)
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  },
+  onShareCodeInput(e) {
+    const val = (e.detail.value || '').trim().toUpperCase()
+    this.setData({ inputShareCode: val })
+    if (val.length === 6) {
+      this.previewShareCode(val)
+    } else {
+      this.setData({ sharePreview: null, checkingShareCode: false })
+    }
+  },
+  async previewShareCode(code) {
+    if (!code || code.length !== 6) return
+    this.setData({ checkingShareCode: true, sharePreview: null })
+    try {
+      const info = await app.request(`/api/schedules/share/${code}`, { method: 'GET' })
+      this.setData({ sharePreview: info, checkingShareCode: false })
+    } catch (err) {
+      this.setData({ checkingShareCode: false, sharePreview: null })
+      this.toast(err.message || '查询分享码失败')
+    }
+  },
+  async confirmImportShare() {
+    const code = this.data.inputShareCode
+    if (!code || code.length !== 6) {
+      this.toast('请输入完整的 6 位分享码')
+      return
+    }
+    this.setData({ importingShare: true })
+    try {
+      const res = await app.request(`/api/schedules/share/${code}/import`, { method: 'POST' })
+      this.toast(`导入成功！共导入 ${res.courses_imported} 门课程`)
+      this.setData({ shareImportModalOpen: false, importingShare: false })
+      if (res.schedule_id) {
+        wx.setStorageSync('active_schedule_id', res.schedule_id)
+        await this.load(res.schedule_id)
+      } else {
+        await this.load()
+      }
+    } catch (err) {
+      this.setData({ importingShare: false })
+      this.toast(err.message || '导入课表失败')
+    }
   },
   decorateScheduleItem(item, activeId) {
     const meta = scheduleMeta(item)

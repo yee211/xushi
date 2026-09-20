@@ -52,11 +52,17 @@
           <text class="empty-icon-glyph">📅</text>
         </view>
         <text class="empty-title">还没有课表</text>
-        <text class="empty-desc">导入教务系统导出的 Excel 课表文件，秒级智能排课</text>
-        <button class="empty-button" hover-class="empty-button-hover" bindtap="openImportModal">
-          <text class="empty-button-icon">＋</text>
-          <text>导入课表</text>
-        </button>
+        <text class="empty-desc">导入教务系统导出的 Excel 课表文件，或输入同学的分享码</text>
+        <view class="empty-buttons-row">
+          <button class="empty-button" hover-class="empty-button-hover" bindtap="openImportModal">
+            <text class="empty-button-icon">＋</text>
+            <text>导入课表</text>
+          </button>
+          <button class="empty-button secondary" hover-class="empty-button-hover" bindtap="openShareImportModal">
+            <text class="empty-button-icon">🔑</text>
+            <text>口令导入</text>
+          </button>
+        </view>
       </view>
 
       <view class="empty-guide">
@@ -421,8 +427,14 @@
       </view>
     </scroll-view>
     <view class="term-sheet-actions">
-      <button class="btn dialog-cancel term-settings-btn" bindtap="openSemesterFromSheet">⚙ 学期设置</button>
-      <button class="btn primary term-import-btn" bindtap="openImportFromSheet">＋ 导入新课表</button>
+      <view class="term-actions-row">
+        <button class="btn dialog-cancel term-action-half" bindtap="openShareModal">📤 分享课表</button>
+        <button class="btn dialog-cancel term-action-half" bindtap="openShareImportModal">🔑 口令导入</button>
+      </view>
+      <view class="term-actions-row">
+        <button class="btn dialog-cancel term-action-half" bindtap="openSemesterFromSheet">⚙ 学期设置</button>
+        <button class="btn primary term-action-half" bindtap="openImportFromSheet">＋ 导入新课表</button>
+      </view>
       <button class="btn dialog-cancel" bindtap="closeTermSheet">关闭</button>
     </view>
   </view>
@@ -514,6 +526,66 @@
       </view>
     </view>
     <button class="actionsheet-cancel-btn" bindtap="onActionSheetCancel">取消</button>
+  </view>
+<!-- 课表分享弹窗 -->
+<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{shareModalOpen}}" bindtap="closeShareModal">
+  <view class="dialog share-dialog" catchtap="noop">
+    <view class="dialog-handle"></view>
+    <text class="dialog-eyebrow">课表分享</text>
+    <text class="dialog-title">分享当前课表</text>
+
+    <view class="share-card">
+      <text class="share-sched-name">{{schedule.name || schedule.term || '当前课表'}}</text>
+      <view class="share-code-box" wx:if="{{!shareGenerating}}">
+        <text class="share-code-text">{{shareCode}}</text>
+      </view>
+      <view class="share-loading" wx:else>
+        <view class="import-spinner mini"></view>
+        <text>正在生成口令…</text>
+      </view>
+      <text class="share-hint">提取码 7 天内有效，支持多人多次导入</text>
+      <text class="share-subhint">复制口令发送给同学，对方在小程序内点击「口令导入」即可一键克隆课表。</text>
+    </view>
+
+    <view class="dialog-actions">
+      <button class="btn dialog-cancel" bindtap="closeShareModal">关闭</button>
+      <button class="btn primary dialog-submit" disabled="{{shareGenerating || !shareCode}}" bindtap="copyShareCode">📋 复制口令</button>
+    </view>
+  </view>
+</view>
+
+<!-- 口令导入弹窗 -->
+<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{shareImportModalOpen}}" bindtap="closeShareImportModal">
+  <view class="dialog share-import-dialog" catchtap="noop">
+    <view class="dialog-handle"></view>
+    <text class="dialog-eyebrow">口令导入</text>
+    <text class="dialog-title">输入课表提取码</text>
+
+    <view class="share-input-wrap">
+      <input class="share-code-input" placeholder="输入 6 位分享码（如 K8P2X9）" maxlength="6" value="{{inputShareCode}}" bindinput="onShareCodeInput" auto-focus />
+      <button class="share-paste-btn" bindtap="pasteShareCode">粘贴</button>
+    </view>
+
+    <view class="share-preview-card" wx:if="{{sharePreview}}">
+      <view class="share-preview-head">
+        <text class="share-preview-badge">📋 发现课表</text>
+        <text class="share-preview-author">来自 {{sharePreview.creator_name}}</text>
+      </view>
+      <text class="share-preview-title">{{sharePreview.name}}</text>
+      <view class="share-preview-meta">
+        <text wx:if="{{sharePreview.term}}">学期：{{sharePreview.term}}</text>
+        <text>包含课程：{{sharePreview.course_count}} 门</text>
+      </view>
+    </view>
+    <view class="share-preview-loading" wx:elif="{{checkingShareCode}}">
+      <view class="import-spinner mini"></view>
+      <text>正在查询课表信息…</text>
+    </view>
+
+    <view class="dialog-actions">
+      <button class="btn dialog-cancel" bindtap="closeShareImportModal">取消</button>
+      <button class="btn primary dialog-submit" loading="{{importingShare}}" disabled="{{!sharePreview || importingShare}}" bindtap="confirmImportShare">确认导入</button>
+    </view>
   </view>
 </view>
 

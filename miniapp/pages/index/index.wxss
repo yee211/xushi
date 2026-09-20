@@ -856,4 +856,198 @@ button.empty-button::after { display:none !important; }
   to { transform:translateY(0); }
 }
 
+/* 课表分享与口令导入样式 */
+.empty-buttons-row {
+  display:flex;
+  gap:16rpx;
+  justify-content:center;
+  align-items:center;
+  width:100%;
+}
+.empty-button.secondary {
+  background:rgba(255,255,255,.8);
+  color:#1e293b;
+  border:1.5rpx solid rgba(148,163,184,.35);
+  box-shadow:0 8rpx 20rpx -4rpx rgba(15,23,42,.08);
+}
+.night .empty-button.secondary {
+  background:rgba(30,41,59,.75);
+  color:#e2e8f0;
+  border-color:rgba(148,163,184,.25);
+  box-shadow:0 8rpx 20rpx -4rpx rgba(0,0,0,.4);
+}
+.term-actions-row {
+  display:flex;
+  gap:16rpx;
+  width:100%;
+  margin-bottom:12rpx;
+}
+.term-action-half {
+  flex:1;
+  margin:0 !important;
+}
+
+/* 分享弹窗内容 */
+.share-card {
+  margin:24rpx 0 32rpx;
+  padding:28rpx 24rpx;
+  background:rgba(241,245,249,.65);
+  border-radius:24rpx;
+  border:1.5rpx solid rgba(203,213,225,.6);
+  text-align:center;
+}
+.night .share-card {
+  background:rgba(30,41,59,.65);
+  border-color:rgba(148,163,184,.2);
+}
+.share-sched-name {
+  display:block;
+  font-size:30rpx;
+  font-weight:600;
+  color:#0f172a;
+  margin-bottom:20rpx;
+}
+.night .share-sched-name { color:#f8fafc; }
+.share-code-box {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:16rpx 40rpx;
+  background:linear-gradient(135deg, rgba(37,99,235,.12) 0%, rgba(59,130,246,.18) 100%);
+  border:2rpx dashed #3b82f6;
+  border-radius:18rpx;
+  margin-bottom:20rpx;
+}
+.share-code-text {
+  font-size:52rpx;
+  font-weight:800;
+  letter-spacing:14rpx;
+  color:#1d4ed8;
+  font-family:monospace;
+}
+.night .share-code-box {
+  background:linear-gradient(135deg, rgba(37,99,235,.25) 0%, rgba(59,130,246,.3) 100%);
+  border-color:#60a5fa;
+}
+.night .share-code-text { color:#93c5fd; }
+.share-hint {
+  display:block;
+  font-size:24rpx;
+  font-weight:500;
+  color:#2563eb;
+  margin-bottom:12rpx;
+}
+.night .share-hint { color:#60a5fa; }
+.share-subhint {
+  display:block;
+  font-size:22rpx;
+  color:#64748b;
+  line-height:1.5;
+}
+.night .share-subhint { color:#94a3b8; }
+.share-loading {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12rpx;
+  padding:24rpx 0;
+  font-size:26rpx;
+  color:#64748b;
+}
+
+/* 口令导入弹窗内容 */
+.share-input-wrap {
+  display:flex;
+  gap:14rpx;
+  align-items:center;
+  margin:24rpx 0 20rpx;
+}
+.share-code-input {
+  flex:1;
+  height:88rpx;
+  background:rgba(248,250,252,.9);
+  border:2rpx solid rgba(203,213,225,.8);
+  border-radius:20rpx;
+  padding:0 24rpx;
+  font-size:32rpx;
+  font-weight:700;
+  letter-spacing:4rpx;
+  color:#0f172a;
+  text-transform:uppercase;
+}
+.night .share-code-input {
+  background:rgba(15,23,42,.65);
+  border-color:rgba(148,163,184,.25);
+  color:#f8fafc;
+}
+.share-paste-btn {
+  height:88rpx;
+  line-height:88rpx;
+  padding:0 28rpx;
+  background:#3b82f6;
+  color:#fff;
+  font-size:26rpx;
+  font-weight:600;
+  border-radius:20rpx;
+  margin:0 !important;
+}
+.share-preview-card {
+  margin-bottom:28rpx;
+  padding:24rpx;
+  background:linear-gradient(135deg, rgba(239,246,255,.85) 0%, rgba(219,234,254,.7) 100%);
+  border:1.5rpx solid rgba(191,219,254,.9);
+  border-radius:20rpx;
+}
+.night .share-preview-card {
+  background:linear-gradient(135deg, rgba(30,41,59,.85) 0%, rgba(15,23,42,.75) 100%);
+  border-color:rgba(96,165,250,.3);
+}
+.share-preview-head {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:12rpx;
+}
+.share-preview-badge {
+  font-size:22rpx;
+  font-weight:600;
+  color:#2563eb;
+}
+.night .share-preview-badge { color:#93c5fd; }
+.share-preview-author {
+  font-size:22rpx;
+  color:#64748b;
+}
+.night .share-preview-author { color:#94a3b8; }
+.share-preview-title {
+  display:block;
+  font-size:30rpx;
+  font-weight:700;
+  color:#0f172a;
+  margin-bottom:10rpx;
+}
+.night .share-preview-title { color:#f8fafc; }
+.share-preview-meta {
+  display:flex;
+  gap:20rpx;
+  font-size:24rpx;
+  color:#475569;
+}
+.night .share-preview-meta { color:#94a3b8; }
+.share-preview-loading {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12rpx;
+  padding:20rpx 0;
+  font-size:24rpx;
+  color:#64748b;
+}
+.import-spinner.mini {
+  width:28rpx;
+  height:28rpx;
+  border-width:3rpx;
+}
+
+
 

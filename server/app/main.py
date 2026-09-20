@@ -41,6 +41,7 @@ from .routers import (
     courses,
     feedback,
     importer,
+    schedule_share,
     schedules,
     wecom_callback,
 )
@@ -136,6 +137,7 @@ app.include_router(auth_email.router)
 app.include_router(auth_wechat.router)
 app.include_router(account_link.router)
 app.include_router(schedules.router)
+app.include_router(schedule_share.router)
 app.include_router(courses.router)
 app.include_router(adjustments.router)
 app.include_router(importer.router)

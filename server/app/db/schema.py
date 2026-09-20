@@ -141,6 +141,16 @@ def init_db():
             attempt_count SMALLINT NOT NULL DEFAULT 0,
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
         db.execute("CREATE INDEX IF NOT EXISTS binding_codes_user_idx ON identity_binding_codes(user_id,provider)")
+        db.execute("""CREATE TABLE IF NOT EXISTS schedule_share_codes (
+            id BIGSERIAL PRIMARY KEY,
+            code VARCHAR(16) NOT NULL UNIQUE,
+            schedule_id BIGINT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            expires_at TIMESTAMPTZ NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        db.execute("CREATE INDEX IF NOT EXISTS schedule_share_codes_schedule_idx ON schedule_share_codes(schedule_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS schedule_share_codes_user_idx ON schedule_share_codes(user_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS schedule_share_codes_code_idx ON schedule_share_codes(code)")
         db.execute("""CREATE TABLE IF NOT EXISTS channel_accounts (
             id BIGSERIAL PRIMARY KEY,
             provider VARCHAR(32) NOT NULL,
