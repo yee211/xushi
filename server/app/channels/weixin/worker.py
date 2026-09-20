@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from ...agent.service import build_agent_reply
 from ...db import close_pool, connect, init_db, init_pool
+from ...rate_limit import clawbot_limiter
 from .client import ILinkClient, ILinkError, reply_client_id
 from .protocol import Credentials, InboundText, extract_text_items
 from .store import (
@@ -116,6 +117,17 @@ def process_message(client: ILinkClient, message: InboundText) -> bool:
                 WHERE provider='weixin_ilink' AND provider_user_id=%s""",
                 (message.context_token, message.sender_id))
     try:
+        allowed, retry_after = clawbot_limiter.hit(message.sender_id)
+        if not allowed:
+            reply = f"你提问太频繁啦，请慢一点~ 请等待 {retry_after} 秒后再问我吧。"
+            client.send_text(message.sender_id, reply, message.context_token,
+                             client_id=reply_client_id(message.account_id, message.message_id),
+                             run_id=message.run_id)
+            with connect() as db:
+                complete_message(db, message.account_id, message.message_id)
+            logger.warning("clawbot rate limited sender=%s account=%s", message.sender_id, message.account_id)
+            return True
+
         if client:
             threading.Thread(
                 target=client.send_typing_indicator,

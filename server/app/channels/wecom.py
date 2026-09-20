@@ -25,6 +25,7 @@ from Crypto.Random import get_random_bytes
 
 from ..agent.service import build_agent_reply
 from ..db import connect
+from ..rate_limit import wecom_limiter
 
 WECOM_PROVIDER = "wecom"
 CALLBACK_TIMEOUT = httpx.Timeout(10.0)
@@ -176,6 +177,14 @@ def process_wecom_message(content: str, sender_id: str, response_url: str, msg_k
                           received_at: datetime | None = None) -> None:
     """后台任务：生成回复并 POST 到 response_url；失败只记日志，不影响回调响应。"""
     try:
+        allowed, retry_after = wecom_limiter.hit(sender_id)
+        if not allowed:
+            reply = f"你提问太频繁啦，请慢一点~ 请等待 {retry_after} 秒后再问我吧。"
+            if response_url:
+                reply_via_response_url(response_url, reply)
+            logger.warning(json.dumps({"event": "wecom_rate_limited", "sender": sender_id}))
+            return
+
         with connect() as db:
             reply = build_reply(db, content, sender_id, received_at)
         if reply and response_url:

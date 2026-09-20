@@ -52,6 +52,7 @@ class Settings:
         if origin.strip()
     )
     session_days: int = max(1, min(90, int(os.getenv("SESSION_DAYS", "30"))))
+    redis_url: str = os.getenv("REDIS_URL", os.getenv("AGENT_REDIS_URL", "")).strip()
 
     def validate(self) -> None:
         validate_settings(environment=self.environment, jwt_secret=self.jwt_secret)

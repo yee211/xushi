@@ -6,6 +6,7 @@ users 表同一行可同时持有 email 与 openid，绑定即把 openid 写到�
 """
 from datetime import datetime
 
+from ..auth.deps import invalidate_session_cache
 from .binding import create_binding_code, find_active_code
 
 PROVIDER = "wechat_miniprogram"
@@ -67,6 +68,7 @@ def link_wechat_account(db, code: str, wx_user: dict) -> dict:
         raise AccountLinkError("TARGET_BOUND", "该账号已绑定其他微信，请先在 App 端解除绑定")
 
     # 会话随迁：小程序当前令牌在合并后继续有效，无需重新登录
+    moved_sessions = db.execute("SELECT token_hash FROM sessions WHERE user_id=%s", (wx_id,)).fetchall()
     sessions_moved = db.execute("UPDATE sessions SET user_id=%s WHERE user_id=%s",
                                 (target_id, wx_id)).rowcount
     # 渠道身份随迁：微信助手/企业微信的绑定关系转挂到目标账号（同渠道先解旧再挂新）
@@ -115,6 +117,9 @@ def link_wechat_account(db, code: str, wx_user: dict) -> dict:
                (openid, target_id))
     db.execute("UPDATE identity_binding_codes SET consumed_at=CURRENT_TIMESTAMP WHERE id=%s",
                (row["id"],))
+
+    for s in moved_sessions:
+        invalidate_session_cache(token_digest=s["token_hash"])
 
     return {"username": target["username"] or "", "email": target["email"] or "",
             "sessions_moved": sessions_moved, "schedules_moved": schedules_moved,
@@ -191,5 +196,8 @@ def unlink_wechat(db, user_id: int) -> dict:
                     )
 
     # 5. 吊销原账号的小程序会话（小程序下次请求凭 openid 登录进入 wx_id）
+    revoked_sessions = db.execute("SELECT token_hash FROM sessions WHERE user_id=%s", (user_id,)).fetchall()
     db.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
+    for s in revoked_sessions:
+        invalidate_session_cache(token_digest=s["token_hash"])
     return {"wx_user_id": wx_id, "agent_bindings_moved": agent_bindings_moved}

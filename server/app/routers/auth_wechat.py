@@ -1,4 +1,5 @@
 """微信登录路由（小程序端）：wx.login code 换会话令牌 + 公共配置。"""
+import json
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -9,6 +10,7 @@ from fastapi.responses import JSONResponse
 from ..auth import get_openid, token_hash
 from ..db import connect
 from ..rate_limit import login_limiter
+from ..redis import redis_set
 from ..schemas import WechatLoginIn
 from ..settings import settings
 
@@ -29,10 +31,15 @@ def wechat_login(payload: WechatLoginIn, request: Request):
     with connect() as db:
         user = db.execute("""INSERT INTO users(openid) VALUES(%s)
             ON CONFLICT(openid) DO UPDATE SET last_login_at=CURRENT_TIMESTAMP
-            RETURNING id""", (openid,)).fetchone()
+            RETURNING id, openid, email, username""", (openid,)).fetchone()
+        digest = token_hash(token)
         db.execute("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(%s,%s,%s)",
-                   (token_hash(token), user["id"], expires))
+                   (digest, user["id"], expires))
         db.execute("DELETE FROM sessions WHERE user_id=%s AND expires_at<=CURRENT_TIMESTAMP", (user["id"],))
+
+    ttl_seconds = int(session_days * 86400)
+    user_dict = {"id": user["id"], "openid": user["openid"], "email": user["email"], "username": user["username"]}
+    redis_set(f"xushi:session:{digest}", json.dumps(user_dict), ex=ttl_seconds)
     return {"token": token, "expires_at": expires.isoformat()}
 
 

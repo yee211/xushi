@@ -57,6 +57,8 @@ class FakeLinkDb:
             return FakeResult([])
         if sql.startswith("INSERT INTO identity_binding_codes"):
             return FakeResult([{"id": 1}])
+        if sql.startswith("SELECT token_hash FROM sessions"):
+            return FakeResult([{"token_hash": "mock_hash"}])
         if sql.startswith("UPDATE sessions SET user_id"):
             return FakeResult([], rowcount=1)
         if sql.startswith("DELETE FROM user_identities"):

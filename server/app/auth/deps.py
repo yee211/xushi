@@ -8,23 +8,56 @@
 其余令牌先查 sessions 表（主键命中），未命中再按 JWT 兜底解析——两类令牌
 空间不重叠，互不干扰。
 """
+import json
+from datetime import UTC, datetime
+
 import jwt
 from fastapi import Header, HTTPException
 
 from ..db import connect
+from ..redis import redis_delete, redis_get, redis_set
+from ..settings import settings
 from .jwt import decode_token
 from .sessions import token_hash
 
 USER_COLUMNS = "u.id, u.openid, u.email, u.username"
+SESSION_CACHE_PREFIX = "xushi:session:"
+
+
+def invalidate_session_cache(token: str | None = None, token_digest: str | None = None) -> None:
+    """撤销会话或账号合并时主动失效指定会话缓存。"""
+    digest = token_digest or (token_hash(token) if token else None)
+    if digest:
+        redis_delete(f"{SESSION_CACHE_PREFIX}{digest}")
 
 
 def _user_from_session(token: str) -> dict | None:
     digest = token_hash(token)
+    cache_key = f"{SESSION_CACHE_PREFIX}{digest}"
+    cached = redis_get(cache_key)
+    if cached:
+        try:
+            return json.loads(cached)
+        except (ValueError, TypeError):
+            pass
+
     with connect() as db:
-        row = db.execute(f"""SELECT {USER_COLUMNS} FROM sessions s
+        row = db.execute(f"""SELECT {USER_COLUMNS}, s.expires_at FROM sessions s
             JOIN users u ON u.id=s.user_id
             WHERE s.token_hash=%s AND s.expires_at>CURRENT_TIMESTAMP""", (digest,)).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+
+    user_dict = {col: row[col] for col in ("id", "openid", "email", "username") if col in row}
+    # 写入 Redis 缓存，TTL 与数据库 expires_at 实际剩余时间对齐（最长不超过 session_days）
+    ttl_seconds = settings.session_days * 86400
+    if row.get("expires_at"):
+        exp = row["expires_at"]
+        now = datetime.now(UTC) if exp.tzinfo else datetime.now()
+        remain = int((exp - now).total_seconds())
+        ttl_seconds = max(60, min(remain, ttl_seconds))
+    redis_set(cache_key, json.dumps(user_dict), ex=ttl_seconds)
+    return user_dict
 
 
 def _user_from_jwt(token: str) -> dict:

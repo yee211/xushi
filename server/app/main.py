@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from .agent.http_client import close_llm_client
 from .db import close_pool, connect, init_db, init_pool, is_pool_ready
 from .observability import configure_logging
+from .redis import reset_redis_client
 from .routers import (
     account_link,
     adjustments,
@@ -66,6 +67,7 @@ async def lifespan(_: FastAPI):
     finally:
         close_llm_client()
         close_pool()
+        reset_redis_client()
 
 
 app = FastAPI(title="序时", version="3.0.0", lifespan=lifespan)

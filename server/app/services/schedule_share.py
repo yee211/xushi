@@ -1,8 +1,18 @@
 """课表分享码服务：生成分享提取码、解析预览与跨用户导入。"""
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 
+from ..redis import redis_delete, redis_get, redis_set
+
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+SHARE_PREVIEW_CACHE_PREFIX = "xushi:share:preview:"
+
+
+def invalidate_share_cache(code: str) -> None:
+    normalized = str(code or "").strip().upper()
+    if normalized:
+        redis_delete(f"{SHARE_PREVIEW_CACHE_PREFIX}{normalized}")
 
 
 class ShareError(RuntimeError):
@@ -60,6 +70,23 @@ def get_share_info(db, code: str) -> dict:
     if len(normalized) != 6:
         raise ShareError("INVALID_FORMAT", "分享码格式不正确（需6位字母数字）")
 
+    cache_key = f"{SHARE_PREVIEW_CACHE_PREFIX}{normalized}"
+    cached = redis_get(cache_key)
+    if cached:
+        try:
+            cached_data = json.loads(cached)
+            if cached_data.get("expires_at"):
+                cached_data["expires_at"] = datetime.fromisoformat(cached_data["expires_at"])
+            exp = cached_data["expires_at"]
+            now = datetime.now(UTC) if getattr(exp, "tzinfo", None) else datetime.now()
+            # 校验一下是否已过期
+            if exp > now:
+                return cached_data
+            # 如果已过期，淘汰缓存
+            redis_delete(cache_key)
+        except Exception:
+            pass
+
     row = db.execute("""
         SELECT c.code, c.schedule_id, c.user_id, c.expires_at,
                s.name AS schedule_name, s.term, s.start_date, s.end_date,
@@ -81,7 +108,7 @@ def get_share_info(db, code: str) -> dict:
                             (row["schedule_id"],)).fetchone()
     course_count = int(course_row["count"]) if course_row else 0
 
-    return {
+    result = {
         "code": row["code"],
         "schedule_id": row["schedule_id"],
         "name": row["schedule_name"],
@@ -93,6 +120,17 @@ def get_share_info(db, code: str) -> dict:
         "creator_name": row["username"] or (row["email"].split("@")[0] if row["email"] else "同学"),
         "expires_at": row["expires_at"],
     }
+    # 写入 Redis 缓存（缓存 1 小时，或剩余有效期较小者）
+    remain_seconds = int((row["expires_at"] - datetime.now(UTC)).total_seconds())
+    ttl = max(60, min(3600, remain_seconds))
+    to_cache = {
+        **result,
+        "start_date": str(result["start_date"]) if result["start_date"] else None,
+        "end_date": str(result["end_date"]) if result["end_date"] else None,
+        "expires_at": result["expires_at"].isoformat() if hasattr(result["expires_at"], "isoformat") else str(result["expires_at"]),
+    }
+    redis_set(cache_key, json.dumps(to_cache), ex=ttl)
+    return result
 
 
 def import_shared_schedule(db, user_id: int, code: str, custom_name: str | None = None) -> dict:
