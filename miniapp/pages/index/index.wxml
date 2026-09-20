@@ -527,6 +527,8 @@
     </view>
     <button class="actionsheet-cancel-btn" bindtap="onActionSheetCancel">取消</button>
   </view>
+</view>
+
 <!-- 课表分享弹窗 -->
 <view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{shareModalOpen}}" bindtap="closeShareModal">
   <view class="dialog share-dialog" catchtap="noop">
