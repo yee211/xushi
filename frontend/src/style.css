@@ -2965,6 +2965,21 @@ html[data-bg="night"] .term-settings-btn {
   color: #f1f5f9;
 }
 
+.term-settings-btn.sync-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin-icon {
+  animation: spin 0.9s linear infinite;
+  transform-origin: center;
+}
+
 /* ==========================================================================
    Schedule Desktop-Like Carousel Swipe Transition
    ========================================================================== */

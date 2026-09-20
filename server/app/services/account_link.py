@@ -71,8 +71,11 @@ def link_wechat_account(db, code: str, wx_user: dict) -> dict:
                                 (target_id, wx_id)).rowcount
     # 渠道身份随迁：微信助手/企业微信的绑定关系转挂到目标账号（同渠道先解旧再挂新）
     agent_bindings_moved = 0
-    for identity in db.execute("SELECT id, provider FROM user_identities WHERE user_id=%s",
-                               (wx_id,)).fetchall():
+    wx_identities = db.execute("SELECT id, provider FROM user_identities WHERE user_id=%s",
+                               (wx_id,)).fetchall()
+    for identity in wx_identities:
+        # 仅当 wx_id 持有该 provider 的 identity 时，才删除 target 上可能存在的旧记录，
+        # 否则 target 自己独立绑定的 ClawBot 等渠道会被误删（Bug：target 原有绑定丢失）
         db.execute("DELETE FROM user_identities WHERE user_id=%s AND provider=%s",
                    (target_id, identity["provider"]))
         agent_bindings_moved += db.execute("UPDATE user_identities SET user_id=%s WHERE id=%s",

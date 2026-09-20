@@ -23,10 +23,12 @@ const emit = defineEmits([
   'open-semester-settings',
   'open-adjustments',
   'open-course-center',
+  'sync-schedules',
 ]);
 
 const weekMenuOpen = ref(false);
 const termMenuOpen = ref(false);
+const syncing = ref(false);
 
 const isActiveSchedule = computed(() => isScheduleActiveToday(props.schedule));
 
@@ -78,6 +80,17 @@ function nextWeek() {
 function onPickSchedule(id) {
   emit('select-schedule', id);
   termMenuOpen.value = false;
+}
+
+async function syncSchedules() {
+  if (syncing.value) return;
+  syncing.value = true;
+  termMenuOpen.value = false;
+  try {
+    await new Promise(resolve => emit('sync-schedules', resolve));
+  } finally {
+    syncing.value = false;
+  }
 }
 
 onMounted(() => {
@@ -161,6 +174,19 @@ onUnmounted(() => {
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
             </svg>
             <span>学期与作息设置</span>
+          </button>
+          <button
+            type="button"
+            class="term-settings-btn sync-btn"
+            :disabled="syncing"
+            @click="syncSchedules"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ 'spin-icon': syncing }">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            <span>{{ syncing ? '同步中…' : '同步课表' }}</span>
           </button>
         </div>
       </div>

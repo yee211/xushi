@@ -435,6 +435,9 @@
         <button class="btn dialog-cancel" bindtap="openSemesterFromSheet">⚙ 学期设置</button>
         <button class="btn primary" bindtap="openImportFromSheet">＋ 导入新课表</button>
       </view>
+      <view class="term-actions-row">
+        <button class="btn sync-btn {{syncing ? 'syncing' : ''}}" disabled="{{syncing}}" bindtap="syncSchedules">{{syncing ? '同步中…' : '🔄 同步课表'}}</button>
+      </view>
     </view>
   </view>
 </view>

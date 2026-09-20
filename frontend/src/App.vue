@@ -363,6 +363,18 @@ async function load(preferredId = null) {
   }
 }
 
+// 手动同步课表：从服务器拉取最新数据并更新本地缓存
+async function syncSchedules(resolve) {
+  try {
+    await load(schedule.value?.id);
+    notify('课表已同步到最新');
+  } catch (error) {
+    notify(error.message || '同步失败，请稍后重试');
+  } finally {
+    if (typeof resolve === 'function') resolve();
+  }
+}
+
 // 支持在原课表上就地直接修改，无需克隆派生调课版副本。
 async function ensureEditableSchedule(courseId = null) {
   return {
@@ -1190,6 +1202,7 @@ onUnmounted(() => {
         @open-semester-settings="openSemesterSettings"
         @open-adjustments="adjustmentCenterOpen = true"
         @open-course-center="courseCenterOpen = true"
+        @sync-schedules="syncSchedules"
       />
 
       <ScheduleGrid

@@ -564,6 +564,9 @@ button.empty-button::after { display:none !important; }
 .term-sheet-actions { display:flex; flex-direction:column; gap:14rpx; margin-top:16rpx; width:100%; box-sizing:border-box; }
 .term-actions-row { display:flex; gap:14rpx; width:100%; box-sizing:border-box; }
 .term-actions-row .btn { flex:1; height:80rpx; min-height:80rpx; font-size:26rpx; border-radius:22rpx; margin:0 !important; padding:0 !important; display:flex; align-items:center; justify-content:center; }
+.sync-btn { background:rgba(2,132,199,.08) !important; color:#0284c7 !important; border:1rpx solid rgba(2,132,199,.25) !important; }
+.sync-btn.syncing { opacity:.65; }
+
 
 .night .sheet-close-btn { background:rgba(255,255,255,.1); color:#94a3b8; }
 .night .sheet-close-btn:active { background:rgba(255,255,255,.2); }

@@ -48,9 +48,11 @@ def consume_binding_code(db, code: str, provider: str, provider_user_id: str,
     existing = db.execute("SELECT user_id FROM user_identities WHERE provider=%s AND provider_user_id=%s",
                           (provider, provider_user_id)).fetchone()
     if existing and existing["user_id"] != row["user_id"]:
-        # 该渠道身份已绑到别的账号，是唯一可重试的失败路径：累计次数，超限后锁定引导重新生成
-        db.execute("UPDATE identity_binding_codes SET attempt_count=attempt_count+1 WHERE id=%s", (row["id"],))
-        raise BindingError("该账号已在其他绑定中使用，请先解绑")
+        # 该渠道身份已绑到其他账号（常见于解绑后重绑、账号迁移等场景）。
+        # 发送者主动提交新绑定码，视为授权切换：先删旧绑定，继续完成新绑定；
+        # 无需计入 attempt_count，此处无法被第三方利用（只有发送者本人才能以此 sender_id 发消息）。
+        db.execute("DELETE FROM user_identities WHERE provider=%s AND provider_user_id=%s",
+                   (provider, provider_user_id))
     db.execute("DELETE FROM user_identities WHERE user_id=%s AND provider=%s AND provider_user_id<>%s",
                (row["user_id"], provider, provider_user_id))
     if account_id:

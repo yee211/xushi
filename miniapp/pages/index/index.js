@@ -272,6 +272,7 @@ function displayCourses(schedule, week, count, colorMap, rowHeight = ROW_HEIGHT)
 Page({
   data: {
     refreshing: false,
+    syncing: false,
     // 功能开关：仅隐藏入口，相关逻辑全部保留；恢复入口改回 true 即可
     showAddCourse: false,
     showAdjustCenter: false,
@@ -540,6 +541,19 @@ Page({
   openImportFromSheet() {
     this.closeTermSheet()
     this.onImportTap()
+  },
+  async syncSchedules() {
+    if (this.data.syncing) return
+    this.closeTermSheet()
+    this.setData({ syncing: true })
+    try {
+      await this.load(this.data.schedule && this.data.schedule.id, true)
+      wx.showToast({ title: '课表已同步到最新', icon: 'success', duration: 1800 })
+    } catch (error) {
+      wx.showToast({ title: error.message || '同步失败，请稍后重试', icon: 'none', duration: 2000 })
+    } finally {
+      this.setData({ syncing: false })
+    }
   },
   async openShareModal() {
     const schedule = this.data.schedule
