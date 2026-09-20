@@ -317,9 +317,7 @@ onMounted(() => {
           <span>序时 (XuShi) · 极简智能大学课表</span>
         </div>
         <div class="m3-footer-links">
-          <a href="/admin" target="_blank">管理后台</a>
-          <span class="m3-sep">•</span>
-          <a :href="versionData.downloadUrl" target="_blank">APK 镜像</a>
+          <a :href="versionData.downloadUrl" target="_blank">APK 镜像下载</a>
           <span class="m3-sep">•</span>
           <span>纯粹无广告</span>
         </div>
