@@ -455,7 +455,7 @@ def user_detail(user_id: int, _: str = Depends(current_admin)):
         """, (user_id,)).fetchall()
 
         bots = db.execute("""
-            SELECT account_id, provider, status, error_message, updated_at
+            SELECT account_id, provider, status, updated_at
             FROM channel_accounts
             WHERE owner_user_id = %s
             ORDER BY id ASC
@@ -561,7 +561,7 @@ def system_status(_: str = Depends(current_admin)):
 
     with connect() as db:
         bots = db.execute("""
-            SELECT account_id, provider, owner_user_id, status, error_message, updated_at
+            SELECT account_id, provider, owner_user_id, status, updated_at
             FROM channel_accounts
             ORDER BY updated_at DESC
         """).fetchall()
