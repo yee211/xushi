@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { appApi } from '../api/index.js';
 import { CURRENT_VERSION_CODE, CURRENT_VERSION_NAME } from '../utils/version.js';
 
-// 默认兜底版本信息
+// 兜底版本信息
 const defaultVersion = {
   versionCode: CURRENT_VERSION_CODE,
   versionName: CURRENT_VERSION_NAME,
@@ -19,12 +19,12 @@ const defaultVersion = {
 
 const versionData = ref({ ...defaultVersion });
 const showModal = ref(false);
-const modalType = ref('wechat'); // 'wechat' | 'android'
+const modalTab = ref('wechat'); // 'wechat' | 'android'
 const copySuccess = ref(false);
 
 const qrCodeUrl = computed(() => {
   const url = encodeURIComponent(versionData.value.downloadUrl);
-  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${url}`;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${url}`;
 });
 
 async function fetchVersion() {
@@ -37,12 +37,12 @@ async function fetchVersion() {
       };
     }
   } catch {
-    // 降级使用静态配置
+    // 降级静态配置
   }
 }
 
-function openModal(type) {
-  modalType.value = type;
+function openModal(tab = 'wechat') {
+  modalTab.value = tab;
   showModal.value = true;
 }
 
@@ -60,7 +60,7 @@ async function copyLink() {
     if (navigator.clipboard) {
       await navigator.clipboard.writeText(link);
       copySuccess.value = true;
-      setTimeout(() => { copySuccess.value = false; }, 2000);
+      setTimeout(() => { copySuccess.value = false; }, 2200);
     }
   } catch {}
 }
@@ -71,51 +71,67 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="landing-page">
-    <!-- 顶部极简导航 -->
-    <header class="landing-header">
-      <div class="header-content">
-        <div class="brand">
-          <img src="/app-icon.png" alt="序时 Logo" class="brand-logo" />
-          <div class="brand-info">
+  <div class="m3-app">
+    <!-- M3 顶部导航栏 (Top App Bar) -->
+    <header class="m3-top-app-bar">
+      <div class="app-bar-inner">
+        <div class="app-brand">
+          <img src="/app-icon.png" alt="序时 Logo" class="brand-icon" />
+          <div class="brand-text">
             <span class="brand-title">序时</span>
-            <span class="brand-tag">极简智能课表</span>
+            <span class="m3-chip m3-chip-sm">XuShi Schedule</span>
           </div>
         </div>
-        <div class="header-links">
-          <button class="nav-btn btn-ghost" @click="openModal('wechat')">微信小程序</button>
-          <button class="nav-btn btn-primary" @click="openModal('android')">获取 Android 版</button>
-        </div>
+
+        <nav class="app-bar-actions">
+          <button class="m3-btn m3-btn-tonal" @click="openModal('wechat')">
+            <svg class="m3-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M9.5 4C5.36 4 2 6.69 2 10c0 1.89 1.08 3.56 2.78 4.66l-.7 2.1 2.45-1.23c.86.24 1.78.37 2.74.37h.36a6.08 6.08 0 0 1-.25-1.73c0-3.31 3.02-6 6.74-6 .24 0 .47.01.7.03C16.22 5.75 13.14 4 9.5 4zM7.3 8.6a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8zm4.4 0a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/>
+              <path d="M22 14.17c0-2.74-2.69-4.96-6-4.96s-6 2.22-6 4.96 2.69 4.96 6 4.96c.72 0 1.42-.1 2.06-.29l2.24 1.12-.66-1.99A4.62 4.62 0 0 0 22 14.17zm-8.06-.58a.82.82 0 1 1 0-1.64.82.82 0 0 1 0 1.64zm4.12 0a.82.82 0 1 1 0-1.64.82.82 0 0 1 0 1.64z"/>
+            </svg>
+            <span>微信小程序</span>
+          </button>
+          <button class="m3-btn m3-btn-filled" @click="openModal('android')">
+            <svg class="m3-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17 6h-2V5h1.37c.24-.62.32-1.3.13-2.02A2.73 2.73 0 0 0 14.86 1c-.83 0-1.55.37-2.06.94A2.73 2.73 0 0 0 10.74 1 2.73 2.73 0 0 0 8.1 2.98c-.19.72-.11 1.4.13 2.02H7c-.55 0-1 .45-1 1v3h12V7c0-.55-.45-1-1-1zM10.74 4.25c-.69 0-1.25-.56-1.25-1.25S10.05 1.75 10.74 1.75s1.25.56 1.25 1.25-.56 1.25-1.25 1.25zm2.52 0c-.69 0-1.25-.56-1.25-1.25s.56-1.25 1.25-1.25 1.25.56 1.25 1.25-.56 1.25-1.25 1.25z"/>
+              <path d="M6 11v10.5c0 .83.67 1.5 1.5 1.5h2c.28 0 .5-.22.5-.5V19h2v3.5c0 .28.22.5.5.5h2c.83 0 1.5-.67 1.5-1.5V11H6zM3.5 10c-.83 0-1.5.67-1.5 1.5v5c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-5c0-.83-.67-1.5-1.5-1.5zm17 0c-.83 0-1.5.67-1.5 1.5v5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-5c0-.83-.67-1.5-1.5-1.5z"/>
+            </svg>
+            <span>下载 Android 版</span>
+          </button>
+        </nav>
       </div>
     </header>
 
-    <!-- 主体内容 -->
-    <main class="landing-body">
+    <!-- 主体区域 -->
+    <main class="m3-main">
       <!-- Hero 区域 -->
-      <section class="hero-section">
-        <div class="hero-badge">
-          <span class="sparkle">✦</span>
-          <span>一套后端驱动 · 微信小程序与 Android 双端互通</span>
+      <section class="m3-hero">
+        <div class="m3-badge-pill">
+          <span class="m3-badge-dot"></span>
+          <span>Google Material 3 · 统一全栈驱动</span>
         </div>
-        <h1 class="hero-heading">
+
+        <h1 class="m3-hero-headline">
           课表装进微信，<br />
-          也装进每一台 Android。
+          <span class="m3-hero-accent">也装进每一台 Android。</span>
         </h1>
-        <p class="hero-description">
-          序时是为大学生打造的纯粹课表工具。微信小程序免安装即开即用，Android 原生端支持高校教务一键直连。
-          全周作息一目了然，智能排版告别繁杂。
+
+        <p class="m3-hero-subhead">
+          为大学生打造的纯粹智能课表工具。微信小程序免安装即开即用，Android 原生端教务一键直连。
+          全周日程清爽呈现，告别冗余与繁杂。
         </p>
 
-        <div class="hero-buttons">
-          <button class="cta-button cta-wechat" @click="openModal('wechat')">
-            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+        <div class="m3-hero-cta">
+          <button class="m3-btn m3-btn-large m3-btn-wx-filled" @click="openModal('wechat')">
+            <svg class="m3-icon m3-icon-lg" viewBox="0 0 24 24" fill="currentColor">
               <path d="M9.5 4C5.36 4 2 6.69 2 10c0 1.89 1.08 3.56 2.78 4.66l-.7 2.1 2.45-1.23c.86.24 1.78.37 2.74.37h.36a6.08 6.08 0 0 1-.25-1.73c0-3.31 3.02-6 6.74-6 .24 0 .47.01.7.03C16.22 5.75 13.14 4 9.5 4zM7.3 8.6a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8zm4.4 0a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/>
               <path d="M22 14.17c0-2.74-2.69-4.96-6-4.96s-6 2.22-6 4.96 2.69 4.96 6 4.96c.72 0 1.42-.1 2.06-.29l2.24 1.12-.66-1.99A4.62 4.62 0 0 0 22 14.17zm-8.06-.58a.82.82 0 1 1 0-1.64.82.82 0 0 1 0 1.64zm4.12 0a.82.82 0 1 1 0-1.64.82.82 0 0 1 0 1.64z"/>
             </svg>
             <span>使用微信小程序</span>
           </button>
-          <button class="cta-button cta-android" @click="handleDownload('primary')">
-            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+
+          <button class="m3-btn m3-btn-large m3-btn-android-filled" @click="handleDownload('primary')">
+            <svg class="m3-icon m3-icon-lg" viewBox="0 0 24 24" fill="currentColor">
               <path d="M17 6h-2V5h1.37c.24-.62.32-1.3.13-2.02A2.73 2.73 0 0 0 14.86 1c-.83 0-1.55.37-2.06.94A2.73 2.73 0 0 0 10.74 1 2.73 2.73 0 0 0 8.1 2.98c-.19.72-.11 1.4.13 2.02H7c-.55 0-1 .45-1 1v3h12V7c0-.55-.45-1-1-1zM10.74 4.25c-.69 0-1.25-.56-1.25-1.25S10.05 1.75 10.74 1.75s1.25.56 1.25 1.25-.56 1.25-1.25 1.25zm2.52 0c-.69 0-1.25-.56-1.25-1.25s.56-1.25 1.25-1.25 1.25.56 1.25 1.25-.56 1.25-1.25 1.25z"/>
               <path d="M6 11v10.5c0 .83.67 1.5 1.5 1.5h2c.28 0 .5-.22.5-.5V19h2v3.5c0 .28.22.5.5.5h2c.83 0 1.5-.67 1.5-1.5V11H6zM3.5 10c-.83 0-1.5.67-1.5 1.5v5c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-5c0-.83-.67-1.5-1.5-1.5zm17 0c-.83 0-1.5.67-1.5 1.5v5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-5c0-.83-.67-1.5-1.5-1.5z"/>
             </svg>
@@ -124,857 +140,993 @@ onMounted(() => {
         </div>
       </section>
 
-      <!-- 双端极简入口卡片 -->
-      <section class="platforms-section">
-        <div class="platform-grid">
+      <!-- 双端核心入口 (M3 Elevated Cards) -->
+      <section class="m3-platforms">
+        <div class="m3-platform-grid">
           <!-- 微信小程序卡片 -->
-          <div class="platform-card wechat-theme">
-            <div class="card-header">
-              <div class="icon-avatar wx-avatar">
+          <div class="m3-card m3-card-wx">
+            <div class="m3-card-header">
+              <div class="m3-icon-avatar m3-avatar-wx">
                 <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
                   <path d="M9.5 4C5.36 4 2 6.69 2 10c0 1.89 1.08 3.56 2.78 4.66l-.7 2.1 2.45-1.23c.86.24 1.78.37 2.74.37h.36a6.08 6.08 0 0 1-.25-1.73c0-3.31 3.02-6 6.74-6 .24 0 .47.01.7.03C16.22 5.75 13.14 4 9.5 4zM7.3 8.6a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8zm4.4 0a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/>
                   <path d="M22 14.17c0-2.74-2.69-4.96-6-4.96s-6 2.22-6 4.96 2.69 4.96 6 4.96c.72 0 1.42-.1 2.06-.29l2.24 1.12-.66-1.99A4.62 4.62 0 0 0 22 14.17zm-8.06-.58a.82.82 0 1 1 0-1.64.82.82 0 0 1 0 1.64zm4.12 0a.82.82 0 1 1 0-1.64.82.82 0 0 1 0 1.64z"/>
                 </svg>
               </div>
-              <div class="card-titles">
-                <span class="badge-mini wx-badge">微信生态</span>
-                <h3>微信小程序</h3>
-                <p>免安装 · 微信内即开即用</p>
+              <div class="m3-header-meta">
+                <span class="m3-chip m3-chip-wx">微信生态 · 即开即用</span>
+                <h2 class="m3-card-title">微信小程序</h2>
+                <p class="m3-card-sub">免安装 · 扫码或微信直接搜索</p>
               </div>
             </div>
 
-            <ul class="feature-bullets">
-              <li>
-                <span class="bullet-dot wx-dot"></span>
-                <span><strong>静默登录</strong>：无需注册与密码，微信账号直接关联</span>
-              </li>
-              <li>
-                <span class="bullet-dot wx-dot"></span>
-                <span><strong>聊天查课</strong>：微信内向智能 Agent 随口提问日程</span>
-              </li>
-              <li>
-                <span class="bullet-dot wx-dot"></span>
-                <span><strong>云端互通</strong>：与 Android 端共享同一份课表数据</span>
-              </li>
-            </ul>
+            <div class="m3-card-body">
+              <ul class="m3-feature-list">
+                <li>
+                  <div class="m3-list-icon m3-list-icon-wx">✓</div>
+                  <div class="m3-list-text">
+                    <strong>微信静默登录</strong>
+                    <span>无需注册繁琐账号，微信生态一键直达</span>
+                  </div>
+                </li>
+                <li>
+                  <div class="m3-list-icon m3-list-icon-wx">✓</div>
+                  <div class="m3-list-text">
+                    <strong>智能 Agent 聊天查课</strong>
+                    <span>微信聊天窗口随口问“明天有什么课”，秒级响应</span>
+                  </div>
+                </li>
+                <li>
+                  <div class="m3-list-icon m3-list-icon-wx">✓</div>
+                  <div class="m3-list-text">
+                    <strong>同域云端同步</strong>
+                    <span>与 Android 端共用同一套后端，换设备不丢数据</span>
+                  </div>
+                </li>
+              </ul>
+            </div>
 
-            <div class="card-action">
-              <button class="btn-card-action btn-wx" @click="openModal('wechat')">
+            <div class="m3-card-footer">
+              <button class="m3-btn m3-btn-wx-tonal m3-btn-full" @click="openModal('wechat')">
                 <span>扫码或搜索使用</span>
-                <span class="arrow">→</span>
+                <span class="m3-arrow">→</span>
               </button>
             </div>
           </div>
 
           <!-- Android 原生客户端卡片 -->
-          <div class="platform-card android-theme">
-            <div class="card-header">
-              <div class="icon-avatar android-avatar">
+          <div class="m3-card m3-card-android">
+            <div class="m3-card-header">
+              <div class="m3-icon-avatar m3-avatar-android">
                 <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
                   <path d="M17 6h-2V5h1.37c.24-.62.32-1.3.13-2.02A2.73 2.73 0 0 0 14.86 1c-.83 0-1.55.37-2.06.94A2.73 2.73 0 0 0 10.74 1 2.73 2.73 0 0 0 8.1 2.98c-.19.72-.11 1.4.13 2.02H7c-.55 0-1 .45-1 1v3h12V7c0-.55-.45-1-1-1zM10.74 4.25c-.69 0-1.25-.56-1.25-1.25S10.05 1.75 10.74 1.75s1.25.56 1.25 1.25-.56 1.25-1.25 1.25zm2.52 0c-.69 0-1.25-.56-1.25-1.25s.56-1.25 1.25-1.25 1.25.56 1.25 1.25-.56 1.25-1.25 1.25z"/>
                   <path d="M6 11v10.5c0 .83.67 1.5 1.5 1.5h2c.28 0 .5-.22.5-.5V19h2v3.5c0 .28.22.5.5.5h2c.83 0 1.5-.67 1.5-1.5V11H6zM3.5 10c-.83 0-1.5.67-1.5 1.5v5c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-5c0-.83-.67-1.5-1.5-1.5zm17 0c-.83 0-1.5.67-1.5 1.5v5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-5c0-.83-.67-1.5-1.5-1.5z"/>
                 </svg>
               </div>
-              <div class="card-titles">
-                <span class="badge-mini android-badge">v{{ versionData.versionName }} · 约 12MB</span>
-                <h3>Android 原生客户端</h3>
-                <p>原生体验 · 高校教务直连导入</p>
+              <div class="m3-header-meta">
+                <span class="m3-chip m3-chip-android">v{{ versionData.versionName }} · 约 12MB</span>
+                <h2 class="m3-card-title">Android 原生客户端</h2>
+                <p class="m3-card-sub">教务直连 · 沉浸式排版体验</p>
               </div>
             </div>
 
-            <ul class="feature-bullets">
-              <li>
-                <span class="bullet-dot android-dot"></span>
-                <span><strong>教务直连</strong>：内置原生 WebView 一键导入强智等教务</span>
-              </li>
-              <li>
-                <span class="bullet-dot android-dot"></span>
-                <span><strong>优雅排版</strong>：2 节连堂与 4 节大课自动合并，拒绝碎卡片</span>
-              </li>
-              <li>
-                <span class="bullet-dot android-dot"></span>
-                <span><strong>个性壁纸</strong>：沉浸式视频动态壁纸与离线缓存支持</span>
-              </li>
-            </ul>
+            <div class="m3-card-body">
+              <ul class="m3-feature-list">
+                <li>
+                  <div class="m3-list-icon m3-list-icon-android">✓</div>
+                  <div class="m3-list-text">
+                    <strong>高校教务一键直连</strong>
+                    <span>内置原生 WebView 毫秒级抓取强智等教务</span>
+                  </div>
+                </li>
+                <li>
+                  <div class="m3-list-icon m3-list-icon-android">✓</div>
+                  <div class="m3-list-text">
+                    <strong>连堂大课合并排版</strong>
+                    <span>2 节连堂与 4 节大课自动合为整块卡片</span>
+                  </div>
+                </li>
+                <li>
+                  <div class="m3-list-icon m3-list-icon-android">✓</div>
+                  <div class="m3-list-text">
+                    <strong>视频动态壁纸与离线缓存</strong>
+                    <span>沉浸视觉体验，无网状态课表依然清晰可见</span>
+                  </div>
+                </li>
+              </ul>
+            </div>
 
-            <div class="card-action double-action">
-              <button class="btn-card-action btn-android" @click="handleDownload('primary')">
-                <span>直接下载 APK</span>
-                <span class="arrow">↓</span>
+            <div class="m3-card-footer m3-footer-actions">
+              <button class="m3-btn m3-btn-android-filled m3-btn-grow" @click="handleDownload('primary')">
+                <span>下载 APK 安装包</span>
+                <span class="m3-arrow">↓</span>
               </button>
-              <button class="btn-card-sub" @click="openModal('android')">
-                <span>扫码下载</span>
+              <button class="m3-btn m3-btn-outlined" @click="openModal('android')">
+                <span>扫码安装</span>
               </button>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 核心亮点微网格（4个极简卡片） -->
-      <section class="features-section">
-        <h2 class="section-title">核心特性 · 专为课表打造</h2>
-        <div class="bento-grid">
-          <div class="bento-item">
-            <div class="bento-icon">🏫</div>
-            <h4>教务系统直连</h4>
-            <p>原生 WebView 登录高校教务系统，请求拦截毫秒级捕获课表，告别手动导出与复杂抓包。</p>
+      <!-- 4 大核心特性网格 (M3 Tonal Surface Cards) -->
+      <section class="m3-features">
+        <div class="m3-section-header">
+          <span class="m3-chip m3-chip-neutral">专为课表打造</span>
+          <h2 class="m3-section-title">核心特性，简洁而从容</h2>
+        </div>
+
+        <div class="m3-features-grid">
+          <div class="m3-feature-card">
+            <div class="m3-feature-icon-box m3-icon-box-blue">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+                <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+              </svg>
+            </div>
+            <h3>教务系统直连</h3>
+            <p>内置原生 WebView 登录强智等主流教务，请求拦截毫秒级捕获课表，无需导出或繁琐抓包。</p>
           </div>
-          <div class="bento-item">
-            <div class="bento-icon">🔄</div>
-            <h4>智能调课中心</h4>
-            <p>上传调课通知截图，AI 自动提取调整前后周次、节次与地点，一键批量确认与变更追溯。</p>
+
+          <div class="m3-feature-card">
+            <div class="m3-feature-icon-box m3-icon-box-green">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="17 1 21 5 17 9"/>
+                <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                <polyline points="7 23 3 19 7 15"/>
+                <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+              </svg>
+            </div>
+            <h3>AI 调课中心</h3>
+            <p>上传调课通知截图，大模型视觉智能提取调整前后时段与教室，支持批量应用与变更追溯。</p>
           </div>
-          <div class="bento-item">
-            <div class="bento-icon">💬</div>
-            <h4>微信 Agent 问课</h4>
-            <p>在微信聊天窗口直接提问“明天有什么课”，智能 Agent 意图识别，随时随地秒级应答。</p>
+
+          <div class="m3-feature-card">
+            <div class="m3-feature-icon-box m3-icon-box-amber">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                <circle cx="9" cy="10" r="1"/>
+                <circle cx="12" cy="10" r="1"/>
+                <circle cx="15" cy="10" r="1"/>
+              </svg>
+            </div>
+            <h3>微信 Agent 问课</h3>
+            <p>与微信智能 Agent 绑定，在聊天对话框里直接问“明天有什么课”，意图调度秒级回复。</p>
           </div>
-          <div class="bento-item">
-            <div class="bento-icon">📊</div>
-            <h4>Excel 语义解析</h4>
-            <p>支持多格式课表文件导入，确定性规则结合大模型语义智能兜底，非标表格轻松搞定。</p>
+
+          <div class="m3-feature-card">
+            <div class="m3-feature-icon-box m3-icon-box-purple">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="8" y1="13" x2="16" y2="13"/>
+                <line x1="8" y1="17" x2="13" y2="17"/>
+              </svg>
+            </div>
+            <h3>Excel 智能解析</h3>
+            <p>支持多种高校导出的 xlsx/xls/xlsm 表格，确定性规则结合大模型语义兜底，非标表轻松导入。</p>
           </div>
         </div>
       </section>
     </main>
 
-    <!-- 极简页脚 -->
-    <footer class="landing-footer">
-      <div class="footer-inner">
-        <p>序时 (XuShi) · 极简多端大学课表</p>
-        <div class="footer-links">
+    <!-- M3 极简页脚 -->
+    <footer class="m3-footer">
+      <div class="m3-footer-inner">
+        <div class="m3-footer-brand">
+          <img src="/app-icon.png" alt="Logo" class="m3-footer-logo" />
+          <span>序时 (XuShi) · 极简智能大学课表</span>
+        </div>
+        <div class="m3-footer-links">
           <a href="/admin" target="_blank">管理后台</a>
-          <span class="sep">·</span>
-          <a href="https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.7.apk" target="_blank">APK 直链</a>
-          <span class="sep">·</span>
+          <span class="m3-sep">•</span>
+          <a :href="versionData.downloadUrl" target="_blank">APK 镜像</a>
+          <span class="m3-sep">•</span>
           <span>纯粹无广告</span>
         </div>
       </div>
     </footer>
 
-    <!-- 极简扫码弹窗 -->
-    <div v-if="showModal" class="modal-backdrop" @click="showModal = false">
-      <div class="modal-container" @click.stop>
-        <button class="modal-close" @click="showModal = false">✕</button>
+    <!-- M3 风格弹窗 (Material 3 Dialog) -->
+    <div v-if="showModal" class="m3-dialog-scrim" @click="showModal = false">
+      <div class="m3-dialog" @click.stop>
+        <!-- 弹窗标签切换 (Segmented Button) -->
+        <div class="m3-segmented-control">
+          <button
+            class="m3-segment-btn"
+            :class="{ active: modalTab === 'wechat' }"
+            @click="modalTab = 'wechat'"
+          >
+            微信小程序
+          </button>
+          <button
+            class="m3-segment-btn"
+            :class="{ active: modalTab === 'android' }"
+            @click="modalTab = 'android'"
+          >
+            Android 安装包
+          </button>
+        </div>
 
-        <!-- 微信小程序弹窗 -->
-        <template v-if="modalType === 'wechat'">
-          <div class="modal-header">
-            <div class="modal-icon-badge wx-badge">微信</div>
-            <h3>微信小程序</h3>
-            <p>免安装 · 微信内即开即用</p>
-          </div>
-          <div class="modal-content">
-            <div class="wx-search-hint">
-              <span class="hint-label">方式 1 · 微信搜索</span>
-              <div class="search-box">
-                <span>🔍 搜索 <strong>序时课表</strong></span>
+        <button class="m3-dialog-close" @click="showModal = false" aria-label="关闭">
+          ✕
+        </button>
+
+        <!-- 微信小程序内容 -->
+        <div v-if="modalTab === 'wechat'" class="m3-dialog-content">
+          <div class="m3-dialog-center">
+            <div class="m3-qr-card-wx">
+              <img src="/app-icon.png" alt="序时小程序" class="m3-qr-avatar" />
+              <h3 class="m3-dialog-title">序时课表</h3>
+              <p class="m3-dialog-sub">微信小程序 · 免安装即开即用</p>
+            </div>
+
+            <div class="m3-search-guide">
+              <span class="m3-guide-label">使用方式</span>
+              <div class="m3-search-input-sim">
+                <span class="m3-sim-icon">🔍</span>
+                <span>微信搜索 <strong>序时课表</strong> 即可使用</span>
               </div>
             </div>
-            <div class="divider-text">或</div>
-            <div class="wx-search-hint">
-              <span class="hint-label">方式 2 · 扫码直达</span>
-              <p class="sub-hint">打开微信「扫一扫」快速体验</p>
-              <div class="qr-placeholder wx-qr-card">
-                <img src="/app-icon.png" alt="序时" class="miniapp-avatar" />
-                <span class="miniapp-name">序时课表</span>
-                <span class="miniapp-sub">微信小程序</span>
-              </div>
-            </div>
           </div>
-        </template>
+        </div>
 
-        <!-- Android 下载弹窗 -->
-        <template v-else>
-          <div class="modal-header">
-            <div class="modal-icon-badge android-badge">APK</div>
-            <h3>下载 Android 版</h3>
-            <p>版本 v{{ versionData.versionName }} · 约 12MB</p>
-          </div>
-          <div class="modal-content">
-            <div class="qr-box">
-              <img :src="qrCodeUrl" alt="下载二维码" class="qr-image" />
-              <p class="qr-tip">使用手机浏览器或相机扫描二维码下载</p>
+        <!-- Android 下载内容 -->
+        <div v-else class="m3-dialog-content">
+          <div class="m3-dialog-center">
+            <div class="m3-qr-box">
+              <img :src="qrCodeUrl" alt="APK 下载二维码" class="m3-qr-img" />
+              <p class="m3-qr-hint">使用手机自带相机或浏览器扫码直链下载</p>
             </div>
-            <div class="modal-actions">
-              <button class="btn-modal-primary" @click="handleDownload('primary')">直接下载 APK</button>
-              <button class="btn-modal-ghost" @click="copyLink">
-                {{ copySuccess ? '已复制链接！' : '复制下载链接' }}
+
+            <div class="m3-dialog-actions">
+              <button class="m3-btn m3-btn-android-filled m3-btn-full" @click="handleDownload('primary')">
+                <span>下载 APK (v{{ versionData.versionName }})</span>
+                <span>↓</span>
+              </button>
+              <button class="m3-btn m3-btn-tonal m3-btn-full" @click="copyLink">
+                {{ copySuccess ? '✓ 已复制下载链接！' : '复制下载直链' }}
               </button>
             </div>
-            <div v-if="versionData.changelog?.length" class="modal-changelog">
-              <span class="changelog-title">最近更新：</span>
+
+            <div v-if="versionData.changelog?.length" class="m3-changelog-box">
+              <span class="m3-changelog-title">最近更新</span>
               <ul>
-                <li v-for="(log, i) in versionData.changelog.slice(0, 3)" :key="i">{{ log }}</li>
+                <li v-for="(log, idx) in versionData.changelog.slice(0, 3)" :key="idx">{{ log }}</li>
               </ul>
             </div>
           </div>
-        </template>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 样式设计：高对比度、纯粹克制、现代科技感 */
-.landing-page {
+/* ==========================================================================
+   Google Material 3 (Material Design 3 / M3) 设计系统
+   配色契约：
+   - Surface / Background: #f8f9fa / #ffffff (明亮清洁、柔和开阔)
+   - Primary: #0b57d0 (Google M3 Blue)
+   - Primary Container: #d3e3fd, On-Primary Container: #041e49
+   - Secondary (WeChat Green): #0f8f4c / #e6f7ec
+   - Neutral Surface Containers: #f0f4f9, #e9eef6, #e0e3e7
+   - Typography: Google Sans, Roboto, PingFang SC
+   ========================================================================== */
+
+.m3-app {
   min-height: 100vh;
-  background-color: #0b0f19;
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.1) 0px, transparent 50%);
-  color: #f8fafc;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background-color: #f8f9fa;
+  color: #1f1f1f;
+  font-family: "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   display: flex;
   flex-direction: column;
 }
 
-/* 顶部导航 */
-.landing-header {
+/* 顶部 Top App Bar */
+.m3-top-app-bar {
   position: sticky;
   top: 0;
-  z-index: 40;
+  z-index: 50;
+  background: rgba(248, 249, 250, 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  background: rgba(11, 15, 25, 0.8);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid #e0e3e7;
 }
-.header-content {
-  max-width: 1080px;
+.app-bar-inner {
+  max-width: 1100px;
   margin: 0 auto;
-  padding: 14px 24px;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.brand {
+.app-brand {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.brand-logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+.brand-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
-.brand-info {
-  display: flex;
-  flex-direction: column;
-}
-.brand-title {
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #fff;
-}
-.brand-tag {
-  font-size: 0.72rem;
-  color: #94a3b8;
-}
-.header-links {
+.brand-text {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
-.nav-btn {
-  padding: 7px 16px;
-  border-radius: 999px;
-  font-size: 0.84rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  border: none;
-}
-.btn-ghost {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
-}
-.btn-ghost:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-}
-.btn-primary {
-  background: #3b82f6;
-  color: #fff;
-}
-.btn-primary:hover {
-  background: #2563eb;
-  transform: translateY(-1px);
+.brand-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1f1f1f;
+  letter-spacing: -0.02em;
 }
 
-/* 主内容 */
-.landing-body {
+/* M3 通用按钮系统 (Pill Shape) */
+.m3-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 100px; /* M3 标准 Pill 药丸按钮 */
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  text-decoration: none;
+}
+.m3-btn:active {
+  transform: scale(0.98);
+}
+.m3-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.m3-icon-lg {
+  width: 20px;
+  height: 20px;
+}
+
+.m3-btn-filled {
+  background: #0b57d0;
+  color: #ffffff;
+}
+.m3-btn-filled:hover {
+  background: #0842a0;
+  box-shadow: 0 1px 3px 1px rgba(11, 87, 208, 0.25);
+}
+
+.m3-btn-tonal {
+  background: #e9eef6;
+  color: #1f1f1f;
+}
+.m3-btn-tonal:hover {
+  background: #dbe4f0;
+}
+
+.m3-btn-outlined {
+  background: transparent;
+  border-color: #c4c7c5;
+  color: #1f1f1f;
+}
+.m3-btn-outlined:hover {
+  background: rgba(31, 31, 31, 0.04);
+}
+
+.m3-btn-wx-filled {
+  background: #0f8f4c;
+  color: #ffffff;
+}
+.m3-btn-wx-filled:hover {
+  background: #0c733d;
+  box-shadow: 0 3px 12px rgba(15, 143, 76, 0.25);
+}
+
+.m3-btn-android-filled {
+  background: #0b57d0;
+  color: #ffffff;
+}
+.m3-btn-android-filled:hover {
+  background: #0842a0;
+  box-shadow: 0 3px 12px rgba(11, 87, 208, 0.25);
+}
+
+.m3-btn-wx-tonal {
+  background: #e6f7ec;
+  color: #0c733d;
+}
+.m3-btn-wx-tonal:hover {
+  background: #cfeed8;
+}
+
+.m3-btn-large {
+  padding: 14px 28px;
+  font-size: 0.96rem;
+  border-radius: 100px;
+}
+.m3-btn-full {
+  width: 100%;
+}
+.m3-btn-grow {
   flex: 1;
-  max-width: 1080px;
+}
+
+/* M3 Chips */
+.m3-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+.m3-chip-sm {
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  background: #e9eef6;
+  color: #444746;
+}
+.m3-chip-wx {
+  background: #e6f7ec;
+  color: #0c733d;
+}
+.m3-chip-android {
+  background: #d3e3fd;
+  color: #041e49;
+}
+.m3-chip-neutral {
+  background: #e0e3e7;
+  color: #444746;
+}
+
+/* 主内容区域 */
+.m3-main {
+  flex: 1;
+  max-width: 1100px;
   width: 100%;
   margin: 0 auto;
   padding: 50px 24px 70px;
   box-sizing: border-box;
 }
 
-/* Hero */
-.hero-section {
+/* Hero 区域 */
+.m3-hero {
   text-align: center;
-  padding: 20px 0 50px;
+  padding: 20px 0 55px;
 }
-.hero-badge {
+.m3-badge-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  padding: 5px 14px;
-  border-radius: 999px;
+  gap: 8px;
+  background: #e8f0fe;
+  color: #1967d2;
+  padding: 6px 16px;
+  border-radius: 100px;
   font-size: 0.82rem;
-  color: #60a5fa;
+  font-weight: 600;
   margin-bottom: 24px;
 }
-.sparkle {
-  color: #93c5fd;
+.m3-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #1a73e8;
 }
-.hero-heading {
-  font-size: 2.75rem;
+
+.m3-hero-headline {
+  font-size: 2.85rem;
   line-height: 1.25;
   font-weight: 800;
   letter-spacing: -0.03em;
-  margin: 0 0 20px;
-  background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #1f1f1f;
+  margin: 0 0 18px;
 }
-.hero-description {
-  max-width: 620px;
+.m3-hero-accent {
+  color: #0b57d0;
+}
+.m3-hero-subhead {
+  max-width: 640px;
   margin: 0 auto 36px;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   line-height: 1.65;
-  color: #94a3b8;
+  color: #444746;
 }
-.hero-buttons {
+.m3-hero-cta {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 16px;
   flex-wrap: wrap;
 }
-.cta-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 13px 26px;
-  border-radius: 12px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  border: none;
-}
-.cta-button .icon {
-  width: 18px;
-  height: 18px;
-}
-.cta-wechat {
-  background: #07c160;
-  color: #ffffff;
-}
-.cta-wechat:hover {
-  background: #06ad56;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(7, 193, 96, 0.3);
-}
-.cta-android {
-  background: #2563eb;
-  color: #ffffff;
-}
-.cta-android:hover {
-  background: #1d4ed8;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.3);
-}
 
-/* 双端卡片区 */
-.platforms-section {
+/* M3 双端卡片系统 (M3 Elevated Cards) */
+.m3-platforms {
   margin-bottom: 60px;
 }
-.platform-grid {
+.m3-platform-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
+  gap: 28px;
 }
-.platform-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
+
+.m3-card {
+  background: #ffffff;
+  border-radius: 28px; /* M3 标准大圆角 */
   padding: 32px;
   display: flex;
   flex-direction: column;
-  transition: all 0.3s ease;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e0e3e7;
+  transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.25s cubic-bezier(0.2, 0, 0, 1);
 }
-.platform-card:hover {
-  border-color: rgba(255, 255, 255, 0.18);
-  transform: translateY(-3px);
-  background: rgba(255, 255, 255, 0.05);
+.m3-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09);
 }
-.card-header {
+
+.m3-card-wx {
+  background: linear-gradient(180deg, #ffffff 0%, #f6fcf8 100%);
+  border-color: #d1ebd8;
+}
+.m3-card-android {
+  background: linear-gradient(180deg, #ffffff 0%, #f4f8fd 100%);
+  border-color: #d5e4f7;
+}
+
+.m3-card-header {
   display: flex;
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 24px;
 }
-.icon-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+.m3-icon-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
-.wx-avatar {
-  background: rgba(7, 193, 96, 0.15);
-  color: #07c160;
+.m3-avatar-wx {
+  background: #e6f7ec;
+  color: #0f8f4c;
 }
-.android-avatar {
-  background: rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
+.m3-avatar-android {
+  background: #d3e3fd;
+  color: #0b57d0;
 }
-.card-titles {
+
+.m3-header-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.m3-card-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #1f1f1f;
+  margin: 2px 0 0;
+}
+.m3-card-sub {
+  font-size: 0.88rem;
+  color: #444746;
+  margin: 0;
+}
+
+.m3-card-body {
+  flex: 1;
+  margin-bottom: 28px;
+}
+.m3-feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.m3-feature-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.m3-list-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.m3-list-icon-wx {
+  background: #e6f7ec;
+  color: #0f8f4c;
+}
+.m3-list-icon-android {
+  background: #d3e3fd;
+  color: #0b57d0;
+}
+.m3-list-text {
   display: flex;
   flex-direction: column;
 }
-.badge-mini {
-  display: inline-block;
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 6px;
-  margin-bottom: 6px;
-  width: fit-content;
+.m3-list-text strong {
+  font-size: 0.95rem;
+  color: #1f1f1f;
 }
-.wx-badge {
-  background: rgba(7, 193, 96, 0.2);
-  color: #4ade80;
+.m3-list-text span {
+  font-size: 0.84rem;
+  color: #5e6368;
+  line-height: 1.4;
 }
-.android-badge {
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
-}
-.card-titles h3 {
-  font-size: 1.35rem;
-  font-weight: 700;
-  margin: 0 0 4px;
-  color: #fff;
-}
-.card-titles p {
-  font-size: 0.88rem;
-  color: #94a3b8;
-  margin: 0;
-}
-.feature-bullets {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 32px;
-  flex: 1;
-}
-.feature-bullets li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.92rem;
-  color: #cbd5e1;
-  margin-bottom: 12px;
-}
-.bullet-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.wx-dot { background: #07c160; }
-.android-dot { background: #3b82f6; }
 
-.card-action {
+.m3-card-footer {
   margin-top: auto;
 }
-.double-action {
+.m3-footer-actions {
   display: flex;
   gap: 10px;
 }
-.btn-card-action {
-  flex: 1;
+.m3-arrow {
+  font-weight: 700;
+}
+
+/* 4 大核心特性网格 (M3 Tonal Surface Cards) */
+.m3-features {
+  padding-top: 10px;
+}
+.m3-section-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.m3-section-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #1f1f1f;
+  margin: 10px 0 0;
+}
+
+.m3-features-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+.m3-feature-card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 24px 20px;
+  border: 1px solid #e0e3e7;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.m3-feature-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #c4c7c5;
+}
+.m3-feature-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 12px 18px;
-  border-radius: 10px;
-  font-size: 0.92rem;
-  font-weight: 600;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s ease;
+  margin-bottom: 16px;
 }
-.btn-wx {
-  background: rgba(7, 193, 96, 0.15);
-  color: #4ade80;
-  border: 1px solid rgba(7, 193, 96, 0.3);
+.m3-icon-box-blue {
+  background: #e8f0fe;
+  color: #1a73e8;
 }
-.btn-wx:hover {
-  background: #07c160;
-  color: #fff;
+.m3-icon-box-green {
+  background: #e6f4ea;
+  color: #137333;
 }
-.btn-android {
-  background: #2563eb;
-  color: #fff;
+.m3-icon-box-amber {
+  background: #fef7e0;
+  color: #b06000;
 }
-.btn-android:hover {
-  background: #1d4ed8;
+.m3-icon-box-purple {
+  background: #f3e8fd;
+  color: #8430ce;
 }
-.btn-card-sub {
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.btn-card-sub:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-}
-
-/* 核心特性卡片 */
-.features-section {
-  padding-top: 20px;
-}
-.section-title {
-  text-align: center;
-  font-size: 1.45rem;
-  font-weight: 700;
-  margin: 0 0 32px;
-  color: #e2e8f0;
-}
-.bento-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-}
-.bento-item {
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
-  padding: 22px 18px;
-  transition: all 0.2s ease;
-}
-.bento-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.12);
-}
-.bento-icon {
-  font-size: 1.6rem;
-  margin-bottom: 12px;
-}
-.bento-item h4 {
+.m3-feature-card h3 {
   font-size: 1.05rem;
-  font-weight: 600;
+  font-weight: 700;
+  color: #1f1f1f;
   margin: 0 0 8px;
-  color: #fff;
 }
-.bento-item p {
-  font-size: 0.82rem;
-  line-height: 1.55;
-  color: #94a3b8;
+.m3-feature-card p {
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: #5e6368;
   margin: 0;
 }
 
 /* 页脚 */
-.landing-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 28px 24px;
+.m3-footer {
+  border-top: 1px solid #e0e3e7;
+  background: #ffffff;
+  padding: 24px;
   margin-top: auto;
 }
-.footer-inner {
-  max-width: 1080px;
+.m3-footer-inner {
+  max-width: 1100px;
   margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.84rem;
-  color: #64748b;
+  font-size: 0.85rem;
+  color: #5e6368;
   flex-wrap: wrap;
   gap: 12px;
 }
-.footer-inner p {
-  margin: 0;
+.m3-footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.footer-links {
+.m3-footer-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+.m3-footer-links {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.footer-links a {
-  color: #94a3b8;
+.m3-footer-links a {
+  color: #1a73e8;
   text-decoration: none;
-  transition: color 0.2s;
 }
-.footer-links a:hover {
-  color: #3b82f6;
+.m3-footer-links a:hover {
+  text-decoration: underline;
 }
-.sep {
-  color: #475569;
+.m3-sep {
+  color: #c4c7c5;
 }
 
-/* 弹窗 */
-.modal-backdrop {
+/* M3 弹窗系统 (Material 3 Dialog & Scrim) */
+.m3-dialog-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
-  padding: 16px;
+  padding: 20px;
 }
-.modal-container {
-  background: #151b28;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 20px;
+.m3-dialog {
+  background: #ffffff;
+  border-radius: 28px; /* M3 标准 Dialog 圆角 */
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   padding: 28px;
   position: relative;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
   box-sizing: border-box;
 }
-.modal-close {
+.m3-dialog-close {
   position: absolute;
   top: 18px;
   right: 18px;
-  background: transparent;
+  background: #f0f4f9;
   border: none;
-  color: #94a3b8;
-  font-size: 1.1rem;
-  cursor: pointer;
-  padding: 4px;
-}
-.modal-close:hover {
-  color: #fff;
-}
-.modal-header {
-  text-align: center;
-  margin-bottom: 24px;
-}
-.modal-icon-badge {
-  display: inline-block;
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 3px 10px;
-  border-radius: 6px;
-  margin-bottom: 10px;
-}
-.modal-header h3 {
-  font-size: 1.3rem;
-  font-weight: 700;
-  margin: 0 0 4px;
-  color: #fff;
-}
-.modal-header p {
-  font-size: 0.85rem;
-  color: #94a3b8;
-  margin: 0;
-}
-.modal-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.wx-search-hint {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.hint-label {
-  font-size: 0.8rem;
-  color: #94a3b8;
-  font-weight: 600;
-}
-.search-box {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 12px;
-  border-radius: 10px;
-  text-align: center;
-  font-size: 0.95rem;
-  color: #e2e8f0;
-}
-.divider-text {
-  text-align: center;
-  color: #475569;
-  font-size: 0.8rem;
-  position: relative;
-}
-.divider-text::before,
-.divider-text::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: 40%;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.08);
-}
-.divider-text::before { left: 0; }
-.divider-text::after { right: 0; }
-
-.sub-hint {
-  font-size: 0.82rem;
-  color: #64748b;
-  margin: 0 0 4px;
-  text-align: center;
-}
-.wx-qr-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 18px;
-  border-radius: 12px;
-  background: rgba(7, 193, 96, 0.06);
-  border: 1px solid rgba(7, 193, 96, 0.2);
-}
-.miniapp-avatar {
-  width: 54px;
-  height: 54px;
-  border-radius: 14px;
-  margin-bottom: 8px;
-}
-.miniapp-name {
-  font-weight: 700;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #444746;
   font-size: 1rem;
-  color: #fff;
-}
-.miniapp-sub {
-  font-size: 0.75rem;
-  color: #4ade80;
-}
-
-.qr-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-.qr-image {
-  width: 170px;
-  height: 170px;
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px;
-}
-.qr-tip {
-  font-size: 0.8rem;
-  color: #94a3b8;
-  margin: 0;
-  text-align: center;
-}
-.modal-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 6px;
-}
-.btn-modal-primary {
-  background: #2563eb;
-  color: #fff;
-  padding: 11px;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 0.9rem;
-  border: none;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: background 0.2s;
 }
-.btn-modal-primary:hover {
-  background: #1d4ed8;
-}
-.btn-modal-ghost {
-  background: rgba(255, 255, 255, 0.06);
-  color: #cbd5e1;
-  padding: 10px;
-  border-radius: 10px;
-  font-size: 0.85rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  cursor: pointer;
-}
-.btn-modal-ghost:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-.modal-changelog {
-  font-size: 0.78rem;
-  color: #94a3b8;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-.changelog-title {
-  font-weight: 600;
-  color: #cbd5e1;
-}
-.modal-changelog ul {
-  margin: 4px 0 0;
-  padding-left: 18px;
-}
-.modal-changelog li {
-  margin-bottom: 2px;
+.m3-dialog-close:hover {
+  background: #e0e3e7;
+  color: #1f1f1f;
 }
 
-/* 响应式适配 */
-@media (max-width: 840px) {
-  .hero-heading {
-    font-size: 2.1rem;
+/* M3 Segmented Button (分段控件) */
+.m3-segmented-control {
+  display: flex;
+  background: #f0f4f9;
+  border-radius: 100px;
+  padding: 4px;
+  margin-bottom: 24px;
+  margin-right: 36px;
+}
+.m3-segment-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 100px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: #444746;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.m3-segment-btn.active {
+  background: #ffffff;
+  color: #0b57d0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.m3-dialog-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.m3-qr-card-wx {
+  background: #f2f9f4;
+  border: 1px solid #cce8d5;
+  border-radius: 20px;
+  padding: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 18px;
+}
+.m3-qr-avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 12px;
+}
+.m3-dialog-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1f1f1f;
+  margin: 0 0 4px;
+}
+.m3-dialog-sub {
+  font-size: 0.85rem;
+  color: #0f8f4c;
+  margin: 0;
+  font-weight: 500;
+}
+
+.m3-search-guide {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.m3-guide-label {
+  font-size: 0.8rem;
+  color: #5e6368;
+  font-weight: 600;
+  text-align: left;
+}
+.m3-search-input-sim {
+  background: #f0f4f9;
+  border: 1px solid #e0e3e7;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 0.92rem;
+  color: #1f1f1f;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.m3-sim-icon {
+  font-size: 1rem;
+}
+
+.m3-qr-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.m3-qr-img {
+  width: 180px;
+  height: 180px;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 10px;
+  border: 1px solid #e0e3e7;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+.m3-qr-hint {
+  font-size: 0.82rem;
+  color: #5e6368;
+  margin: 0;
+}
+
+.m3-dialog-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.m3-changelog-box {
+  margin-top: 16px;
+  width: 100%;
+  text-align: left;
+  background: #f0f4f9;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 0.8rem;
+  color: #444746;
+  box-sizing: border-box;
+}
+.m3-changelog-title {
+  font-weight: 700;
+  color: #1f1f1f;
+}
+.m3-changelog-box ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.m3-changelog-box li {
+  margin-bottom: 3px;
+}
+
+/* 响应式断点 */
+@media (max-width: 860px) {
+  .m3-hero-headline {
+    font-size: 2.3rem;
   }
-  .platform-grid {
+  .m3-platform-grid {
     grid-template-columns: 1fr;
-    gap: 16px;
+    gap: 20px;
   }
-  .bento-grid {
+  .m3-features-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
 @media (max-width: 520px) {
-  .landing-body {
+  .m3-main {
     padding: 30px 16px 50px;
   }
-  .header-content {
+  .app-bar-inner {
     padding: 12px 16px;
   }
-  .hero-heading {
-    font-size: 1.75rem;
+  .m3-hero-headline {
+    font-size: 1.85rem;
   }
-  .hero-description {
-    font-size: 0.92rem;
+  .m3-hero-subhead {
+    font-size: 0.95rem;
   }
-  .hero-buttons {
+  .m3-hero-cta {
     flex-direction: column;
     width: 100%;
   }
-  .cta-button {
+  .m3-btn-large {
     width: 100%;
-    justify-content: center;
   }
-  .bento-grid {
+  .m3-features-grid {
     grid-template-columns: 1fr;
   }
-  .platform-card {
-    padding: 22px 18px;
+  .m3-card {
+    padding: 24px 20px;
   }
-  .footer-inner {
+  .m3-footer-inner {
     flex-direction: column;
     text-align: center;
-    gap: 8px;
+    gap: 10px;
   }
 }
 </style>
