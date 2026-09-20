@@ -1,12 +1,14 @@
 {
-  "versionCode": 28,
-  "versionName": "2.4.6",
+  "versionCode": 29,
+  "versionName": "2.4.7",
   "minVersionCode": 1,
-  "title": "发现新版本 v2.4.6",
+  "title": "发现新版本 v2.4.7",
   "changelog": [
-    "优化安卓桌面图标与圆形图标尺寸，中心图形适度放小居中"
+    "新增学期课表手动同步按钮，多端修改秒级拉取最新数据",
+    "优化单课表下拉菜单交互体验与周次浏览状态保持",
+    "修复渠道换绑状态机死锁问题，全面提升课表助手连接稳定性"
   ],
-  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.6.apk",
-  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.6.apk",
+  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.7.apk",
+  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.7.apk",
   "forceUpdate": false
 }
