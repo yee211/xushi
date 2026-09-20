@@ -495,7 +495,9 @@ Page({
     if (target < 1 || target > this.data.weekCount) return
     this.applyWeek(target)
   },
-  toggleWeekPicker() { this.setData({ weekOpen: !this.data.weekOpen }) },
+  toggleWeekPicker() {
+    this.setData({ weekOpen: !this.data.weekOpen })
+  },
   selectWeek(event) {
     const week = Number(event.currentTarget.dataset.week)
     this.setData({ weekOpen: false })

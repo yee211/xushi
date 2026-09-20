@@ -3,58 +3,153 @@ page {
   height: 100%;
   min-height: 100%;
   overflow-x: hidden;
-  background-color: #f3f6fb;
+  background-color: #f6f8fb;
   color: #172033;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "HarmonyOS Sans", "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif;
-  /* ===== 液态玻璃光学令牌（亮色）===== */
-  --glass-bg: linear-gradient(135deg, rgba(255,255,255,.14) 0%, rgba(255,255,255,.035) 52%, rgba(255,255,255,.08) 100%);
-  --glass-border: rgba(255,255,255,.55);
-  --glass-highlight: inset 0 1.5px 0.5px rgba(255,255,255,.9);
-  --glass-refraction: inset 0 -1px 1px rgba(170,192,224,.18);
-  --glass-shadow: 0 16px 36px -10px rgba(42,65,105,.08), 0 6px 16px -4px rgba(42,65,105,.04);
-  --hairline: rgba(255,255,255,.38);
-  --spring: cubic-bezier(.34,1.56,.64,1);
+
+  /* ===== 苹果 iOS 真正液态毛玻璃三阶规范 (Liquid Glass System) ===== */
+
+  /* 基础尺寸令牌 */
+  --radius-xs: 12rpx;
+  --radius-sm: 18rpx;
+  --radius-md: 24rpx;
+  --radius-lg: 36rpx;
+  --radius-pill: 9999rpx;
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+
+  /* Tier 1: Glass / Subtle (次级面板、输入框、浅层小徽标) */
+  --glass-subtle-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
+  --glass-subtle-border: rgba(255, 255, 255, 0.40);
+  --glass-subtle-shadow: 0 4rpx 14rpx rgba(15, 23, 42, 0.05);
+  --glass-subtle-blur: blur(10px);
+
+  /* Tier 2: Glass / Regular (课表主面板、内容主卡片、通用按钮) */
+  --glass-regular-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(255, 255, 255, 0.10) 100%);
+  --glass-regular-border: rgba(255, 255, 255, 0.55);
+  --glass-regular-highlight: inset 0 2rpx 1.5rpx rgba(255, 255, 255, 0.95), inset 1.5rpx 0 2rpx rgba(255, 255, 255, 0.35), inset -1.5rpx 0 2rpx rgba(255, 255, 255, 0.20);
+  --glass-regular-refraction: inset 0 -2.5rpx 2.5rpx rgba(0, 0, 0, 0.16);
+  --glass-regular-shadow: 0 16rpx 36rpx -6rpx rgba(25, 45, 80, 0.15), 0 4rpx 12rpx -2rpx rgba(25, 45, 80, 0.06);
+  --glass-regular-blur: blur(12px) saturate(140%);
+
+  /* Tier 3: Glass / Liquid (灵动岛、底部悬浮操作条、底部弹出抽屉) */
+  --glass-liquid-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0.14) 100%);
+  --glass-liquid-border: rgba(255, 255, 255, 0.65);
+  --glass-liquid-highlight: inset 0 2rpx 1.5rpx rgba(255, 255, 255, 0.98), inset 1.5rpx 0 2rpx rgba(255, 255, 255, 0.40), inset -1.5rpx 0 2rpx rgba(255, 255, 255, 0.25);
+  --glass-liquid-refraction: inset 0 -3rpx 3rpx rgba(0, 0, 0, 0.20);
+  --glass-liquid-shadow: 0 20rpx 48rpx -8rpx rgba(25, 45, 80, 0.20), 0 6rpx 16rpx -3rpx rgba(25, 45, 80, 0.08);
+  --glass-liquid-blur: blur(14px) saturate(150%);
+
+  /* 兼容与快捷映射 */
+  --glass-bg: var(--glass-regular-bg);
+  --glass-border: var(--glass-regular-border);
+  --glass-highlight: var(--glass-regular-highlight);
+  --glass-refraction: var(--glass-regular-refraction);
+  --glass-shadow: var(--glass-regular-shadow);
+  --capsule-bg: var(--glass-liquid-bg);
+  --capsule-border: var(--glass-liquid-border);
+  --capsule-highlight: var(--glass-liquid-highlight);
+  --capsule-refraction: var(--glass-liquid-refraction);
+  --capsule-shadow: var(--glass-liquid-shadow);
+  --capsule-active-bg: rgba(255, 255, 255, 0.32);
+  --hairline: rgba(255, 255, 255, 0.45);
 }
-/* 夜色模式：维持高透光,底色切深青黑半透,高光转微白 */
+
+/* 夜色模式：深蓝黑高透晶体毛玻璃 */
 .night {
-  --glass-bg: linear-gradient(135deg, rgba(2,6,23,.34) 0%, rgba(15,23,42,.16) 100%);
-  --glass-border: rgba(148,163,184,.25);
-  --glass-highlight: inset 0 1.5px 0.5px rgba(255,255,255,.16);
-  --glass-refraction: inset 0 -1px 1px rgba(148,163,184,.10);
-  --glass-shadow: 0 16px 36px -10px rgba(2,6,23,.4), 0 6px 16px -4px rgba(2,6,23,.22);
-  --hairline: rgba(148,163,184,.22);
+  background-color: #070d19;
+  color: #cbd5e1;
+
+  --glass-subtle-bg: rgba(30, 41, 59, 0.30);
+  --glass-subtle-border: rgba(255, 255, 255, 0.14);
+  --glass-subtle-shadow: 0 4rpx 14rpx rgba(0, 0, 0, 0.40);
+
+  --glass-regular-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.35) 0%, rgba(15, 23, 42, 0.18) 100%);
+  --glass-regular-border: rgba(255, 255, 255, 0.22);
+  --glass-regular-highlight: inset 0 1.5rpx 0.5rpx rgba(255, 255, 255, 0.45), inset 1.5rpx 0 1.5rpx rgba(255, 255, 255, 0.18);
+  --glass-regular-refraction: inset 0 -1.5rpx 1.5rpx rgba(0, 0, 0, 0.45);
+  --glass-regular-shadow: 0 18rpx 44rpx -10rpx rgba(0, 0, 0, 0.60);
+
+  --glass-liquid-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.45) 0%, rgba(15, 23, 42, 0.22) 100%);
+  --glass-liquid-border: rgba(255, 255, 255, 0.30);
+  --glass-liquid-highlight: inset 0 1.5rpx 0.5rpx rgba(255, 255, 255, 0.55), inset 1.5rpx 0 1.5rpx rgba(255, 255, 255, 0.22);
+  --glass-liquid-refraction: inset 0 -2rpx 2rpx rgba(0, 0, 0, 0.55);
+  --glass-liquid-shadow: 0 24rpx 54rpx -10rpx rgba(0, 0, 0, 0.70);
+
+  --glass-bg: var(--glass-regular-bg);
+  --glass-border: var(--glass-regular-border);
+  --glass-highlight: var(--glass-regular-highlight);
+  --glass-refraction: var(--glass-regular-refraction);
+  --glass-shadow: var(--glass-regular-shadow);
+  --capsule-bg: var(--glass-liquid-bg);
+  --capsule-border: var(--glass-liquid-border);
+  --capsule-highlight: var(--glass-liquid-highlight);
+  --capsule-refraction: var(--glass-liquid-refraction);
+  --capsule-shadow: var(--glass-liquid-shadow);
+  --capsule-active-bg: rgba(51, 65, 85, 0.45);
+  --hairline: rgba(255, 255, 255, 0.14);
 }
+
 page, view, scroll-view, input, button, picker { box-sizing: border-box; }
 button { margin: 0; padding: 0; width: auto; border-radius: 0; background: transparent; color: inherit; font-size: inherit; line-height: normal; }
 button::after { border: 0; }
-.btn {
-  display: flex;
-  min-height: 76rpx;
-  padding: 0 28rpx;
+
+/* 苹果晶体胶囊标准类（纯胶囊形态 + 微棱切面高光） */
+.glass-capsule, .glass-bubble {
+  position: relative;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* L3 实体胶囊：晶体胶囊渐变,不用实色 */
-  border: 1rpx solid var(--glass-border);
-  border-radius: 22rpx;
-  background: linear-gradient(135deg, rgba(255,255,255,.28), rgba(255,255,255,.10));
-  box-shadow: var(--glass-highlight), var(--glass-refraction);
-  color: #285269;
-  font-size: 27rpx;
-  font-weight: 600;
-  line-height: 1.2;
-  transition: transform .25s var(--spring);
+  border-radius: var(--radius-pill);
+  border: 1.5rpx solid var(--capsule-border);
+  background: var(--capsule-bg);
+  box-shadow: var(--capsule-shadow), var(--capsule-highlight), var(--capsule-refraction);
+  backdrop-filter: var(--glass-liquid-blur);
+  -webkit-backdrop-filter: var(--glass-liquid-blur);
+  transition: opacity .15s ease, background .15s ease;
 }
-.btn[disabled] { opacity: .42; }
-.btn.primary { border-color: transparent; color: #ffffff; background: linear-gradient(135deg, #0ea5e9, #2563eb); box-shadow: 0 12rpx 26rpx rgba(37,99,235,.22), inset 0 1.5px 0.5px rgba(255,255,255,.45); }
-.night .btn { color: #cbd5e1; }
-.card {
-  /* 容器面板：禁用 backdrop-filter,靠 3.5%~14% 极限透明 + 微棱高光折射(液态玻璃规范) */
-  border: 1rpx solid var(--glass-border);
-  border-radius: 28rpx;
-  background: var(--glass-bg);
-  box-shadow: var(--glass-shadow), var(--glass-highlight), var(--glass-refraction);
-  backdrop-filter: none;
+.glass-capsule-active, .glass-bubble-active {
+  opacity: .82;
+  background: var(--capsule-active-bg);
 }
 
-/* 按钮 universal 按压反馈（button 默认 hover-class） */
-.button-hover { opacity: .82; transform: scale(.97); }
+/* 统一按钮类：纯净、微透、克制、无大幅缩放反馈 */
+.btn {
+  display: flex;
+  min-height: 80rpx;
+  padding: 0 32rpx;
+  align-items: center;
+  justify-content: center;
+  border: 1.5rpx solid var(--capsule-border);
+  border-radius: var(--radius-pill);
+  background: var(--capsule-bg);
+  box-shadow: var(--capsule-shadow), var(--capsule-highlight), var(--capsule-refraction);
+  backdrop-filter: var(--glass-regular-blur);
+  -webkit-backdrop-filter: var(--glass-regular-blur);
+  color: #1e3a5f;
+  font-size: 27rpx;
+  font-weight: 650;
+  line-height: 1.2;
+  transition: opacity .15s ease, background .15s ease;
+}
+.btn[disabled] { opacity: .40; pointer-events: none; }
+.btn.primary {
+  border-color: rgba(255, 255, 255, .60);
+  color: #ffffff;
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  box-shadow: 0 10rpx 24rpx rgba(37, 99, 235, .28), inset 0 2rpx 1rpx rgba(255, 255, 255, .85), inset 0 -1.5rpx 1.5rpx rgba(0, 0, 0, .20);
+}
+.night .btn { color: #cbd5e1; }
+.night .btn.primary { color: #ffffff; }
+
+/* 核心卡片：标准毛玻璃卡片（中阶 Glass / Regular） */
+.card {
+  border: 1.5rpx solid var(--glass-regular-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-regular-bg);
+  box-shadow: var(--glass-regular-shadow), var(--glass-regular-highlight), var(--glass-regular-refraction);
+  backdrop-filter: var(--glass-regular-blur);
+  -webkit-backdrop-filter: var(--glass-regular-blur);
+}
+
+/* 按钮与交互反馈：克制轻柔的透明度微调，去除大幅弹跳与震动 */
+.button-hover, .btn:active { opacity: .82; }

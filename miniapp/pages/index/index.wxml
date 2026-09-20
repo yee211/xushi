@@ -15,7 +15,7 @@
             <text class="term-chevron">▾</text>
           </view>
           <view class="week-inline">
-            <view class="week-chip" hover-class="term-picker-hover" hover-stay-time="100" bindtap="toggleWeekPicker" aria-label="选择周数">
+            <view class="week-chip" hover-class="week-chip-hover" hover-stay-time="100" bindtap="toggleWeekPicker" aria-label="选择周数">
               <text class="week-chip-text">第 {{week}} 周</text>
               <text class="week-chip-badge" wx:if="{{weekIsCurrent}}">本周</text>
               <text class="week-chip-arrow">{{weekOpen ? '⌃' : '⌄'}}</text>
