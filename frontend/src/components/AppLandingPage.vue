@@ -65,6 +65,11 @@ async function copyLink() {
   } catch {}
 }
 
+function scrollToTutorial() {
+  const el = document.getElementById('tutorial-section');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 onMounted(() => {
   fetchVersion();
 });
@@ -84,6 +89,13 @@ onMounted(() => {
         </div>
 
         <nav class="app-bar-actions">
+          <button class="m3-btn m3-btn-text" @click="scrollToTutorial">
+            <svg class="m3-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+            </svg>
+            <span>使用教程</span>
+          </button>
           <button class="m3-btn m3-btn-tonal" @click="openModal('wechat')">
             <svg class="m3-icon" viewBox="0 0 24 24" fill="currentColor">
               <path d="M9.5 4C5.36 4 2 6.69 2 10c0 1.89 1.08 3.56 2.78 4.66l-.7 2.1 2.45-1.23c.86.24 1.78.37 2.74.37h.36a6.08 6.08 0 0 1-.25-1.73c0-3.31 3.02-6 6.74-6 .24 0 .47.01.7.03C16.22 5.75 13.14 4 9.5 4zM7.3 8.6a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8zm4.4 0a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/>
@@ -239,6 +251,77 @@ onMounted(() => {
               <button class="m3-btn m3-btn-outlined" @click="openModal('android')">
                 <span>扫码安装</span>
               </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 使用教程链路 (M3 Tutorial Stepper Cards) -->
+      <section id="tutorial-section" class="m3-tutorial">
+        <div class="m3-section-header">
+          <span class="m3-chip m3-chip-neutral">使用教程</span>
+          <h2 class="m3-section-title">三步上手 · 双端协同与共享</h2>
+          <p class="m3-section-sub">从教务一键直连，到微信双端互通，再到全班口令秒级共享</p>
+        </div>
+
+        <div class="m3-tutorial-grid">
+          <!-- 步骤 1 -->
+          <div class="m3-step-card">
+            <div class="m3-step-badge-wrap">
+              <span class="m3-step-num">01</span>
+              <span class="m3-chip m3-chip-android">安卓端 · 教务抓取</span>
+            </div>
+            <h3 class="m3-step-title">教务一键直连导入</h3>
+            <p class="m3-step-desc">打开 Android 原生 App，通过内置教务系统登录后点击「我的课表」，轻触「一键导入」。</p>
+            <div class="m3-step-path">
+              <span class="m3-path-node">登录教务</span>
+              <span class="m3-path-arrow">→</span>
+              <span class="m3-path-node">我的课表</span>
+              <span class="m3-path-arrow">→</span>
+              <span class="m3-path-node highlight-blue">一键导入</span>
+            </div>
+            <div class="m3-step-tip">
+              <strong>💡 优势：</strong>原生 WebView 毫秒级抓取强智等教务，免导出 Excel，免复杂抓包。
+            </div>
+          </div>
+
+          <!-- 步骤 2 -->
+          <div class="m3-step-card">
+            <div class="m3-step-badge-wrap">
+              <span class="m3-step-num">02</span>
+              <span class="m3-chip m3-chip-wx">跨端打通 · 微信绑定</span>
+            </div>
+            <h3 class="m3-step-title">绑定微信双端同步</h3>
+            <p class="m3-step-desc">安卓端「我的」点击「微信小程序绑定」获取 6 位绑定码；进入微信小程序「课表助手」粘贴绑定即可同步。</p>
+            <div class="m3-step-path">
+              <span class="m3-path-node">获取绑定码</span>
+              <span class="m3-path-arrow">→</span>
+              <span class="m3-path-node">课表助手</span>
+              <span class="m3-path-arrow">→</span>
+              <span class="m3-path-node highlight-green">两端云同步</span>
+            </div>
+            <div class="m3-step-tip">
+              <strong>💡 贴士：</strong>同一套云端数据库自动打通；若修改课表未即时显示，可随时点击「手动同步」强制刷新。
+            </div>
+          </div>
+
+          <!-- 步骤 3 -->
+          <div class="m3-step-card">
+            <div class="m3-step-badge-wrap">
+              <span class="m3-step-num">03</span>
+              <span class="m3-chip m3-chip-amber">好友共享 · 口令导入</span>
+            </div>
+            <h3 class="m3-step-title">极速口令全班共享</h3>
+            <p class="m3-step-desc">小程序内点击「分享课表」生成 6 位口令。好友复制后打开小程序进入「口令导入」，系统智能识别剪贴板直接填充确认！</p>
+            <div class="m3-step-path">
+              <span class="m3-path-node">分享课表</span>
+              <span class="m3-path-arrow">→</span>
+              <span class="m3-path-node">复制口令</span>
+              <span class="m3-path-arrow">→</span>
+              <span class="m3-path-node highlight-amber">剪贴板自动导入</span>
+            </div>
+            <div class="m3-step-tip">
+              <strong>💡 便捷：</strong>小程序已集成剪贴板监听，对方打开即自动读取分享码，告别逐字手动输入。
             </div>
           </div>
         </div>
@@ -512,6 +595,15 @@ onMounted(() => {
   background: rgba(31, 31, 31, 0.04);
 }
 
+.m3-btn-text {
+  background: transparent;
+  color: #444746;
+}
+.m3-btn-text:hover {
+  background: rgba(31, 31, 31, 0.05);
+  color: #1f1f1f;
+}
+
 .m3-btn-wx-filled {
   background: #0f8f4c;
   color: #ffffff;
@@ -576,6 +668,10 @@ onMounted(() => {
 .m3-chip-neutral {
   background: #e0e3e7;
   color: #444746;
+}
+.m3-chip-amber {
+  background: #fef7e0;
+  color: #b06000;
 }
 
 /* 主内容区域 */
@@ -773,6 +869,105 @@ onMounted(() => {
 }
 .m3-arrow {
   font-weight: 700;
+}
+
+/* 使用教程链路 (M3 Tutorial Stepper Cards) */
+.m3-tutorial {
+  margin-bottom: 60px;
+}
+.m3-section-sub {
+  font-size: 0.95rem;
+  color: #5e6368;
+  margin: 8px 0 0;
+}
+.m3-tutorial-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.m3-step-card {
+  background: #ffffff;
+  border-radius: 24px;
+  border: 1px solid #e0e3e7;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition: all 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+.m3-step-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  border-color: #c4c7c5;
+}
+.m3-step-badge-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.m3-step-num {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #0b57d0;
+  letter-spacing: -0.04em;
+  font-family: "Google Sans", sans-serif;
+}
+.m3-step-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1f1f1f;
+  margin: 0 0 10px;
+}
+.m3-step-desc {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: #444746;
+  margin: 0 0 18px;
+  flex: 1;
+}
+.m3-step-path {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  background: #f0f4f9;
+  padding: 10px 12px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.m3-path-node {
+  color: #444746;
+}
+.m3-path-arrow {
+  color: #94a3b8;
+  font-weight: 700;
+}
+.highlight-blue {
+  color: #0b57d0;
+}
+.highlight-green {
+  color: #0f8f4c;
+}
+.highlight-amber {
+  color: #b06000;
+}
+.m3-step-tip {
+  background: #f8f9fa;
+  border-left: 3px solid #0b57d0;
+  padding: 10px 12px;
+  border-radius: 0 8px 8px 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #5e6368;
+}
+.m3-step-card:nth-child(2) .m3-step-tip {
+  border-left-color: #0f8f4c;
+}
+.m3-step-card:nth-child(3) .m3-step-tip {
+  border-left-color: #b06000;
 }
 
 /* 4 大核心特性网格 (M3 Tonal Surface Cards) */
@@ -1085,6 +1280,10 @@ onMounted(() => {
   .m3-platform-grid {
     grid-template-columns: 1fr;
     gap: 20px;
+  }
+  .m3-tutorial-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
   .m3-features-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
