@@ -409,7 +409,6 @@
           <view class="term-card-title-group">
             <text class="term-card-title">{{item.displayName}}</text>
             <text class="term-card-badge adjusted" wx:if="{{item.isAdjusted}}">调课版</text>
-            <text class="term-card-badge original" wx:elif="{{item.variant_type === 'original'}}">原表</text>
           </view>
           <text class="term-card-status {{item.statusType}}">{{item.statusText}}</text>
         </view>

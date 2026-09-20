@@ -674,17 +674,12 @@ Page({
   },
   async ensureEditable(courseId) {
     const schedule = this.data.schedule
-    if (!schedule || schedule.variant_type !== 'original') {
-      return { scheduleId: schedule && schedule.id, courseId, course_map: {}, fromOriginal: false }
+    return {
+      scheduleId: schedule ? schedule.id : null,
+      courseId: courseId || null,
+      course_map: {},
+      fromOriginal: false,
     }
-    const keepWeek = this.data.week
-    const result = await app.request(`/api/schedules/${schedule.id}/adjusted`, { method: 'POST' })
-    if (result.created) this.toast('已保留原始课表，并创建“（调）”版本')
-    await this.load(result.schedule_id)
-    // load 会把周次重置回当前周，这里恢复用户正在查看的周，避免后续调课写错周次
-    this.applyWeek(keepWeek)
-    return { scheduleId: result.schedule_id, courseId: courseId ? (result.course_map[String(courseId)] || courseId) : null,
-      course_map: result.course_map || {}, fromOriginal: true }
   },
   closeCourseEditor() {
     if (this.data.courseSaving) return

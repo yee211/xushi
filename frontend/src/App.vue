@@ -363,21 +363,13 @@ async function load(preferredId = null) {
   }
 }
 
-// 导入课表保持只读；第一次实际修改时创建并切换到唯一的“（调）”副本。
+// 支持在原课表上就地直接修改，无需克隆派生调课版副本。
 async function ensureEditableSchedule(courseId = null) {
-  if (!schedule.value || schedule.value.variant_type !== 'original') {
-    return { scheduleId: schedule.value?.id, courseId, courseMap: {}, fromOriginal: false };
-  }
-  const previousWeek = week.value;
-  const result = await schedulesApi.ensureAdjusted(schedule.value.id);
-  await load(result.schedule_id);
-  week.value = Math.min(previousWeek, scheduleWeekCount(schedule.value));
-  if (result.created) notify('已保留原始课表，并创建“（调）”版本');
   return {
-    scheduleId: result.schedule_id,
-    courseId: courseId == null ? null : (result.course_map?.[String(courseId)] || courseId),
-    courseMap: result.course_map || {},
-    fromOriginal: true,
+    scheduleId: schedule.value?.id,
+    courseId,
+    courseMap: {},
+    fromOriginal: false,
   };
 }
 

@@ -82,55 +82,15 @@ def list_schedules(user=Depends(get_current_user)):
 
 @router.post("/{schedule_id}/adjusted", status_code=201)
 def ensure_adjusted_schedule(schedule_id: int, user=Depends(get_current_user)):
-    """为导入课表创建唯一的可编辑副本；重复调用返回同一副本。"""
+    """为向下兼容保留；现在支持在原表上就地编辑，直接返回当前课表。"""
     with connect() as db:
-        db.execute("SELECT pg_advisory_xact_lock(%s)", (schedule_id,))
         source = db.execute(
-            "SELECT * FROM schedules WHERE id=%s AND user_id=%s FOR UPDATE",
+            "SELECT id FROM schedules WHERE id=%s AND user_id=%s",
             (schedule_id, user["id"]),
         ).fetchone()
         if not source:
             raise HTTPException(404, "课表不存在")
-        if source["variant_type"] != "original":
-            return {"schedule_id": source["id"], "created": False, "course_map": {}}
-
-        adjusted = db.execute(
-            "SELECT * FROM schedules WHERE source_schedule_id=%s AND variant_type='adjusted'",
-            (source["id"],),
-        ).fetchone()
-        created = adjusted is None
-        if not adjusted:
-            adjusted = db.execute(
-                """INSERT INTO schedules
-                   (user_id,name,term,start_date,end_date,background,variant_type,source_schedule_id)
-                   VALUES(%s,%s,%s,%s,%s,%s,'adjusted',%s) RETURNING *""",
-                (
-                    user["id"], source["name"], f"{source['term']}（调）", source["start_date"],
-                    source["end_date"], source["background"], source["id"],
-                ),
-            ).fetchone()
-            courses = db.execute("SELECT * FROM courses WHERE schedule_id=%s ORDER BY id", (source["id"],)).fetchall()
-            for course in courses:
-                db.execute(
-                    """INSERT INTO courses
-                       (schedule_id,name,teacher,room,weekday,start_section,end_section,weeks,color,source_course_id)
-                       VALUES(%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)""",
-                    (
-                        adjusted["id"], course["name"], course["teacher"], course["room"], course["weekday"],
-                        course["start_section"], course["end_section"], json.dumps(course["weeks"]),
-                        course["color"], course["id"],
-                    ),
-                )
-
-        mapped = db.execute(
-            "SELECT id,source_course_id FROM courses WHERE schedule_id=%s AND source_course_id IS NOT NULL",
-            (adjusted["id"],),
-        ).fetchall()
-        return {
-            "schedule_id": adjusted["id"],
-            "created": created,
-            "course_map": {str(row["source_course_id"]): row["id"] for row in mapped},
-        }
+        return {"schedule_id": source["id"], "created": False, "course_map": {}}
 
 
 @router.put("/{schedule_id}")

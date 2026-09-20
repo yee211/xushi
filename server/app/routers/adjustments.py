@@ -103,13 +103,11 @@ def apply_notice(payload: AdjustmentApplyRequest,
         raise HTTPException(400, "幂等请求编号过长")
     with connect() as db:
         schedule = db.execute(
-            "SELECT variant_type FROM schedules WHERE id=%s AND user_id=%s FOR UPDATE",
+            "SELECT id FROM schedules WHERE id=%s AND user_id=%s FOR UPDATE",
             (payload.schedule_id, user["id"]),
         ).fetchone()
         if not schedule:
             raise HTTPException(404, "课表不存在")
-        if schedule["variant_type"] == "original":
-            raise HTTPException(409, "原始导入课表为只读，请先创建调课版")
         if idempotency_key:
             duplicate = db.execute(
                 "SELECT details FROM course_change_logs WHERE schedule_id=%s AND request_id=%s",

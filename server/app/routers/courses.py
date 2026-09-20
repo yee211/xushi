@@ -13,8 +13,7 @@ DAYS_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周�
 
 
 def reject_original_schedule(row) -> None:
-    if row and row.get("variant_type") == "original":
-        raise HTTPException(409, "原始导入课表为只读，请先创建调课版")
+    pass
 
 
 def adjustment_conflicts(db, course_id: int, week: int, weekday: int, start_section: int, end_section: int) -> bool:
@@ -133,7 +132,7 @@ def update_course(
             """UPDATE courses SET schedule_id=%s,name=%s,teacher=%s,room=%s,
             weekday=%s,start_section=%s,end_section=%s,weeks=%s::jsonb,color=%s
             WHERE id=%s AND EXISTS (
-                SELECT 1 FROM schedules s WHERE s.id=courses.schedule_id AND s.user_id=%s AND s.variant_type<>'original'
+                SELECT 1 FROM schedules s WHERE s.id=courses.schedule_id AND s.user_id=%s
             ) RETURNING *""",
             (*course_row_values(course), course_id, user["id"]),
         ).fetchone()
@@ -198,7 +197,7 @@ def delete_course(course_id: int, user=Depends(get_current_user)):
     with connect() as db:
         deleted = db.execute(
             """DELETE FROM courses WHERE id=%s AND EXISTS (
-                SELECT 1 FROM schedules s WHERE s.id=courses.schedule_id AND s.user_id=%s AND s.variant_type<>'original'
+                SELECT 1 FROM schedules s WHERE s.id=courses.schedule_id AND s.user_id=%s
             ) RETURNING id""",
             (course_id, user["id"]),
         ).fetchone()
