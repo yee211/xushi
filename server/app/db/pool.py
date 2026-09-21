@@ -56,6 +56,33 @@ def connect():
             yield db
 
 
+@contextmanager
+def db_ctx(db_or_factory):
+    """统一的数据库借还上下文适配器：
+    1. 若传入为连接上下文工厂（如 connect），进入上下文并在退出时归还；
+    2. 若传入为返回普通连接对象的函数，退出时自动关闭释放；
+    3. 若传入为连接池对象，通过 connection() 借用并归还；
+    4. 若传入为裸连接或测试 mock 对象，直接透传。
+    """
+    if callable(db_or_factory):
+        ctx = db_or_factory()
+        if hasattr(ctx, "__enter__") and hasattr(ctx, "__exit__"):
+            with ctx as db:
+                yield db
+        elif hasattr(ctx, "close"):
+            try:
+                yield ctx
+            finally:
+                ctx.close()
+        else:
+            yield ctx
+    elif hasattr(db_or_factory, "connection"):
+        with db_or_factory.connection() as db:
+            yield db
+    else:
+        yield db_or_factory
+
+
 DATETIME_KEYS = ("start_date", "end_date", "created_at", "last_login_at", "expires_at", "updated_at")
 
 

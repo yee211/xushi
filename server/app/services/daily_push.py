@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 
 from ..channels.weixin.client import ILinkClient, ILinkError
 from ..channels.weixin.store import load_accounts
-from .schedule_query import query_courses_by_date, query_courses_by_week
+from ..db import db_ctx
+from .schedule_query import ScheduleQueryError, query_courses_by_date, query_courses_by_week
 from .weather import fetch_daily_weather
 
 logger = logging.getLogger("daily-push")
@@ -79,7 +80,17 @@ def build_weekly_early_class_notice(db, user_id: int, target_date: date) -> str:
 
 def build_morning_brief(db, user_id: int, target_date: date) -> str:
     """构建每日 07:30 晨报文案：课表 + 天气 + 仅下雨时提醒带伞。克制无废话。"""
-    query_result = query_courses_by_date(db, user_id, target_date)
+    schedule_notice = ""
+    try:
+        query_result = query_courses_by_date(db, user_id, target_date)
+    except ScheduleQueryError as err:
+        # 假期/学期外无课表覆盖、或存在多张可用课表：降级为「今日无课」，
+        # 绝不能抛出去中断整批推送（收件人按 user_id 串行，一个异常会挡死后面所有人）。
+        logger.warning("morning brief without courses user_id=%s date=%s code=%s",
+                       user_id, target_date, err.code)
+        query_result = {"courses": [], "week": None}
+        if err.code == "AMBIGUOUS_SCHEDULE":
+            schedule_notice = "⚠️ 你有多张生效中的课表，请在小程序里选定默认课表后查看今日安排。"
     courses = query_result.get("courses", [])
     week = query_result.get("week")
 
@@ -121,7 +132,9 @@ def build_morning_brief(db, user_id: int, target_date: date) -> str:
     if courses:
         parts.append(f"📚 今日课程（共 {len(courses)} 门）：")
         for idx, item in enumerate(courses, 1):
-            line = f"{idx}. {item['start_time']}-{item['end_time']} {item['name']}"
+            start, end = item.get("start_time") or "", item.get("end_time") or ""
+            span = f"{start}-{end} " if start and end else ""
+            line = f"{idx}. {span}{item.get('name') or '未命名课程'}"
             room = item.get("room")
             if room:
                 line += f" @ {room}"
@@ -129,10 +142,21 @@ def build_morning_brief(db, user_id: int, target_date: date) -> str:
             if teacher:
                 line += f" · {teacher}"
             parts.append(line)
+    elif schedule_notice:
+        parts.append(schedule_notice)
     else:
         parts.append("🎉 今日无课，好好休息！")
 
     return "\n".join(parts).strip()
+
+
+def _record_push_result(db, user_id: int, target_date: date, status: str, error: str = "") -> None:
+    """写入/覆盖当天晨报结果。status: done=已送达, failed=可重试, skipped=当天不再重试。"""
+    db.execute("""INSERT INTO daily_push_logs(user_id, push_date, push_type, status, pushed_at, error)
+        VALUES(%s, %s, 'morning_brief', %s, CURRENT_TIMESTAMP, %s)
+        ON CONFLICT (user_id, push_date, push_type) DO UPDATE SET
+        status=EXCLUDED.status, pushed_at=EXCLUDED.pushed_at, error=EXCLUDED.error""",
+        (user_id, target_date, status, str(error)[:500]))
 
 
 def send_morning_push_to_user(db, client: ILinkClient, user_id: int, provider_user_id: str,
@@ -142,47 +166,51 @@ def send_morning_push_to_user(db, client: ILinkClient, user_id: int, provider_us
     client_id = f"morning_{user_id}_{target_date.isoformat().replace('-', '')}"
     try:
         client.send_text(provider_user_id, brief, context_token=context_token or "", client_id=client_id)
-        db.execute("""INSERT INTO daily_push_logs(user_id, push_date, push_type, status, pushed_at)
-            VALUES(%s, %s, 'morning_brief', 'done', CURRENT_TIMESTAMP)
-            ON CONFLICT (user_id, push_date, push_type) DO UPDATE SET
-            status='done', pushed_at=CURRENT_TIMESTAMP, error=''""",
-            (user_id, target_date))
-        logger.info("morning push sent user_id=%s to=%s date=%s", user_id, provider_user_id, target_date)
-        return True
     except ILinkError as err:
-        logger.warning("morning push failed user_id=%s to=%s date=%s error=%s",
+        # iLink 业务拒绝（典型是 -2 prepare failed：用户超过约 24 小时没跟 bot 说话，
+        # 会话已失效）当天重试也不会成功，记为 skipped 让重试查询跳过，
+        # 否则会每 10 秒轰炸腾讯接口一整天（实测单用户单日 5000+ 次）。
+        logger.warning("morning push skipped user_id=%s to=%s date=%s error=%s",
                        user_id, provider_user_id, target_date, err)
-        db.execute("""INSERT INTO daily_push_logs(user_id, push_date, push_type, status, pushed_at, error)
-            VALUES(%s, %s, 'morning_brief', 'failed', CURRENT_TIMESTAMP, %s)
-            ON CONFLICT (user_id, push_date, push_type) DO UPDATE SET
-            status='failed', pushed_at=CURRENT_TIMESTAMP, error=%s""",
-            (user_id, target_date, str(err)[:500], str(err)[:500]))
+        _record_push_result(db, user_id, target_date, "skipped", err)
         return False
+    _record_push_result(db, user_id, target_date, "done")
+    logger.info("morning push sent user_id=%s to=%s date=%s", user_id, provider_user_id, target_date)
+    return True
+
+
+def _record_failure_safely(db, user_id: int, target_date: date, error: str) -> None:
+    try:
+        with db_ctx(db) as conn:
+            _record_push_result(conn, user_id, target_date, "failed", error)
+    except Exception:
+        logger.exception("could not record morning push failure user_id=%s", user_id)
 
 
 def dispatch_morning_pushes(db, target_date: date | None = None,
                             timezone_name: str = "Asia/Shanghai") -> int:
-    """找出今天尚未推送晨报的绑定用户，执行推送。"""
+    """找出今天尚未推送晨报的绑定用户，执行推送。短事务分段处理，避免长任务霸占连接。"""
     tz = ZoneInfo(timezone_name)
     target_date = target_date or datetime.now(tz).date()
 
-    rows = db.execute("""
-        SELECT u.user_id, u.provider_user_id, COALESCE(u.context_token, '') AS context_token,
-               c.account_id
-        FROM user_identities u
-        JOIN channel_accounts c
-          ON c.provider = u.provider AND c.account_id = u.account_id AND c.status = 'active'
-        LEFT JOIN daily_push_logs l
-          ON l.user_id = u.user_id AND l.push_date = %s AND l.push_type = 'morning_brief'
-        WHERE u.provider = 'weixin_ilink'
-          AND (l.user_id IS NULL OR l.status = 'failed')
-        ORDER BY u.user_id
-    """, (target_date,)).fetchall()
+    with db_ctx(db) as conn:
+        rows = conn.execute("""
+            SELECT u.user_id, u.provider_user_id, COALESCE(u.context_token, '') AS context_token,
+                   c.account_id
+            FROM user_identities u
+            JOIN channel_accounts c
+              ON c.provider = u.provider AND c.account_id = u.account_id AND c.status = 'active'
+            LEFT JOIN daily_push_logs l
+              ON l.user_id = u.user_id AND l.push_date = %s AND l.push_type = 'morning_brief'
+            WHERE u.provider = 'weixin_ilink'
+              AND (l.user_id IS NULL OR l.status = 'failed')
+            ORDER BY u.user_id
+        """, (target_date,)).fetchall()
+        credentials_by_account = {item[0].account_id: item[0] for item in load_accounts(conn)}
 
     if not rows:
         return 0
 
-    credentials_by_account = {item[0].account_id: item[0] for item in load_accounts(db)}
     sent_count = 0
     clients: dict[str, ILinkClient] = {}
     try:
@@ -192,13 +220,26 @@ def dispatch_morning_pushes(db, target_date: date | None = None,
             if client is None:
                 credentials = credentials_by_account.get(account_id)
                 if credentials is None:
-                    logger.warning("active credentials missing for account=%s", account_id)
+                    logger.warning("active credentials missing for account=%s user_id=%s",
+                                   account_id, row["user_id"])
+                    with db_ctx(db) as conn:
+                        _record_push_result(conn, row["user_id"], target_date, "skipped",
+                                            "active credentials missing")
                     continue
                 client = clients[account_id] = ILinkClient(credentials)
-            ok = send_morning_push_to_user(db, client, row["user_id"],
-                                           row["provider_user_id"],
-                                           row["context_token"],
-                                           target_date)
+            try:
+                with db_ctx(db) as conn:
+                    ok = send_morning_push_to_user(conn, client, row["user_id"],
+                                                   row["provider_user_id"],
+                                                   row["context_token"],
+                                                   target_date)
+            except Exception as err:
+                # 收件人按 user_id 串行处理：任何一个用户抛出的非 ILinkError（数据库抖动、
+                # httpx 超时、意外课表数据）都会中断整批，导致排在其后的用户当天全部收不到。
+                logger.warning("morning push errored user_id=%s date=%s error=%s",
+                               row["user_id"], target_date, err)
+                _record_failure_safely(db, row["user_id"], target_date, str(err))
+                continue
             if ok:
                 sent_count += 1
     finally:

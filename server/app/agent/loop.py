@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 
 from .circuit_breaker import llm_circuit_breaker
-from .http_client import get_llm_client, is_httpx_post_patched
+from .http_client import get_llm_client, get_llm_semaphore, is_httpx_post_patched
 from .intent_ai import agent_config
 from .polish_ai import FORBIDDEN_TOKENS, TIME_PATTERN, _api_messages
 from .skills import build_skills, dispatch, openai_tools
@@ -23,7 +23,9 @@ from .skills import build_skills, dispatch, openai_tools
 def _post_llm(url: str, **kwargs):
     if is_httpx_post_patched():
         return httpx.post(url, **kwargs)
-    return get_llm_client().post(url, **kwargs)
+    with get_llm_semaphore():
+        return get_llm_client().post(url, **kwargs)
+
 
 logger = logging.getLogger("agent.loop")
 

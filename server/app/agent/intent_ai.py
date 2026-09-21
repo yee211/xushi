@@ -9,13 +9,14 @@ from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from ..services.llm_config import get_llm_config
-from .http_client import get_llm_client, is_httpx_post_patched
+from .http_client import get_llm_client, get_llm_semaphore, is_httpx_post_patched
 
 
 def _post_llm(url: str, **kwargs):
     if is_httpx_post_patched():
         return httpx.post(url, **kwargs)
-    return get_llm_client().post(url, **kwargs)
+    with get_llm_semaphore():
+        return get_llm_client().post(url, **kwargs)
 
 ALLOWED_INTENTS = {"QUERY_DAY", "QUERY_WEEK", "QUERY_NEXT", "QUERY_AVAILABILITY", "QUERY_COURSE_ON_DAY",
                    "QUERY_WEATHER", "FIND_COURSE", "HELP"}

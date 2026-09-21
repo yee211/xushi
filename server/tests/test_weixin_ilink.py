@@ -301,7 +301,7 @@ def test_process_batch_messages_sequential_for_same_user(monkeypatch):
     assert order == ["m1", "m2", "m3"], "同一用户的消息必须严格按序处理"
 
 
-def test_process_batch_messages_failure_stops_cursor():
+def test_process_batch_messages_failure_stops_cursor(monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
 
     from app.channels.weixin import worker as worker_module
@@ -310,7 +310,7 @@ def test_process_batch_messages_failure_stops_cursor():
     def failing_process(client, msg):
         return msg.message_id != "fail"
 
-    worker_module.process_message = failing_process
+    monkeypatch.setattr(worker_module, "process_message", failing_process)
     msgs = [
         InboundText("bot-1", "user-1", "ok1", "t1", "ctx1", datetime.now(UTC)),
         InboundText("bot-1", "user-2", "fail", "t2", "ctx2", datetime.now(UTC)),

@@ -5,7 +5,7 @@ import signal
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from ...agent.service import build_agent_reply
@@ -30,6 +30,24 @@ _executor_lock = threading.Lock()
 _last_push_date: date | None = None
 
 
+def _morning_push_window(now: datetime) -> tuple[datetime, datetime]:
+    """返回当天推送的 (开始时间, 重试截止时间)。配置非法时回退 07:30 + 180 分钟。"""
+    push_time_str = os.getenv("MORNING_PUSH_TIME", "07:30").strip()
+    try:
+        parts = push_time_str.split(":")
+        push_hour, push_minute = int(parts[0]), int(parts[1])
+        if not (0 <= push_hour <= 23 and 0 <= push_minute <= 59):
+            raise ValueError(push_time_str)
+    except Exception:
+        push_hour, push_minute = 7, 30
+    try:
+        window = int(os.getenv("MORNING_PUSH_RETRY_WINDOW_MINUTES", "180"))
+    except ValueError:
+        window = 180
+    start = now.replace(hour=push_hour, minute=push_minute, second=0, microsecond=0)
+    return start, start + timedelta(minutes=max(0, min(window, 1440)))
+
+
 def check_morning_push() -> None:
     global _last_push_date
     if os.getenv("MORNING_PUSH_ENABLED", "true").lower() in ("false", "0", "no"):
@@ -39,27 +57,29 @@ def check_morning_push() -> None:
     today = now.date()
     if _last_push_date == today:
         return
-    push_time_str = os.getenv("MORNING_PUSH_TIME", "07:30").strip()
-    try:
-        parts = push_time_str.split(":")
-        push_hour, push_minute = int(parts[0]), int(parts[1])
-    except Exception:
-        push_hour, push_minute = 7, 30
-
-    if (now.hour, now.minute) < (push_hour, push_minute):
+    start, deadline = _morning_push_window(now)
+    if now < start:
+        return
+    if now > deadline:
+        # 窗口已关（worker 白天重启或整个上午故障）：不补发一条迟到的「晨报」，直接收工，
+        # 否则每次重启都会给用户推一条几小时前的早安。
+        logger.warning("morning push window closed at %s, giving up for %s",
+                       deadline.strftime("%H:%M"), today)
+        _last_push_date = today
         return
 
     try:
+        from ...services.daily_push import dispatch_morning_pushes, pending_morning_push_count
+        sent = dispatch_morning_pushes(connect, today, timezone_name)
+        if sent > 0:
+            logger.info("morning push dispatched: %s sent for %s", sent, today)
         with connect() as db:
-            from ...services.daily_push import dispatch_morning_pushes, pending_morning_push_count
-            sent = dispatch_morning_pushes(db, today, timezone_name)
-            if sent > 0:
-                logger.info("morning push dispatched: %s sent for %s", sent, today)
             pending = pending_morning_push_count(db, today)
         if pending == 0:
             _last_push_date = today
         else:
-            logger.warning("morning push still has %s pending recipient(s) for %s; will retry", pending, today)
+            logger.warning("morning push still has %s pending recipient(s) for %s; retrying until %s",
+                           pending, today, deadline.strftime("%H:%M"))
     except Exception:
         logger.exception("failed to dispatch morning push")
 
@@ -136,10 +156,9 @@ def process_message(client: ILinkClient, message: InboundText) -> bool:
                 daemon=True,
                 name=f"typing-{message.message_id[:8]}",
             ).start()
-        with connect() as db:
-            reply = build_agent_reply(db, message.text, "weixin_ilink", message.sender_id,
-                                      message.received_at, os.getenv("APP_TIMEZONE", "Asia/Shanghai"),
-                                      message.account_id)
+        reply = build_agent_reply(connect, message.text, "weixin_ilink", message.sender_id,
+                                  message.received_at, os.getenv("APP_TIMEZONE", "Asia/Shanghai"),
+                                  message.account_id)
         client.send_text(message.sender_id, reply, message.context_token,
                          client_id=reply_client_id(message.account_id, message.message_id),
                          run_id=message.run_id)

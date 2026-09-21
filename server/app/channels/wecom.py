@@ -185,8 +185,7 @@ def process_wecom_message(content: str, sender_id: str, response_url: str, msg_k
             logger.warning(json.dumps({"event": "wecom_rate_limited", "sender": sender_id}))
             return
 
-        with connect() as db:
-            reply = build_reply(db, content, sender_id, received_at)
+        reply = build_reply(connect, content, sender_id, received_at)
         if reply and response_url:
             reply_via_response_url(response_url, reply)
             logger.info(json.dumps({"event": "wecom_reply_sent", "sender": sender_id}))

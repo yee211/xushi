@@ -91,16 +91,30 @@ Page({
       const result = await app.request('/api/integrations/weixin/login', { method: 'POST' })
       this.setData({ loginSession: result.session_id,
         qrDataUrl: `${app.globalData.apiBaseUrl}${result.qrcode_path}`,
-        loginStatus: '请长按保存图片，再回到微信扫码确认连接' })
+        loginStatus: '长按二维码识别，或点按放大后识别' })
       this.pollLogin('')
+      // 直接进全屏预览：微信预览态长按即可「识别图中二维码」，省掉「保存到相册→扫一扫→选图」三步
+      this.previewQrcode()
     } catch (error) {
       this.setData({ connecting: false, loginStatus: '' }); this.toast(error.message)
     }
   },
   previewQrcode() {
-    // 原生预览器的长按菜单由微信客户端决定，仅保证可保存图片。
     if (!this.data.qrDataUrl) return
     wx.previewImage({ urls: [this.data.qrDataUrl] })
+  },
+  async saveQrcode() {
+    // 长按识别失败时的兜底：存相册后用微信「扫一扫 → 相册」选取
+    if (!this.data.qrDataUrl || this.saving) return
+    this.saving = true
+    try {
+      const { tempFilePath } = await wx.downloadFile({ url: this.data.qrDataUrl })
+      await wx.saveImageToPhotosAlbum({ filePath: tempFilePath })
+      this.toast('已存入相册，请用微信扫一扫从相册选择')
+    } catch (error) {
+      const denied = String((error && error.errMsg) || '').includes('auth')
+      this.toast(denied ? '未获得相册权限，请长按二维码保存' : '保存失败，请长按二维码保存')
+    } finally { this.saving = false }
   },
   async pollLogin(verifyCode = '') {
     if (this.pollCancelled || !this.data.loginSession) return

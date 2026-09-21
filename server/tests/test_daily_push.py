@@ -1,11 +1,15 @@
 """Unit tests for the morning daily schedule and weather push feature."""
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
 
 SERVER_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SERVER_ROOT))
 
+from app.channels.weixin import worker  # noqa: E402
 from app.services import daily_push  # noqa: E402
 from app.services.daily_push import (  # noqa: E402
     build_morning_brief,
@@ -13,6 +17,9 @@ from app.services.daily_push import (  # noqa: E402
     dispatch_morning_pushes,
     send_morning_push_to_user,
 )
+from app.services.schedule_query import ScheduleQueryError  # noqa: E402
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 class FakeDb:
@@ -175,7 +182,8 @@ def test_send_morning_push_to_user_success(monkeypatch):
     assert any("INSERT INTO daily_push_logs" in s for s in sql_executed)
 
 
-def test_send_morning_push_to_user_failure_records_log(monkeypatch):
+def test_send_morning_push_to_user_ilink_rejection_is_terminal(monkeypatch):
+    """iLink 业务拒绝（如 -2 prepare failed）记为 skipped，当天不再重试。"""
     test_date = date(2026, 9, 14)
     db = FakeDb()
     client = FakeClient(should_fail=True)
@@ -186,8 +194,67 @@ def test_send_morning_push_to_user_failure_records_log(monkeypatch):
     ok = send_morning_push_to_user(db, client, 1, "wx_user_1", "token123", test_date)
     assert ok is False
 
-    sql_executed = [item[0] for item in db.executed]
-    assert any("status='failed'" in s for s in sql_executed)
+    params = [item[1] for item in db.executed if "INSERT INTO daily_push_logs" in item[0]]
+    assert params and params[0][2] == "skipped"
+    assert "network timeout" in params[0][3]
+
+
+def test_send_morning_push_to_user_transport_error_propagates(monkeypatch):
+    """非 ILinkError（网络抖动等）必须抛给调用方，由其记 failed 以便窗口内重试。"""
+    db = FakeDb()
+
+    class TimeoutClient(FakeClient):
+        def send_text(self, *args, **kwargs):
+            raise TimeoutError("connection reset")
+
+    monkeypatch.setattr(daily_push, "query_courses_by_date", lambda db, u, d: {"courses": []})
+    monkeypatch.setattr(daily_push, "fetch_daily_weather", lambda d: None)
+
+    with pytest.raises(TimeoutError):
+        send_morning_push_to_user(db, TimeoutClient(), 1, "wx_user_1", "t", date(2026, 9, 14))
+    assert not [item for item in db.executed if "INSERT INTO daily_push_logs" in item[0]]
+
+
+def test_dispatch_isolates_per_user_crash(monkeypatch):
+    """单个用户抛异常不得中断整批：排在其后的用户仍要收到晨报。"""
+    from app.channels.weixin.protocol import Credentials
+
+    rows = [
+        {"user_id": 1, "provider_user_id": "u1", "context_token": "c1", "account_id": "bot1"},
+        {"user_id": 2, "provider_user_id": "u2", "context_token": "c2", "account_id": "bot1"},
+        {"user_id": 3, "provider_user_id": "u3", "context_token": "c3", "account_id": "bot1"},
+    ]
+    db = FakeDb({"SELECT u.user_id": rows})
+    client = FakeClient()
+
+    def query_courses(_db, user_id, _target_date):
+        if user_id == 2:
+            raise RuntimeError("connection lost mid-batch")
+        return {"courses": []}
+
+    monkeypatch.setattr(daily_push, "load_accounts",
+                        lambda db: [(Credentials("bot1", "token1", "http://one"), "", "")])
+    monkeypatch.setattr(daily_push, "ILinkClient", lambda cred: client)
+    monkeypatch.setattr(daily_push, "query_courses_by_date", query_courses)
+    monkeypatch.setattr(daily_push, "fetch_daily_weather", lambda d: None)
+
+    sent = dispatch_morning_pushes(db, date(2026, 9, 14))
+
+    assert sent == 2
+    assert [m["to_user_id"] for m in client.sent_messages] == ["u1", "u3"]
+    statuses = [item[1] for item in db.executed if "INSERT INTO daily_push_logs" in item[0]]
+    assert [s[2] for s in statuses] == ["done", "failed", "done"]
+
+
+def test_dispatch_skips_user_without_credentials(monkeypatch):
+    """账号凭证缺失时记 skipped 而非静默 continue，避免永久 pending 触发全天重试。"""
+    rows = [{"user_id": 7, "provider_user_id": "u7", "context_token": "c7", "account_id": "ghost"}]
+    db = FakeDb({"SELECT u.user_id": rows})
+    monkeypatch.setattr(daily_push, "load_accounts", lambda db: [])
+
+    assert dispatch_morning_pushes(db, date(2026, 9, 14)) == 0
+    params = [item[1] for item in db.executed if "INSERT INTO daily_push_logs" in item[0]]
+    assert params and params[0][2] == "skipped"
 
 
 def test_dispatch_morning_pushes_idempotency(monkeypatch):
@@ -469,23 +536,147 @@ def test_build_morning_brief_on_tuesday_excludes_early_notice(monkeypatch):
     assert "📚 今日课程（共 1 门）：" in brief
 
 
-def test_build_morning_brief_outside_term_excludes_early_notice(monkeypatch):
-    test_date = date(2026, 9, 14)  # Monday, but outside term (week is None)
+def test_build_morning_brief_outside_term_degrades_gracefully(monkeypatch):
+    """假期/学期外：真实的 query_courses_by_date 会抛 OUTSIDE_TERM（不是返回 week=None），
+    晨报必须降级成「今日无课」而不是把异常抛出去中断整批推送。"""
+    test_date = date(2026, 9, 14)  # Monday
 
-    def fake_query_courses(db, user_id, target_date):
-        return {
-            "date": "2026-09-14",
-            "weekday": 1,
-            "week": None,
-            "courses": [],
-        }
+    def raise_outside_term(db, user_id, target_date):
+        raise ScheduleQueryError("OUTSIDE_TERM", "目标日期不在任何课表的学期范围内")
 
-    monkeypatch.setattr(daily_push, "query_courses_by_date", fake_query_courses)
+    monkeypatch.setattr(daily_push, "query_courses_by_date", raise_outside_term)
     monkeypatch.setattr(daily_push, "fetch_daily_weather", lambda d: None)
 
     brief = build_morning_brief(FakeDb(), 1, test_date)
 
-    assert "本周早八" not in brief
-    assert "无早八" not in brief
     assert "🎉 今日无课，好好休息！" in brief
+    assert "本周早八" not in brief
+    assert "2026年9月14日 星期一" in brief
+
+
+def test_build_morning_brief_ambiguous_schedule_tells_user_to_pick(monkeypatch):
+    """多张生效课表时不能谎报「今日无课」，要提示用户去选默认课表。"""
+    def raise_ambiguous(db, user_id, target_date):
+        raise ScheduleQueryError("AMBIGUOUS_SCHEDULE", "目标日期存在多张可用课表，请先选择默认课表")
+
+    monkeypatch.setattr(daily_push, "query_courses_by_date", raise_ambiguous)
+    monkeypatch.setattr(daily_push, "fetch_daily_weather", lambda d: None)
+
+    brief = build_morning_brief(FakeDb(), 1, date(2026, 9, 14))
+
+    assert "多张生效中的课表" in brief
+    assert "今日无课" not in brief
+
+
+def test_build_morning_brief_survives_incomplete_course_row(monkeypatch):
+    """课程行缺字段时不得抛 KeyError（会中断整批推送）。"""
+    monkeypatch.setattr(daily_push, "query_courses_by_date",
+                        lambda db, u, d: {"week": 2, "courses": [{"room": "教101"}, {"name": "高数"}]})
+    monkeypatch.setattr(daily_push, "fetch_daily_weather", lambda d: None)
+
+    brief = build_morning_brief(FakeDb(), 1, date(2026, 9, 15))
+
+    assert "1. 未命名课程 @ 教101" in brief
+    assert "2. 高数" in brief
+
+
+class _FixedDatetime(datetime):
+    """让 worker.check_morning_push 读到固定的「当前时间」。"""
+    fixed: datetime | None = None
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.fixed
+
+
+class _ConnCtx:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _freeze(monkeypatch, when: datetime) -> None:
+    _FixedDatetime.fixed = when
+    monkeypatch.setattr(worker, "datetime", _FixedDatetime)
+    monkeypatch.setattr(worker, "connect", lambda: _ConnCtx())
+    monkeypatch.setattr(worker, "_last_push_date", None)
+    monkeypatch.setenv("MORNING_PUSH_ENABLED", "true")
+    monkeypatch.setenv("MORNING_PUSH_TIME", "07:30")
+    monkeypatch.setenv("MORNING_PUSH_RETRY_WINDOW_MINUTES", "180")
+    monkeypatch.setenv("APP_TIMEZONE", "Asia/Shanghai")
+
+
+def test_morning_push_window_defaults(monkeypatch):
+    monkeypatch.delenv("MORNING_PUSH_TIME", raising=False)
+    monkeypatch.delenv("MORNING_PUSH_RETRY_WINDOW_MINUTES", raising=False)
+    start, deadline = worker._morning_push_window(datetime(2026, 9, 21, 12, 0, tzinfo=SHANGHAI))
+    assert (start.hour, start.minute) == (7, 30)
+    assert deadline - start == timedelta(minutes=180)
+
+
+def test_morning_push_window_rejects_garbage(monkeypatch):
+    monkeypatch.setenv("MORNING_PUSH_TIME", "25:99")
+    monkeypatch.setenv("MORNING_PUSH_RETRY_WINDOW_MINUTES", "abc")
+    start, deadline = worker._morning_push_window(datetime(2026, 9, 21, 12, 0, tzinfo=SHANGHAI))
+    assert (start.hour, start.minute) == (7, 30)
+    assert deadline - start == timedelta(minutes=180)
+
+
+def test_check_morning_push_waits_before_start(monkeypatch):
+    dispatched = []
+    _freeze(monkeypatch, datetime(2026, 9, 21, 6, 0, tzinfo=SHANGHAI))
+    monkeypatch.setattr(daily_push, "dispatch_morning_pushes", lambda *a: dispatched.append(a) or 0)
+
+    worker.check_morning_push()
+
+    assert not dispatched
+    assert worker._last_push_date is None
+
+
+def test_check_morning_push_retries_while_pending_inside_window(monkeypatch):
+    dispatched = []
+    _freeze(monkeypatch, datetime(2026, 9, 21, 8, 0, tzinfo=SHANGHAI))
+    monkeypatch.setattr(daily_push, "dispatch_morning_pushes", lambda *a: dispatched.append(a) or 0)
+    monkeypatch.setattr(daily_push, "pending_morning_push_count", lambda db, d: 1)
+
+    worker.check_morning_push()
+
+    assert len(dispatched) == 1
+    assert worker._last_push_date is None
+
+
+def test_check_morning_push_stops_when_all_done(monkeypatch):
+    _freeze(monkeypatch, datetime(2026, 9, 21, 8, 0, tzinfo=SHANGHAI))
+    monkeypatch.setattr(daily_push, "dispatch_morning_pushes", lambda *a: 3)
+    monkeypatch.setattr(daily_push, "pending_morning_push_count", lambda db, d: 0)
+
+    worker.check_morning_push()
+
+    assert worker._last_push_date == date(2026, 9, 21)
+
+
+def test_check_morning_push_gives_up_after_window(monkeypatch):
+    """窗口关闭后既不补发迟到的晨报，也不再每 10 秒重试一整天。"""
+    dispatched = []
+    _freeze(monkeypatch, datetime(2026, 9, 21, 15, 0, tzinfo=SHANGHAI))
+    monkeypatch.setattr(daily_push, "dispatch_morning_pushes", lambda *a: dispatched.append(a) or 0)
+    monkeypatch.setattr(daily_push, "pending_morning_push_count", lambda db, d: 1)
+
+    worker.check_morning_push()
+
+    assert not dispatched
+    assert worker._last_push_date == date(2026, 9, 21)
+
+
+def test_check_morning_push_disabled(monkeypatch):
+    dispatched = []
+    _freeze(monkeypatch, datetime(2026, 9, 21, 8, 0, tzinfo=SHANGHAI))
+    monkeypatch.setenv("MORNING_PUSH_ENABLED", "false")
+    monkeypatch.setattr(daily_push, "dispatch_morning_pushes", lambda *a: dispatched.append(a) or 0)
+
+    worker.check_morning_push()
+
+    assert not dispatched
 

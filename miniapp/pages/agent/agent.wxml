@@ -41,12 +41,13 @@
         <button class="button danger" bindtap="unbind" data-provider="weixin_ilink">解除绑定</button>
       </block>
       <block wx:else>
-        <text class="description">点击生成二维码，放大后长按保存图片，再回到微信用扫一扫从相册选择该图片，确认后即可绑定当前课表账号。</text>
+        <text class="description">点击生成二维码，长按二维码选择「识别图中二维码」即可连接；识别不成功时点按放大，或保存到相册后用微信扫一扫。</text>
         <button class="button primary" wx:if="{{!qrDataUrl}}" loading="{{connecting}}" disabled="{{connecting}}" bindtap="connectClawBot">生成连接二维码</button>
         <view class="qr-box" wx:if="{{qrDataUrl}}">
           <image class="qr-image" src="{{qrDataUrl}}" mode="aspectFit" show-menu-by-longpress bindtap="previewQrcode"></image>
           <text class="qr-tip">{{loginStatus}}</text>
-          <text class="qr-hint">点按二维码放大 · 长按保存图片 · 回到微信扫一扫，从相册选择该图片</text>
+          <text class="qr-hint">长按二维码识别 · 点按可全屏放大</text>
+          <button class="button secondary qr-save" bindtap="saveQrcode">保存到相册</button>
           <view class="verify-row" wx:if="{{needVerifyCode}}">
             <input class="verify-input" type="number" maxlength="20" value="{{verifyCode}}" bindinput="onVerifyInput" placeholder="输入数字验证码"></input>
             <button class="verify-button" bindtap="submitVerifyCode">确认</button>

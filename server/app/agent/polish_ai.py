@@ -10,14 +10,15 @@ from collections.abc import Mapping
 import httpx
 
 from ..services.llm_config import get_llm_config
-from .http_client import get_llm_client, is_httpx_post_patched
+from .http_client import get_llm_client, get_llm_semaphore, is_httpx_post_patched
 from .intent_ai import agent_config
 
 
 def _post_llm(url: str, **kwargs):
     if is_httpx_post_patched():
         return httpx.post(url, **kwargs)
-    return get_llm_client().post(url, **kwargs)
+    with get_llm_semaphore():
+        return get_llm_client().post(url, **kwargs)
 
 TIME_PATTERN = re.compile(r"\d{1,2}:\d{2}")
 FORBIDDEN_TOKENS = ("user_id", "schedule_id", "sql", "```", "工具结果", "模板答案", "消息时间", "已解析上下文")
