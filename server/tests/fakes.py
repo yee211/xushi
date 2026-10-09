@@ -69,7 +69,7 @@ def today_schedule():
 
 def wednesday_course():
     return {"id": 11, "name": "高数", "teacher": "张老师", "room": "A101", "weekday": 3,
-            "start_section": 5, "end_section": 6, "weeks": []}
+            "start_section": 5, "end_section": 6, "weeks": list(range(1, 31))}
 
 
 def next_wednesday():

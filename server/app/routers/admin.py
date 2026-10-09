@@ -9,18 +9,19 @@ import os
 import secrets
 import time
 from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..db import connect, row_dict
-from ..rate_limit import SlidingWindowLimiter
+from ..rate_limit import SlidingWindowLimiter, client_ip
 from ..services.feedback import CATEGORY_LABELS, feedback_number
 from ..services.llm_config import SCOPES, public_config, reset_llm_config, save_llm_config, test_llm_connection
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 FEEDBACK_STATUSES = {"pending", "processing", "resolved", "closed"}
-admin_login_limiter = SlidingWindowLimiter(limit=8, window_seconds=300)
+admin_login_limiter = SlidingWindowLimiter(limit=8, window_seconds=300, prefix="xushi:ratelimit:admin-login")
 
 
 class AdminLoginIn(BaseModel):
@@ -137,7 +138,7 @@ def require_superadmin(admin: str = Depends(current_admin)) -> str:
 
 @router.post("/login")
 def admin_login(payload: AdminLoginIn, request: Request):
-    client = request.client.host if request.client else "unknown"
+    client = client_ip(request)
     allowed, retry_after = admin_login_limiter.hit(client)
     if not allowed:
         raise HTTPException(429, "登录尝试过于频繁，请稍后再试", headers={"Retry-After": str(retry_after)})
@@ -270,7 +271,7 @@ def update_llm_config(scope: str, payload: LlmConfigIn, admin: str = Depends(req
 
 
 @router.post("/llm-configs/{scope}/test")
-def test_config(scope: str, payload: LlmTestIn = LlmTestIn(), _: str = Depends(current_admin)):
+def test_config(scope: str, payload: LlmTestIn = LlmTestIn(), _: str = Depends(require_superadmin)):
     if scope not in SCOPES:
         raise HTTPException(404, "LLM 配置分组不存在")
     if payload.base_url and not payload.base_url.startswith(("http://", "https://")):
@@ -371,10 +372,10 @@ def delete_admin(admin_id: int, admin: str = Depends(require_superadmin)):
 def list_users(
     search: str = "",
     query: str = "",
-    page: int = 1,
-    page_size: int = 20,
-    limit: int = 20,
-    offset: int = 0,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
     _: str = Depends(current_admin),
 ):
     """用户检索列表（支持 ID / 邮箱 / 用户名 / OpenID 搜索）。"""
@@ -388,7 +389,8 @@ def list_users(
 
     clauses, params = [], []
     if kw:
-        like_kw = f"%{kw}%"
+        escaped = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_kw = f"%{escaped}%"
         clauses.append("""(
             CAST(u.id AS TEXT) ILIKE %s
             OR u.email ILIKE %s
@@ -508,7 +510,7 @@ def admin_unbind_wechat(user_id: int, admin: str = Depends(require_superadmin)):
             raise HTTPException(400, "该用户未绑定微信")
 
         from ..services.account_link import unlink_wechat
-        unlink_wechat(db, user_id)
+        summary = unlink_wechat(db, user_id)
 
         db.execute(
             """INSERT INTO admin_audit_logs(admin_name, action, target_type, target_id, details)
@@ -516,6 +518,9 @@ def admin_unbind_wechat(user_id: int, admin: str = Depends(require_superadmin)):
             (admin, str(user_id), json.dumps({"openid": user["openid"]}, ensure_ascii=False)),
         )
 
+    from ..auth.deps import invalidate_session_cache
+    for digest in summary.pop('_session_invalidations', []):
+        invalidate_session_cache(token_digest=digest)
     return {"ok": True, "message": "微信绑定已解除，对应小程序会话已同步注销"}
 
 
@@ -574,7 +579,7 @@ def system_status(_: str = Depends(current_admin)):
 
 
 @router.post("/system/redis/clear-ratelimit")
-def clear_ratelimit(payload: ClearRateLimitIn, admin: str = Depends(current_admin)):
+def clear_ratelimit(payload: ClearRateLimitIn, admin: str = Depends(require_superadmin)):
     """清除指定 IP 或用户标识的限流计数。"""
     from ..redis import get_redis
     client = get_redis()
@@ -582,14 +587,11 @@ def clear_ratelimit(payload: ClearRateLimitIn, admin: str = Depends(current_admi
         return {"ok": True, "deleted_count": 0, "note": "Redis 未配置或处于内存降级模式"}
 
     target = payload.key.strip()
-    if "*" in target:
-        patterns = [target]
-    else:
-        patterns = [
-            f"xushi:ratelimit:*{target}*",
-            f"xushi:ratelimit:{target}",
-            f"*{target}*",
-        ]
+    if any(char in target for char in '?[]\\'):
+        raise HTTPException(422, "Invalid rate limit identifier")
+    if '*' in target and target not in ('*', 'xushi:ratelimit:*'):
+        raise HTTPException(422, "Only the rate limit namespace may be cleared")
+    patterns = ['xushi:ratelimit:*'] if '*' in target else [f'xushi:ratelimit:*{target}*']
     deleted = 0
     try:
         found_keys = set()
@@ -601,17 +603,24 @@ def clear_ratelimit(payload: ClearRateLimitIn, admin: str = Depends(current_admi
     except Exception as exc:
         raise HTTPException(500, f"清理限流缓存异常: {exc}")
 
+    with connect() as db:
+        db.execute("""INSERT INTO admin_audit_logs(admin_name,action,target_type,target_id,details)
+            VALUES(%s,'ratelimit.clear','redis',%s,%s::jsonb)""",
+            (admin, target, json.dumps({'deleted_count': deleted})))
     return {"ok": True, "deleted_count": deleted, "key": target}
 
 
 @router.post("/system/redis/clear-session")
-def clear_user_sessions(payload: ClearSessionIn, admin: str = Depends(current_admin)):
+def clear_user_sessions(payload: ClearSessionIn, admin: str = Depends(require_superadmin)):
     """清除指定用户的 Redis 会话缓存（强制重新鉴权）。"""
     from ..auth.deps import invalidate_session_cache
     with connect() as db:
         sessions = db.execute("SELECT token_hash FROM sessions WHERE user_id=%s", (payload.user_id,)).fetchall()
-        for s in sessions:
-            invalidate_session_cache(token_digest=s["token_hash"])
+        db.execute("""INSERT INTO admin_audit_logs(admin_name,action,target_type,target_id,details)
+            VALUES(%s,'session_cache.clear','user',%s,%s::jsonb)""",
+            (admin, str(payload.user_id), json.dumps({'cleared_count': len(sessions)})))
+    for s in sessions:
+        invalidate_session_cache(token_digest=s["token_hash"])
 
     return {"ok": True, "cleared_count": len(sessions), "user_id": payload.user_id}
 

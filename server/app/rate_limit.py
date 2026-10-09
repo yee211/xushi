@@ -100,12 +100,18 @@ def client_ip(request: Request) -> str:
     return forwarded or (request.client.host if request.client else "unknown")
 
 
+_auth_limiters = {
+    action: SlidingWindowLimiter(
+        limit=settings.auth_rate_limit if action == 'login' else max(3, settings.auth_rate_limit // 2),
+        window_seconds=settings.auth_rate_window_seconds, prefix=f'xushi:ratelimit:email-{action}')
+    for action in ('login', 'register')
+}
+
+
 def enforce_auth_rate_limit(request: Request, action: str) -> None:
     """邮箱注册/登录限流：登录用完整限额，注册减半（至少 3 次）。"""
-    window = float(settings.auth_rate_window_seconds)
-    limit = settings.auth_rate_limit if action == "login" else max(3, settings.auth_rate_limit // 2)
     key = client_ip(request)
-    limiter = SlidingWindowLimiter(limit=limit, window_seconds=window, prefix=f"xushi:ratelimit:{action}")
+    limiter = _auth_limiters[action]
     allowed, retry_after = limiter.hit(key)
     if not allowed:
         raise HTTPException(429, "操作过于频繁，请稍后再试", headers={"Retry-After": str(retry_after)})

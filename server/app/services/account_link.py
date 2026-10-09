@@ -9,7 +9,6 @@ import json
 import uuid
 from datetime import datetime
 
-from ..auth.deps import invalidate_session_cache
 from .academic_binding import lock_user
 from .binding import create_binding_code, find_active_code
 
@@ -170,10 +169,7 @@ def link_wechat_account(db, code: str, wx_user: dict, school_choice=None, confli
     db.execute("UPDATE identity_binding_codes SET consumed_at=CURRENT_TIMESTAMP WHERE id=%s",
                (row["id"],))
 
-    for s in moved_sessions:
-        invalidate_session_cache(token_digest=s["token_hash"])
-
-    return {"user_id": target_id, "username": target["username"] or "", "email": target["email"] or "",
+    return {"_session_invalidations": [s["token_hash"] for s in moved_sessions], "user_id": target_id, "username": target["username"] or "", "email": target["email"] or "",
             "sessions_moved": sessions_moved, "schedules_moved": schedules_moved,
             "schedules_discarded": schedules_discarded,
             "agent_bindings_moved": agent_bindings_moved,
@@ -252,6 +248,5 @@ def unlink_wechat(db, user_id: int) -> dict:
     # 5. 吊销原账号的小程序会话（小程序下次请求凭 openid 登录进入 wx_id）
     revoked_sessions = db.execute("SELECT token_hash FROM sessions WHERE user_id=%s", (user_id,)).fetchall()
     db.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
-    for s in revoked_sessions:
-        invalidate_session_cache(token_digest=s["token_hash"])
-    return {"wx_user_id": wx_id, "agent_bindings_moved": agent_bindings_moved}
+    return {"_session_invalidations": [s["token_hash"] for s in revoked_sessions],
+            "wx_user_id": wx_id, "agent_bindings_moved": agent_bindings_moved}

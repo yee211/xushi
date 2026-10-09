@@ -96,7 +96,10 @@ class AICourse(BaseModel):
     @field_validator("weeks")
     @classmethod
     def clean_weeks(cls, value):
-        return sorted({week for week in value if isinstance(week, int) and 1 <= week <= 30})
+        weeks = sorted({week for week in value if isinstance(week, int) and 1 <= week <= 30})
+        if not weeks:
+            raise ValueError("No valid teaching weeks")
+        return weeks
 
     @model_validator(mode="after")
     def order_sections(self):

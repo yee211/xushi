@@ -1,0 +1,5 @@
+# Opt in only after building frontend/dist on the host.
+services:
+  api:
+    volumes:
+      - ../../frontend/dist:/app/frontend/dist:ro

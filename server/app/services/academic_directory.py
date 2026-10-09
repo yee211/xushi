@@ -50,6 +50,15 @@ def enqueue():
     return row
 
 
+def ensure_initial_refresh():
+    """Warm an empty directory once a school connection is available."""
+    academic.connection_headers()
+    current = status()
+    if current and not current['synced_at'] and current['state'] in ('idle', 'failed'):
+        return enqueue()
+    return current
+
+
 def search(*, query='', grade=None, name='', class_name='', major_name=''):
     with connect() as db:
         # Metadata and students must refer to the same complete snapshot.
@@ -119,7 +128,11 @@ def collect(progress):
             grade_classes = []
             for dept in tree:
                 for major in dept['zyxxList']:
-                    for cls in major['bjxxList']:
+                    # The school omits bjxxList for majors with no classes.
+                    class_list = major.get('bjxxList', [])
+                    if not isinstance(class_list, list):
+                        raise academic.AcademicError('directory_invalid', 'Invalid class directory')
+                    for cls in class_list:
                         if not all(str(item.get('id', '')).strip() for item in (dept, major, cls)):
                             raise academic.AcademicError('directory_invalid', '班级目录缺少标识')
                         grade_classes.append((grade, dept, major, cls))
@@ -186,6 +199,13 @@ def process_one(db):
 
 
 def run():
+    try:
+        ensure_initial_refresh()
+    except academic.AcademicError:
+        # Saving a valid connection later will submit the initial refresh.
+        pass
+    except Exception:
+        logger.exception('School directory initial refresh unavailable')
     while not _stop.is_set():
         try:
             # Do not hold a pooled connection while idle.

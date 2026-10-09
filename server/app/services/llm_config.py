@@ -1,6 +1,9 @@
 import base64
+import ipaddress
 import os
+import socket
 import time
+from urllib.parse import urlsplit
 
 import httpx
 from Crypto.Cipher import AES
@@ -113,6 +116,25 @@ def reset_llm_config(scope: str) -> dict:
     return public_config(scope)
 
 
+def validate_test_target(url: str, current_url: str, uses_saved_key: bool) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Invalid model endpoint")
+    if parsed.query or parsed.fragment:
+        raise ValueError("Model endpoint cannot contain a query or fragment")
+    if uses_saved_key and url.rstrip('/') != current_url.rstrip('/'):
+        raise ValueError("Provide an API key explicitly when testing a different endpoint")
+    explicit = {value.strip().rstrip('/') for value in os.getenv('LLM_ALLOWED_BASE_URLS', '').split(',') if value.strip()}
+    configured = {_env_config(scope)['base_url'] for scope in SCOPES}
+    if url not in explicit | configured | {current_url.rstrip('/')}:
+        raise ValueError("Endpoint is not configured; add it to LLM_ALLOWED_BASE_URLS first")
+    if url in explicit:
+        return
+    addresses = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == 'https' else 80), type=socket.SOCK_STREAM)
+    if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+        raise ValueError("Private model endpoints require explicit LLM_ALLOWED_BASE_URLS configuration")
+
+
 def test_llm_connection(scope: str, base_url: str = "", api_key: str | None = None,
                         model: str = "", timeout_seconds: float = 10.0,
                         enable_thinking: bool = False) -> dict:
@@ -133,6 +155,11 @@ def test_llm_connection(scope: str, base_url: str = "", api_key: str | None = No
     if not target_model:
         return {"ok": False, "error": "未指定模型名称 (model)"}
 
+    try:
+        validate_test_target(url, current.get('base_url', ''), api_key is None)
+    except (ValueError, OSError) as error:
+        return {'ok': False, 'error': str(error)}
+
     timeout = min(max(float(timeout_seconds), 2.0), 15.0)
     started = time.perf_counter()
     endpoint = f"{url}/chat/completions"
@@ -146,7 +173,7 @@ def test_llm_connection(scope: str, base_url: str = "", api_key: str | None = No
         payload["enable_thinking"] = enable_thinking
 
     try:
-        with httpx.Client(timeout=timeout) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False) as client:
             response = client.post(endpoint, headers={"Authorization": f"Bearer {key}"}, json=payload)
         latency_ms = round((time.perf_counter() - started) * 1000)
         if response.status_code == 200:

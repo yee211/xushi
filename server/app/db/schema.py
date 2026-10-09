@@ -55,6 +55,8 @@ def init_db():
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(254)")
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40)")
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(200)")
+        db.execute("ALTER TABLE users ALTER COLUMN openid DROP NOT NULL")
+        db.execute("ALTER TABLE users ALTER COLUMN email DROP NOT NULL")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_email_key ON users(email)")
         db.execute("""CREATE TABLE IF NOT EXISTS sessions (
             token_hash CHAR(64) PRIMARY KEY,
@@ -117,6 +119,7 @@ def init_db():
         db.execute("CREATE INDEX IF NOT EXISTS idx_course_adjustments_course_id ON course_adjustments(course_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_course_change_logs_schedule_id ON course_change_logs(schedule_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_course_change_logs_created_at ON course_change_logs(created_at DESC)")
+        db.execute("CREATE INDEX IF NOT EXISTS change_logs_schedule_created_idx ON course_change_logs(schedule_id,created_at DESC)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_schedules_user_id ON schedules(user_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_schedules_user_id_term ON schedules(user_id, term)")
 
@@ -130,6 +133,15 @@ def init_db():
             last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(provider,provider_user_id), UNIQUE(user_id,provider))""")
         db.execute("ALTER TABLE user_identities ADD COLUMN IF NOT EXISTS account_id VARCHAR(255)")
+        db.execute("ALTER TABLE user_identities ADD COLUMN IF NOT EXISTS context_token VARCHAR(512) NOT NULL DEFAULT ''")
+        db.execute("""CREATE TABLE IF NOT EXISTS daily_push_logs (
+            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            push_date DATE NOT NULL,push_type VARCHAR(32) NOT NULL DEFAULT 'morning_brief',
+            status VARCHAR(20) NOT NULL DEFAULT 'done',
+            pushed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,error TEXT NOT NULL DEFAULT '',
+            attempts INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(user_id,push_date,push_type))""")
+        db.execute("ALTER TABLE daily_push_logs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1")
+        db.execute("CREATE INDEX IF NOT EXISTS daily_push_logs_date_idx ON daily_push_logs(push_date)")
         db.execute("CREATE INDEX IF NOT EXISTS user_identities_account_idx ON user_identities(provider,account_id)")
         db.execute("""CREATE TABLE IF NOT EXISTS identity_binding_codes (
             id BIGSERIAL PRIMARY KEY,
@@ -164,6 +176,7 @@ def init_db():
             received_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             processed_at TIMESTAMPTZ,
             PRIMARY KEY(provider,account_id,message_id))""")
+        db.execute("ALTER TABLE channel_messages ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1")
         db.execute("CREATE INDEX IF NOT EXISTS channel_messages_processed_idx ON channel_messages(processed_at)")
 
         # ---------- 反馈（网页版 feedback 的超集） ----------
@@ -179,6 +192,8 @@ def init_db():
             admin_note TEXT NOT NULL DEFAULT '',
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        db.execute("ALTER TABLE feedbacks ALTER COLUMN category TYPE VARCHAR(32)")
+        db.execute("ALTER TABLE feedbacks ALTER COLUMN description TYPE TEXT")
         db.execute("CREATE INDEX IF NOT EXISTS feedbacks_status_created_idx ON feedbacks(status, created_at DESC)")
         db.execute("CREATE INDEX IF NOT EXISTS feedbacks_user_created_idx ON feedbacks(user_id, created_at DESC)")
         # 旧网页母版库的单表 feedback：结构允许时把历史数据并入 feedbacks（仅一次）

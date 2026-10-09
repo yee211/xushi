@@ -5,10 +5,11 @@ import logging
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from ..paths import VERSION_FILE
+
 router = APIRouter(prefix="/api/app", tags=["App Update"])
 logger = logging.getLogger("classschedule")
 
-from ..paths import VERSION_FILE
 
 DEFAULT_VERSION_INFO = {
     "versionCode": 1,

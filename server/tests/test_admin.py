@@ -330,6 +330,7 @@ def test_llm_test_connection_endpoint(monkeypatch):
         def post(self, url, **kwargs):
             return MockResponse(200)
 
+    monkeypatch.setenv("LLM_ALLOWED_BASE_URLS", "https://api.test.com/v1")
     monkeypatch.setattr("app.services.llm_config.httpx.Client", MockClient)
     res = admin.test_config(
         "schedule_import",
@@ -507,7 +508,7 @@ def test_admin_get_schedule_courses_not_found():
 
 def test_admin_unbind_wechat(monkeypatch):
     unlinked = []
-    monkeypatch.setattr("app.services.account_link.unlink_wechat", lambda db, uid: unlinked.append(uid))
+    monkeypatch.setattr("app.services.account_link.unlink_wechat", lambda db, uid: (unlinked.append(uid) or {"_session_invalidations": []}))
     res = admin.admin_unbind_wechat(user_id=101, admin="operator")
     assert res["ok"] is True
     assert unlinked == [101]

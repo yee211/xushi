@@ -155,7 +155,8 @@ def _record_push_result(db, user_id: int, target_date: date, status: str, error:
     db.execute("""INSERT INTO daily_push_logs(user_id, push_date, push_type, status, pushed_at, error)
         VALUES(%s, %s, 'morning_brief', %s, CURRENT_TIMESTAMP, %s)
         ON CONFLICT (user_id, push_date, push_type) DO UPDATE SET
-        status=EXCLUDED.status, pushed_at=EXCLUDED.pushed_at, error=EXCLUDED.error""",
+        status=EXCLUDED.status, pushed_at=EXCLUDED.pushed_at, error=EXCLUDED.error,
+        attempts=daily_push_logs.attempts+1""",
         (user_id, target_date, status, str(error)[:500]))
 
 
@@ -203,7 +204,8 @@ def dispatch_morning_pushes(db, target_date: date | None = None,
             LEFT JOIN daily_push_logs l
               ON l.user_id = u.user_id AND l.push_date = %s AND l.push_type = 'morning_brief'
             WHERE u.provider = 'weixin_ilink'
-              AND (l.user_id IS NULL OR l.status = 'failed')
+              AND (l.user_id IS NULL OR (l.status = 'failed' AND l.attempts < 3
+                   AND l.pushed_at <= CURRENT_TIMESTAMP - INTERVAL '60 seconds'))
             ORDER BY u.user_id
         """, (target_date,)).fetchall()
         credentials_by_account = {item[0].account_id: item[0] for item in load_accounts(conn)}
@@ -256,6 +258,6 @@ def pending_morning_push_count(db, target_date: date) -> int:
           ON c.provider=u.provider AND c.account_id=u.account_id AND c.status='active'
         LEFT JOIN daily_push_logs l
           ON l.user_id=u.user_id AND l.push_date=%s AND l.push_type='morning_brief'
-        WHERE u.provider='weixin_ilink' AND (l.user_id IS NULL OR l.status='failed')""",
+        WHERE u.provider='weixin_ilink' AND (l.user_id IS NULL OR (l.status='failed' AND l.attempts<3))""",
         (target_date,)).fetchone()
     return int(row["count"] if row else 0)

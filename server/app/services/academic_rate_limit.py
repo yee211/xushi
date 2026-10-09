@@ -14,6 +14,8 @@ _next = 0.0
 def acquire(deadline):
     global _next
     from .academic import AcademicError
+    interactive = threading.current_thread().name == "AnyIO worker thread"
+    deadline = min(deadline, time.monotonic() + 2) if interactive else deadline
     client = get_redis()
     if client is not None:
         while time.monotonic() < deadline:

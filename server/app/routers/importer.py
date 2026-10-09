@@ -95,7 +95,7 @@ def import_file(
     term_name: str = Form(""),
     start_date: str = Form(""),
     end_date: str = Form(""),
-    overwrite: bool = Form(True),
+    overwrite: bool = Form(False),
     user=Depends(get_current_user),
 ):
     """上传 Excel 课表文件（.xlsx / .xlsm / .xls），优先由 AI 提取，失败时自动回退本地解析。"""

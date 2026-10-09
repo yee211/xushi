@@ -71,7 +71,7 @@ def _detail_courses(rows: list[dict], header_index: int, columns: dict) -> list[
         name = str(row.get(columns.get("name", 3)) or "").strip()
         if not day_match or not (section_match or single_section) or not name:
             continue
-        weeks = parse_weeks(str(row.get(columns.get("weeks", 5)) or ""))
+        weeks = parse_weeks(str(row.get(columns["weeks"]) or "")) if "weeks" in columns else list(range(1, 31))
         weekday = "一二三四五六日".index(day_match.group(1)) + 1
         if section_match:
             start, end = int(section_match.group(1)), int(section_match.group(2))
@@ -94,13 +94,15 @@ def parse_weeks(expression: str) -> list[int]:
     - '4,7,10-16(双)周' / '3,7-11(单)周' / '18周'
     单/双后缀只作用于紧邻其前的那个数字或区间。
     """
+    if str(expression or "").strip() in {"每周", "全周", "全部周"}:
+        return list(range(1, 31))
     weeks: set[int] = set()
     text = re.sub(r"[周第\s]", "", str(expression or ""))
     for match in re.finditer(r"(\d+)(?:[-–~到](\d+))?([（(][单双][）)])?", text):
         start = int(match.group(1))
         end = int(match.group(2)) if match.group(2) else start
         parity = match.group(3) or ""
-        for week in range(min(start, end), max(start, end) + 1):
+        for week in range(max(1, min(start, end)), min(30, max(start, end)) + 1):
             if "单" in parity and week % 2 == 0:
                 continue
             if "双" in parity and week % 2 == 1:
@@ -227,6 +229,8 @@ def normalize_courses(raw_courses: list, *, exact: bool = False) -> list[dict]:
         else:
             weeks = []
         weeks = sorted(set(weeks))
+        if not weeks:
+            continue
 
         key = (name, weekday, start_section, end_section, tuple(weeks))
         if exact:
@@ -468,7 +472,7 @@ def _parse_grid_course_block(block: str, weekday: int, start: int, end: int) -> 
     if not name:
         return None
 
-    weeks = []
+    weeks = [] if week_texts else list(range(1, 31))
     for text in week_texts:
         found = parse_weeks(text)
         if found:

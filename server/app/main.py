@@ -197,8 +197,12 @@ if FRONTEND_DIST.exists():
         if path == 'api' or path.startswith('api/'):
             from fastapi import HTTPException
             raise HTTPException(404, "接口不存在")
-        candidate = FRONTEND_DIST / path
-        return FileResponse(candidate if candidate.is_file() else FRONTEND_DIST / "index.html")
+        root = FRONTEND_DIST.resolve()
+        candidate = (root / path).resolve()
+        if not candidate.is_relative_to(root):
+            from fastapi import HTTPException
+            raise HTTPException(404, "Resource not found")
+        return FileResponse(candidate if candidate.is_file() else root / "index.html")
 
 
 if __name__ == "__main__":

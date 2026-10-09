@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from ..auth import get_openid, token_hash
 from ..db import connect
-from ..rate_limit import login_limiter
+from ..rate_limit import client_ip, login_limiter
 from ..redis import redis_set
 from ..schemas import WechatLoginIn
 from ..settings import settings
@@ -18,8 +18,7 @@ router = APIRouter(prefix="/api", tags=["wechat-auth"])
 
 @router.post("/auth/wechat")
 def wechat_login(payload: WechatLoginIn, request: Request):
-    client_ip = request.client.host if request.client else "unknown"
-    allowed, retry_after = login_limiter.hit(client_ip)
+    allowed, retry_after = login_limiter.hit(client_ip(request))
     if not allowed:
         return JSONResponse({"detail": "登录尝试过于频繁，请稍后再试"}, status_code=429,
                             headers={"Retry-After": str(retry_after)})

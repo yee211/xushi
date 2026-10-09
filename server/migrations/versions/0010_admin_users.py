@@ -24,4 +24,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE IF EXISTS admins")
+    op.execute("DROP INDEX IF EXISTS admins_username_idx")

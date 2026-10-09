@@ -111,7 +111,7 @@ def sync(user_id, term, refresh=False, expected_binding=None):
             parsed = dict(snapshot, term=term, name=f"{student['name']}的学校课表 · {term}")
             result = write_schedule(db, user_id=user_id, parsed=parsed, create_new=True,
                                     overwrite=True, target_schedule_id=existing["id"] if existing else None,
-                                    preserve_adjusted=False, allow_empty=True, start_date=date.fromisoformat(snapshot["start_date"]),
+                                    preserve_adjusted=False, allow_empty=True, capture_backup=False, start_date=date.fromisoformat(snapshot["start_date"]),
                                     end_date=date.fromisoformat(snapshot["end_date"]), exact=True)
         db.execute("""UPDATE schedules SET academic_student_id=%s,academic_snapshot_hash=%s,
             academic_synced_at=CURRENT_TIMESTAMP WHERE id=%s AND user_id=%s""",

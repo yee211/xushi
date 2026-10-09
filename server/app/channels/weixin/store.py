@@ -72,9 +72,9 @@ def claim_message(db, account_id: str, message_id: str) -> bool:
         RETURNING message_id""", (account_id, message_id)).fetchone()
     if not row:
         row = db.execute("""UPDATE channel_messages SET status='processing',error='',processed_at=NULL,
-            received_at=CURRENT_TIMESTAMP
+            received_at=CURRENT_TIMESTAMP,attempts=attempts+1
             WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s
-            AND (status='failed' OR (status='processing' AND received_at<CURRENT_TIMESTAMP-INTERVAL '5 minutes'))
+            AND attempts<3 AND (status='failed' OR (status='processing' AND received_at<CURRENT_TIMESTAMP-INTERVAL '5 minutes'))
             RETURNING message_id""", (account_id, message_id)).fetchone()
     return bool(row)
 

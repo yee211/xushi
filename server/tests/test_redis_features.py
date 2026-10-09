@@ -1,6 +1,6 @@
 """针对 Redis 统一客户端、Session 鉴权缓存、分布式滑动窗口限流、分享预览缓存及容灾降级的测试。"""
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from redis.exceptions import RedisError
@@ -135,6 +135,7 @@ def cleanup_redis():
 def test_redis_client_safe_degradation_without_config(monkeypatch):
     """未配置或配置为空时，快捷工具函数平滑返回 None/False 而不抛出异常。"""
     from dataclasses import replace
+
     from app import redis as redis_module
     monkeypatch.setattr(redis_module, "settings", replace(redis_module.settings, redis_url=""))
     monkeypatch.setenv("REDIS_URL", "")
@@ -195,7 +196,7 @@ def test_session_auth_cache_hit_and_invalidation(monkeypatch):
 
     token = "test_bearer_token_12345"
     digest = deps.token_hash(token)
-    cache_key = f"xushi:session:{digest}"
+    cache_key = f"xushi:session:{digest}:initial"
 
     # 1. 首次鉴权：Redis 未命中，打 DB，写入 Redis
     user1 = deps._user_from_session(token)

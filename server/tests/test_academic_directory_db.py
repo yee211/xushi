@@ -6,7 +6,8 @@ from contextlib import contextmanager
 import pytest
 
 from app.db import connect as real_connect
-from app.services import academic, academic_directory as directory
+from app.services import academic
+from app.services import academic_directory as directory
 
 original_search = directory.search
 original_student = directory.student

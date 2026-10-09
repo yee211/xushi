@@ -445,3 +445,9 @@ def test_school_sync_updates_target_without_deleting_personal_variant():
     assert result["schedule_id"] == 11
     assert db.deleted_adjusted is None
     assert db.deleted_courses == (11,)
+
+
+@pytest.fixture(autouse=True)
+def isolate_backup_storage(monkeypatch):
+    # Backup persistence is verified by the PostgreSQL recovery tests.
+    monkeypatch.setattr('app.services.schedule_backups.capture', lambda db, user_id: 1)

@@ -1,5 +1,6 @@
 """Complete local school student directory."""
 from alembic import op
+
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS academic_directory_students (
         id TEXT PRIMARY KEY,grade TEXT NOT NULL,payload JSONB NOT NULL,search_text TEXT NOT NULL)""",

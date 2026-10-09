@@ -94,6 +94,7 @@ services:
       VISION_ENABLE_THINKING: ${VISION_ENABLE_THINKING:-false}
       # Agent 渠道
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      ACADEMIC_CREDENTIAL_SECRET: ${ACADEMIC_CREDENTIAL_SECRET:-}
       ACADEMIC_DIRECTORY_WORKER_ENABLED: ${ACADEMIC_DIRECTORY_WORKER_ENABLED:-true}
       ACADEMIC_SYNC_WORKER_ENABLED: ${ACADEMIC_SYNC_WORKER_ENABLED:-true}
       BINDING_CODE_TTL_SECONDS: ${BINDING_CODE_TTL_SECONDS:-300}
@@ -123,6 +124,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请配置管理后台密码}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?请配置管理后台会话密钥}
       ADMIN_SESSION_SECONDS: ${ADMIN_SESSION_SECONDS:-28800}
+      LLM_ALLOWED_BASE_URLS: ${LLM_ALLOWED_BASE_URLS:-}
       LLM_CONFIG_ENCRYPTION_KEY: ${LLM_CONFIG_ENCRYPTION_KEY:-}
       # 推送与天气
       WEATHER_LATITUDE: ${WEATHER_LATITUDE:-}
@@ -142,7 +144,6 @@ services:
       # APK 分发包、版本元数据与网页端构建产物挂载，git pull + npm build 后即刻热更生效
       - ../../static:/app/static
       - ../../data:/app/data
-      - ../../frontend/dist:/app/frontend/dist
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=3)"]
       interval: 15s
@@ -176,6 +177,7 @@ services:
       WEIXIN_ILINK_APP_ID: ${WEIXIN_ILINK_APP_ID:-bot}
       WEIXIN_ILINK_BOT_AGENT: ${WEIXIN_ILINK_BOT_AGENT:-XuShiSchedule/1.0.0}
       WEIXIN_ILINK_ROUTE_TAG: ${WEIXIN_ILINK_ROUTE_TAG:-}
+      LLM_ALLOWED_BASE_URLS: ${LLM_ALLOWED_BASE_URLS:-}
       LLM_CONFIG_ENCRYPTION_KEY: ${LLM_CONFIG_ENCRYPTION_KEY:-}
       WEATHER_LATITUDE: ${WEATHER_LATITUDE:-}
       WEATHER_LONGITUDE: ${WEATHER_LONGITUDE:-}

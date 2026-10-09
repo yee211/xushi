@@ -56,3 +56,9 @@ def isolate_school_worker(monkeypatch):
     monkeypatch.setattr("app.services.academic_jobs.start", lambda: None)
     monkeypatch.setattr("app.services.academic_jobs.stop", lambda: None)
     monkeypatch.setattr("app.services.academic_rate_limit.acquire", lambda deadline: None)
+
+
+@pytest.fixture(autouse=True)
+def isolate_school_encryption_key(monkeypatch, tmp_path):
+    monkeypatch.delenv('ACADEMIC_CREDENTIAL_SECRET', raising=False)
+    monkeypatch.setattr('app.services.academic.KEY_FILE', tmp_path / 'credential.key')

@@ -19,15 +19,15 @@ def upgrade() -> None:
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(200)")
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS openid VARCHAR(128)")
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    op.execute("ALTER TABLE users ALTER COLUMN openid DROP NOT NULL")
+    op.execute("ALTER TABLE users ALTER COLUMN email DROP NOT NULL")
     op.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_email_key ON users(email)")
     op.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_openid_key ON users(openid)")
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS users_openid_key")
-    op.execute("DROP INDEX IF EXISTS users_email_key")
-    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS last_login_at")
-    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS openid")
+    # openid and last_login_at belong to the baseline and must survive rollback.
+    # Preserve nullable openid: email-only users cannot satisfy the old constraint.
     op.execute("ALTER TABLE users DROP COLUMN IF EXISTS password_hash")
     op.execute("ALTER TABLE users DROP COLUMN IF EXISTS username")
     op.execute("ALTER TABLE users DROP COLUMN IF EXISTS email")

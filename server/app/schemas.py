@@ -87,6 +87,8 @@ class CourseIn(BaseModel):
     def valid_weeks(cls, value):
         if any(week < 1 or week > 30 for week in value):
             raise ValueError("周次必须在 1 到 30 之间")
+        if not value:
+            raise ValueError("Select at least one teaching week")
         return sorted(set(value))
 
 

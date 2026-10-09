@@ -169,6 +169,7 @@ export function termWeek(startDate, totalWeeks = 20, schedule = null) {
 
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  start.setDate(start.getDate() - ((start.getDay() || 7) - 1));
   const elapsedDays = Math.floor((today - start) / 86400000);
   const calculated = Math.floor(elapsedDays / 7) + 1;
   return Math.max(1, Math.min(totalWeeks, calculated));

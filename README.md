@@ -103,3 +103,11 @@ docker compose build && docker compose up -d
 完整说明见 [docs/architecture.md](docs/architecture.md)。普通浏览器默认展示宣传页；访问 `/?mode=app` 进入课表界面。
 
 Vite 默认代理到 `http://127.0.0.1:8000`，可通过启动环境变量 `VITE_DEV_API_TARGET` 修改。
+
+### Frontend deployment
+
+The default Compose deployment serves the frontend built into the image. Rebuild the API image to publish frontend changes. For host-side hot updates, run `npm ci && npm run build` in `frontend` first, then include `server/deploy/docker-compose.frontend-hot-reload.yml` as a Compose override. An empty host directory must never replace the image assets.
+
+Model connection tests use configured public endpoints. Private or additional endpoints require the comma-separated `LLM_ALLOWED_BASE_URLS` deployment setting. Testing a different URL requires an explicit API key.
+
+School credential encryption can use a dedicated `ACADEMIC_CREDENTIAL_SECRET` (at least 32 characters). When unset, the first use persists the legacy key as `data/academic/credential.key`, keeping existing ciphertext compatible and future admin-session rotation independent. Back up this private key with the academic data directory. Configure the dedicated secret before saving school credentials; changing it requires re-saving the school connection and login phone. This keeps future admin session rotation independent of school credentials.

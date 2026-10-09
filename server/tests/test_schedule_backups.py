@@ -99,3 +99,35 @@ def test_restore_refuses_active_sync_and_rolls_back_failed_insert(database, monk
     with connect() as db:
         assert db.execute("SELECT name FROM schedules WHERE id=%s", (original,)).fetchone()["name"] == "old"
         assert db.execute("SELECT 1 FROM courses WHERE id=%s", (course,)).fetchone()
+
+
+def test_ordinary_import_captures_adjustments_before_overwrite(database):
+    from app.services.schedule_import import write_schedule
+    connect, user, original, course = database
+    with connect() as db:
+        result = write_schedule(db, user_id=user, overwrite=True, target_schedule_id=original,
+            parsed={'name': 'replacement', 'term': 'old', 'courses': [
+                {'name': 'new', 'weekday': 1, 'start_section': 1, 'end_section': 2, 'weeks': [1]}]})
+        backup = db.execute('SELECT id,payload FROM schedule_backups WHERE user_id=%s ORDER BY id DESC LIMIT 1', (user,)).fetchone()
+        assert any(item['course_id'] == course for item in backup['payload']['course_adjustments'])
+        assert result['replaced']
+    schedule_backups.restore(user, backup['id'])
+    with connect() as db:
+        assert db.execute('SELECT 1 FROM course_adjustments WHERE course_id=%s', (course,)).fetchone()
+
+
+def test_background_retry_budgets_use_real_database(database):
+    from datetime import date
+
+    from app.channels.weixin.store import claim_message, complete_message
+    from app.services.daily_push import _record_push_result
+    connect, user, original, course = database
+    with connect() as db:
+        for _ in range(3):
+            assert claim_message(db, 'test-bot', 'poison-message')
+            complete_message(db, 'test-bot', 'poison-message', 'permanent error')
+        assert not claim_message(db, 'test-bot', 'poison-message')
+        for _ in range(3):
+            _record_push_result(db, user, date(2026, 10, 9), 'failed', 'weather error')
+        log = db.execute('SELECT attempts FROM daily_push_logs WHERE user_id=%s', (user,)).fetchone()
+        assert log['attempts'] == 3

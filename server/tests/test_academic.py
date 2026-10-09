@@ -296,7 +296,7 @@ def test_binding_is_scoped_to_authenticated_user(monkeypatch):
 
 
 @pytest.mark.parametrize("query,expected", [("24", [("2024", "")]),
-    ("25", [("2025", "")]), ("24计科", [("2024", "24计科")]),
+    ("25", [("2025", "")]), ("24计科", [("2024", "计科")]),
     ("张三", [("2025", "张三"), ("2024", "张三")])])
 def test_unified_search_resolves_short_grades_and_chinese(query, expected, monkeypatch):
     calls = []
@@ -322,7 +322,6 @@ def test_binding_sync_writes_only_complete_new_snapshot(monkeypatch, stale):
 
     from fastapi import HTTPException
 
-    from app.routers import academic as routes
     from app.services import academic_binding as bindings
 
     association = {"student": {"id": "student123", "name": "同学"}, "revision": 1, "updated_at": "2026-10-08"}
@@ -393,14 +392,16 @@ def test_ambiguous_or_empty_report_falls_back_to_all_weeks(cell, pages):
     assert weeks == ['1', '2']
 
 
-def test_report_without_explicit_single_page_marker_requires_weekly_verification():
+def test_complete_report_without_pagination_marker_skips_weekly_queries():
     def handler(request):
         if request.url.path == '/report/sample':
             return httpx.Response(200, text=report("示例课<br>老师【1周】<br>教室").replace('<input id="report1_totalpage_input" value="1">',''))
+        if request.url.path.endswith('getXskb'):
+            pytest.fail('complete matrix must not trigger weekly fetching')
         return timetable_handler(request)
     with client(handler) as c:
         result = c.schedule('student123','2026-2027-1')
-    assert result['completeness'] == 'weekly_verified'
+    assert result['completeness'] == 'semester_report'
 
 
 @pytest.mark.parametrize("weeks", [
@@ -420,3 +421,19 @@ def test_inconsistent_calendar_cannot_shift_course_dates(weeks):
             c.schedule("student123", "2026-2027-1")
     assert error.value.code == "calendar_invalid"
     assert len(requests) == 1
+
+
+def test_print_report_wrapped_week_expression_skips_weekly_queries():
+    requests = []
+    def handler(request):
+        requests.append(request.url.path)
+        if request.url.path == '/report/sample':
+            return httpx.Response(200, text=report('示例课<br>老师【1-2<br>周】<br>教室'))
+        if request.url.path.endswith('getXskb'):
+            pytest.fail('wrapped week expression must not trigger weekly fetching')
+        return timetable_handler(request)
+    with client(handler) as c:
+        result = c.schedule('student123', '2026-2027-1')
+    assert result['completeness'] == 'semester_report'
+    assert result['courses'][0]['weeks'] == [1, 2]
+    assert len(requests) == 3

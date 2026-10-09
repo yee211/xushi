@@ -1,6 +1,7 @@
 """Unit tests for schedule import and overwrite cascade deletion."""
 import io
 
+import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
@@ -87,9 +88,16 @@ def test_import_overwrite_deletes_adjusted_variant(monkeypatch):
         res = client.post(
             "/api/import",
             files={"file": ("schedule.xlsx", xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            data={"overwrite": "true"},
         )
         assert res.status_code == 200
         assert db.deleted_adjusted == (11, 7)
         assert db.deleted_courses == (11,)
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture(autouse=True)
+def isolate_backup_storage(monkeypatch):
+    # Backup persistence is verified by the PostgreSQL recovery tests.
+    monkeypatch.setattr('app.services.schedule_backups.capture', lambda db, user_id: 1)

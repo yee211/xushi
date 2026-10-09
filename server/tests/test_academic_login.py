@@ -33,8 +33,9 @@ def test_credentials_are_encrypted_and_never_return_password():
 
 
 def test_changed_key_fails_closed(monkeypatch):
+    monkeypatch.setenv("ACADEMIC_CREDENTIAL_SECRET", "x" * 40)
     login.save_credentials("13800138000")
-    monkeypatch.setenv("ADMIN_SESSION_SECRET", "different-" + "y" * 40)
+    monkeypatch.setenv("ACADEMIC_CREDENTIAL_SECRET", "different-" + "y" * 40)
     with pytest.raises(AcademicError):
         login.credentials()
     assert "password" not in login.status()
@@ -243,9 +244,10 @@ def test_session_cookies_survive_stop_and_restart_encrypted():
 
 
 def test_changed_key_does_not_restore_session_cookies(monkeypatch):
+    monkeypatch.setenv("ACADEMIC_CREDENTIAL_SECRET", "x" * 40)
     context = SessionContext()
     login.save_browser_session(context)
-    monkeypatch.setenv("ADMIN_SESSION_SECRET", "different-" + "y" * 40)
+    monkeypatch.setenv("ACADEMIC_CREDENTIAL_SECRET", "different-" + "y" * 40)
     login.restore_browser_session(context)
     assert context.restored == []
 

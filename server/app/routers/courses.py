@@ -60,6 +60,8 @@ def update_course(
         if not old_course:
             raise HTTPException(404, "课程不存在")
 
+        if course.schedule_id != old_course['schedule_id']:
+            raise HTTPException(409, "Courses cannot be moved between schedules")
         weekday_delta = course.weekday - old_course["weekday"]
         start_section_delta = course.start_section - old_course["start_section"]
         end_section_delta = course.end_section - old_course["end_section"]

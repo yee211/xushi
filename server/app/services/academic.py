@@ -1,6 +1,7 @@
 """Read-only CCSUT directory and semester timetable access."""
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -21,6 +22,7 @@ from ..settings import ROOT
 
 BASE = "https://tls.ccsut.cn"
 CONFIG_FILE = ROOT / "data" / "academic" / "connection.enc"
+KEY_FILE = CONFIG_FILE.with_name("credential.key")
 TERM_RE = re.compile(r"^\d{4}-\d{4}-[12]$")
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,200}$")
 _lock = threading.RLock()
@@ -42,10 +44,31 @@ def _now():
 
 
 def _key():
-    secret = os.getenv("ADMIN_SESSION_SECRET", "")
-    if len(secret) < 32:
-        raise AcademicError("connection_not_configured", "请先配置管理后台会话密钥", 503)
-    return hashlib.sha256(("ccsut:" + secret).encode()).digest()
+    dedicated = os.getenv("ACADEMIC_CREDENTIAL_SECRET", "")
+    if dedicated:
+        if len(dedicated) < 32:
+            raise AcademicError("connection_not_configured", "School encryption secret must contain at least 32 characters", 503)
+        return hashlib.sha256(("ccsut:" + dedicated).encode()).digest()
+    try:
+        key = KEY_FILE.read_bytes()
+    except FileNotFoundError:
+        secret = os.getenv("ADMIN_SESSION_SECRET", "")
+        if len(secret) < 32:
+            raise AcademicError("connection_not_configured", "Configure the administrator session secret first", 503)
+        # Preserve the legacy encryption bytes on the first upgrade, then persist
+        # them independently so later admin session rotation cannot destroy access.
+        key = hashlib.sha256(("ccsut:" + secret).encode()).digest()
+        KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            descriptor = os.open(KEY_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            key = KEY_FILE.read_bytes()
+        else:
+            with os.fdopen(descriptor, 'wb') as output:
+                output.write(key)
+    if len(key) != 32:
+        raise AcademicError("connection_unreadable", "School encryption key file is invalid", 503)
+    return key
 
 
 def _sync_connection_version():
@@ -96,6 +119,13 @@ def save_connection(cookie, user_agent):
         temporary.replace(CONFIG_FILE)
         _generation += 1
         _cache.clear()
+
+    try:
+        from .academic_directory import ensure_initial_refresh
+        ensure_initial_refresh()
+    except Exception:
+        # The verified connection remains usable if the refresh queue is unavailable.
+        logging.getLogger(__name__).exception('School directory initial refresh unavailable')
 
 
 def parse_report(html, term):
@@ -167,7 +197,7 @@ class CcsutClient:
 
     def search(self, *, grade, name="", class_name="", major_name="", keyword=""):
         tree = self.json("POST", "/admin/jwxtgld/xscx/getXssjYxxx",
-                         data={"sznj": grade, "xm": class_name or name})
+                         data={"sznj": grade, "xm": name})
         if not isinstance(tree, list):
             raise AcademicError("directory_invalid", "学校班级目录格式异常")
         if keyword:
@@ -265,12 +295,11 @@ class CcsutClient:
             if error.code not in ("report_invalid", "report_paged"):
                 raise
             parsed = {"name": "长沙工业学院教务课表", "term": term, "courses": [], "notes": []}
-        # A declared single-page semester report with fully parsed courses can
-        # be used directly. Empty/ambiguous reports still need weekly proof.
-        page = BeautifulSoup(html, "html.parser").select_one("#report1_totalpage_input")
+        # A fully parsed semester matrix is usable without a pagination marker.
+        # The parser rejects explicit pagination and unrecognised course cells.
+        # Empty reports still need weekly proof.
         report_weeks = {week for course in parsed["courses"] for week in course["weeks"]}
-        if (page and page.get("value") == "1" and parsed["courses"]
-                and report_weeks.issubset(set(expected))):
+        if parsed["courses"] and report_weeks.issubset(set(expected)):
             parsed.update(start_date=start, end_date=end, section_times=data.get("jcsjszList") or [],
                           fetched_at=_now(), source="ccsut_semester_report", complete=True,
                           completeness="semester_report", expected_weeks=expected, completed_weeks=[],
@@ -505,7 +534,7 @@ def search_keyword(query):
                 grades = [g for g in grades if g == requested_grade]
             students, truncated = [], False
             for grade in grades:
-                result = client.search(grade=grade, keyword=query)
+                result = client.search(grade=grade, keyword=local_query)
                 students.extend(result["students"])
                 if result.get("truncated") or len(students) >= 100:
                     truncated = True

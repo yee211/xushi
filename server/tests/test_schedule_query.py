@@ -49,7 +49,7 @@ def test_adjustment_is_applied_before_weekday_filter():
     assert (result[1]["start_time"], result[1]["end_time"]) == ("16:00", "17:40")
 
 def test_empty_weeks_and_cross_period_course():
-    courses = [course(1, "跨午课", 1, 4, 5, []), course(2, "晚课", 1, 9, 10, [])]
+    courses = [course(1, "跨午课", 1, 4, 5, [25]), course(2, "晚课", 1, 9, 10, [25])]
     assert materialize_courses(courses, [], 25, 1, "morning")[0]["name"] == "跨午课"
     assert materialize_courses(courses, [], 25, 1, "afternoon")[0]["name"] == "跨午课"
 

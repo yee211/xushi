@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 
 from ..auth import get_current_user
+from ..auth.deps import invalidate_session_cache
 from ..db import connect
 from ..rate_limit import link_limiter
 from ..schemas import AccountLinkIn
@@ -59,6 +60,8 @@ def link_account(payload: AccountLinkIn, user=Depends(get_current_user)):
             summary = service.link_wechat_account(db, payload.code, user, payload.school_choice, payload.conflict_version)
         except AccountLinkError as error:
             raise HTTPException(_status(error), error.details or error.message) from error
+    for digest in summary.pop('_session_invalidations', []):
+        invalidate_session_cache(token_digest=digest)
     invalidate_user(summary["user_id"])
     return {"linked": True, **summary}
 
@@ -67,7 +70,10 @@ def link_account(payload: AccountLinkIn, user=Depends(get_current_user)):
 def unlink_account(user=Depends(get_current_user)):
     with connect() as db:
         try:
-            service.unlink_wechat(db, user["id"])
+            summary = service.unlink_wechat(db, user["id"])
         except AccountLinkError as error:
             raise HTTPException(_status(error), error.details or error.message) from error
+    for digest in summary.pop('_session_invalidations', []):
+        invalidate_session_cache(token_digest=digest)
+    invalidate_user(user['id'])
     return Response(status_code=204)

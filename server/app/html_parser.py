@@ -392,6 +392,14 @@ def parse_ccsut_report(html, term):
             if not cell["is_origin"] or not cell["text"].strip():
                 continue
             lines = [line.strip() for line in cell["text"].splitlines() if line.strip()]
+            # Printing wraps long week expressions inside the brackets.
+            joined = []
+            for line in lines:
+                if joined and '【' in joined[-1] and '】' not in joined[-1]:
+                    joined[-1] += line
+                else:
+                    joined.append(line)
+            lines = joined
             previous = 0
             found = False
             for i, line in enumerate(lines):

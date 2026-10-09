@@ -94,11 +94,12 @@ function termWeek(schedule) {
   if (!start) return 1
   // 历史/未来学期默认从第 1 周看起，与源项目 termWeek 行为一致
   if (!isScheduleActiveToday(schedule)) return 1
+  start.setDate(start.getDate() - ((start.getDay() || 7) - 1))
   const elapsed = Math.floor((new Date(isoDate(new Date())) - new Date(isoDate(start))) / 86400000)
   return Math.max(1, Math.min(weekCount(schedule), Math.floor(elapsed / 7) + 1))
 }
 function formatWeeks(weeks) {
-  if (!weeks || !weeks.length) return '每周'
+  if (!weeks || !weeks.length) return '未设置周次'
   const sorted = [...weeks].sort((a, b) => a - b)
   const ranges = []
   let start = sorted[0]
@@ -194,7 +195,7 @@ function sectionCountFor(schedule) {
 function displayCourses(schedule, week, count, colorMap, rowHeight = ROW_HEIGHT) {
   const width = 100 / 7
   const shown = (schedule && schedule.courses || [])
-    .filter(item => item.weekday >= 1 && item.weekday <= 7 && (!item.weeks || !item.weeks.length || item.weeks.includes(week)))
+    .filter(item => item.weekday >= 1 && item.weekday <= 7 && (item.weeks && item.weeks.includes(week)))
     .map(item => {
       const adjustment = (item.adjustments || []).find(value => Number(value.week) === week)
       const displayed = adjustment ? { ...item, weekday: adjustment.weekday, start_section: adjustment.start_section,
@@ -644,7 +645,9 @@ Page({
       if (today < new Date(isoDate(start))) { statusClass = 'future'; statusText = '未开学 · 将在开学后自动生效' }
       else if (today > end) { statusClass = 'past'; statusText = '历史学期 · 已结束' }
       else {
-        const current = Math.min(weeks, Math.floor((today - start) / 86400000 / 7) + 1)
+        const monday = new Date(start)
+        monday.setDate(monday.getDate() - ((monday.getDay() || 7) - 1))
+        const current = Math.min(weeks, Math.floor((today - monday) / 86400000 / 7) + 1)
         statusClass = 'active'; statusText = `进行中 · 当前为第 ${current} 周`
       }
     }

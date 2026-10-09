@@ -9,6 +9,7 @@
 空间不重叠，互不干扰。
 """
 import json
+import uuid
 from datetime import UTC, datetime
 
 import jwt
@@ -28,12 +29,17 @@ def invalidate_session_cache(token: str | None = None, token_digest: str | None 
     """撤销会话或账号合并时主动失效指定会话缓存。"""
     digest = token_digest or (token_hash(token) if token else None)
     if digest:
+        old_generation = redis_get(f"{SESSION_CACHE_PREFIX}{digest}:generation") or "initial"
+        redis_delete(f"{SESSION_CACHE_PREFIX}{digest}:{old_generation}")
+        redis_set(f"{SESSION_CACHE_PREFIX}{digest}:generation", uuid.uuid4().hex,
+                  ex=settings.session_days * 86400)
         redis_delete(f"{SESSION_CACHE_PREFIX}{digest}")
 
 
 def _user_from_session(token: str) -> dict | None:
     digest = token_hash(token)
-    cache_key = f"{SESSION_CACHE_PREFIX}{digest}"
+    generation = redis_get(f"{SESSION_CACHE_PREFIX}{digest}:generation") or 'initial'
+    cache_key = f"{SESSION_CACHE_PREFIX}{digest}:{generation}"
     cached = redis_get(cache_key)
     if cached:
         try:
@@ -55,7 +61,7 @@ def _user_from_session(token: str) -> dict | None:
         exp = row["expires_at"]
         now = datetime.now(UTC) if exp.tzinfo else datetime.now()
         remain = int((exp - now).total_seconds())
-        ttl_seconds = max(60, min(remain, ttl_seconds))
+        ttl_seconds = max(1, min(remain, ttl_seconds))
     redis_set(cache_key, json.dumps(user_dict), ex=ttl_seconds)
     return user_dict
 

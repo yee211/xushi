@@ -39,7 +39,8 @@ def teaching_week(schedule: Mapping, target_date: date) -> int | None:
     start, end = _as_date(schedule.get("start_date")), _as_date(schedule.get("end_date"))
     if not start or target_date < start or (end and target_date > end):
         return None
-    week = (target_date - start).days // 7 + 1
+    monday = start - timedelta(days=start.weekday())
+    week = (target_date - monday).days // 7 + 1
     return week if 1 <= week <= 30 else None
 
 def select_effective_schedule(schedules: Sequence[Mapping], target_date: date,
@@ -73,7 +74,7 @@ def materialize_courses(courses: Iterable[Mapping], adjustments: Iterable[Mappin
     result = []
     for source in courses:
         weeks = source.get("weeks") or []
-        if weeks and week not in weeks:
+        if week not in weeks:
             continue
         item, override = dict(source), overrides.get(int(source["id"]))
         if override:

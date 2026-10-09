@@ -292,6 +292,10 @@ def run(job, visible=False):
                     elif location.hostname == "zts.ccsut.cn" and location.path == "/portal/shortcut.html":
                         # This entry finalizes/reuses the school session; the timetable
                         # and ordinary login URLs can both bounce back to the campus portal.
+                        # Allow the portal's asynchronous SSO redirect to finish.
+                        page.wait_for_timeout(1500)
+                        if urlsplit(page.url).hostname != 'zts.ccsut.cn':
+                            continue
                         portal_attempts += 1
                         if portal_attempts > 3:
                             update("needs_login", "学校门户与教务系统跳转未完成，请重新登录或使用可视浏览器")

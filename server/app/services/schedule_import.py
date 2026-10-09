@@ -11,7 +11,7 @@ from ..parser import normalize_courses
 def write_schedule(db, *, user_id: int, parsed: dict, overwrite: bool = False,
                    start_date: date | None = None, end_date: date | None = None, exact: bool = False,
                    create_new: bool = False, target_schedule_id: int | None = None,
-                   preserve_adjusted: bool = False, allow_empty: bool = False) -> dict:
+                   preserve_adjusted: bool = False, allow_empty: bool = False, capture_backup: bool = True) -> dict:
     name = re.sub(r"\s+", " ", str(parsed.get("name") or parsed.get("term") or "教务系统课表")).strip()[:80] or "教务系统课表"
     term = re.sub(r"\s+", " ", str(parsed.get("term") or name)).strip()[:80] or name
     courses = normalize_courses(parsed.get("courses") or [], exact=exact)
@@ -32,6 +32,9 @@ def write_schedule(db, *, user_id: int, parsed: dict, overwrite: bool = False,
         raise HTTPException(409, {"code": "schedule_exists", "message": f"已存在同名课表“{schedule['name']}”，是否覆盖？",
                                   "schedule_id": schedule["id"], "schedule_name": schedule["name"]})
     if schedule:
+        if capture_backup:
+            from .schedule_backups import capture
+            capture(db, user_id)
         # 覆盖原始课表意味着建立一份新的基准数据。旧调课版是旧基准的完整副本，
         # 不能继续保留；先删除它，让其课程、单周调课和修改记录通过外键级联清理。
         if not preserve_adjusted:

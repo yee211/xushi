@@ -13,8 +13,8 @@ def _is_db_available() -> bool:
     try:
         with pg_connect(DATABASE_URL, connect_timeout=1) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                return True
+                cur.execute("SELECT to_regclass('users'), to_regclass('course_change_logs')")
+                return all(cur.fetchone())
     except Exception:
         return False
 

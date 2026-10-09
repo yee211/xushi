@@ -719,7 +719,7 @@ async function saveCourseMove(scope) {
         end_section: move.end_section,
         weeks: base.weeks || [],
         color: base.color,
-      }, 'drag');
+      }, 'drag', true);
       if (move.course.adjusted_week) {
         try {
           await coursesApi.cancelAdjustment(effectiveCourseId, move.course.adjusted_week);

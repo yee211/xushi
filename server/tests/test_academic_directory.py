@@ -4,7 +4,8 @@ import time
 import httpx
 import pytest
 
-from app.services import academic, academic_directory as directory
+from app.services import academic
+from app.services import academic_directory as directory
 
 
 def school_response(count=145, broken=False):
@@ -76,3 +77,43 @@ def test_fresh_directory_overrides_old_process_context(monkeypatch):
     monkeypatch.setattr(academic, '_students', {'student123': {'id': 'student123', 'name': '旧名字'}})
     monkeypatch.setattr(directory, 'student', lambda sid: {'id': sid, 'name': '新名字'})
     assert academic.student_context('student123')['name'] == '新名字'
+
+
+@pytest.mark.parametrize('state,synced,expected', [
+    ('idle', False, True), ('failed', False, True),
+    ('queued', False, False), ('running', False, False),
+    ('succeeded', True, False), ('failed', True, False),
+])
+def test_initial_refresh_only_queues_missing_snapshot(monkeypatch, state, synced, expected):
+    queued = []
+    monkeypatch.setattr(academic, 'connection_headers', lambda: {'Cookie': 'test'})
+    monkeypatch.setattr(directory, 'status', lambda: {'state': state, 'synced_at': synced})
+    monkeypatch.setattr(directory, 'enqueue', lambda: queued.append(True))
+    directory.ensure_initial_refresh()
+    assert bool(queued) == expected
+
+
+def test_initial_refresh_requires_school_connection(monkeypatch):
+    def unavailable():
+        raise academic.AcademicError('connection_not_configured', 'not connected')
+    monkeypatch.setattr(academic, 'connection_headers', unavailable)
+    monkeypatch.setattr(directory, 'enqueue', lambda: pytest.fail('must not queue without connection'))
+    with pytest.raises(academic.AcademicError):
+        directory.ensure_initial_refresh()
+
+
+def test_collection_accepts_major_without_classes(monkeypatch):
+    class Client:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def grades(self): return ['2026']
+        def json(self, *args, **kwargs):
+            return [{'id': 'dept', 'zyxxList': [
+                {'id': 'empty-major'},
+                {'id': 'major', 'bjxxList': [{'id': 'class'}]},
+            ]}]
+    monkeypatch.setattr(academic, 'CcsutClient', Client)
+    monkeypatch.setattr(directory, 'class_students', lambda *args: [{'id': 'student123', 'grade': '2026'}])
+    directory._stop.clear()
+    grades, students = directory.collect(lambda *args: None)
+    assert grades == ['2026'] and len(students) == 1

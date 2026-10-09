@@ -26,7 +26,7 @@ def feedback_number(feedback_id: int, created_at) -> str:
 
 
 def anonymous_user(user_id: int) -> str:
-    salt = os.getenv("FEEDBACK_ANON_SALT", "wx-class-schedule-feedback")
+    salt = os.getenv("FEEDBACK_ANON_SALT", "").strip() or os.getenv("ADMIN_SESSION_SECRET", "").strip() or "wx-class-schedule-feedback"
     return hashlib.sha256(f"{salt}:{user_id}".encode()).hexdigest()[:8]
 
 

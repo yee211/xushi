@@ -116,6 +116,18 @@ def _extract_context_entities(facts: list[dict]) -> dict:
 
 
 def run(tools, message: str, history: list | None = None) -> dict | None:
+    try:
+        return _run(tools, message, history)
+    except Exception as error:
+        llm_circuit_breaker.record_failure(error)
+        return None
+    finally:
+        from .circuit_breaker import CircuitState
+        if llm_circuit_breaker.state == CircuitState.HALF_OPEN:
+            llm_circuit_breaker.record_failure("probe exited without a result")
+
+
+def _run(tools, message: str, history: list | None = None) -> dict | None:
     base_url, api_key, model = agent_config()
     if not (base_url and api_key and model):
         return None

@@ -66,14 +66,14 @@ TABLES = (
 )
 
 INDEXES = (
-    "CREATE INDEX IF NOT EXISTS schedules_user_id_idx ON schedules(user_id)",
-    "CREATE INDEX IF NOT EXISTS schedules_user_term_idx ON schedules(user_id, term)",
-    "CREATE INDEX IF NOT EXISTS courses_schedule_id_idx ON courses(schedule_id)",
-    "CREATE INDEX IF NOT EXISTS courses_source_course_id_idx ON courses(source_course_id)",
-    """CREATE UNIQUE INDEX IF NOT EXISTS schedules_adjusted_source_idx
+    "CREATE INDEX IF NOT EXISTS idx_schedules_user_id ON schedules(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_schedules_user_id_term ON schedules(user_id, term)",
+    "CREATE INDEX IF NOT EXISTS idx_courses_schedule_id ON courses(schedule_id)",
+    "CREATE INDEX IF NOT EXISTS idx_courses_source_course_id ON courses(source_course_id)",
+    """CREATE UNIQUE INDEX IF NOT EXISTS uq_schedules_adjusted_source
        ON schedules(source_schedule_id) WHERE variant_type='adjusted'""",
-    "CREATE INDEX IF NOT EXISTS adjustments_course_id_idx ON course_adjustments(course_id)",
-    "CREATE INDEX IF NOT EXISTS change_logs_schedule_id_idx ON course_change_logs(schedule_id)",
+    "CREATE INDEX IF NOT EXISTS idx_course_adjustments_course_id ON course_adjustments(course_id)",
+    "CREATE INDEX IF NOT EXISTS idx_course_change_logs_schedule_id ON course_change_logs(schedule_id)",
     "CREATE INDEX IF NOT EXISTS change_logs_schedule_created_idx ON course_change_logs(schedule_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id)",
 )

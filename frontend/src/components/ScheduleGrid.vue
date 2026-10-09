@@ -120,13 +120,14 @@ const gridStyle = computed(() => ({
 
 const activeCourses = computed(() => {
   return (props.schedule?.courses || [])
-    .filter(c => !c.weeks?.length || c.weeks.includes(props.week))
+    .filter(c => c.weeks?.includes(props.week))
     .map(course => {
       const adjustment = course.adjustments?.find(item => item.week === props.week);
       return adjustment
         ? {
           ...course,
           ...adjustment,
+          room: adjustment.room || course.room,
           id: course.id,
           adjustment_id: adjustment.id,
           adjusted_week: props.week,
@@ -142,6 +143,7 @@ const displayCourses = computed(() => {
   for (const course of sorted) {
     const previous = result[result.length - 1];
     const canMerge = previous
+      && previous.id === course.id
       && courseKey(previous.name) === courseKey(course.name)
       && previous.teacher === course.teacher
       && previous.room === course.room

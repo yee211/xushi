@@ -30,6 +30,7 @@ RUN if [ "$INSTALL_ACADEMIC_BROWSER" = "true" ]; then \
 
 # 后端源码、管理后台静态页、迁移配置
 COPY server/app ./app
+COPY server/scripts ./scripts
 COPY server/admin ./admin
 COPY server/alembic.ini server/pyproject.toml ./
 COPY server/migrations ./migrations
