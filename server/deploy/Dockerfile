@@ -35,7 +35,7 @@ COPY server/admin ./admin
 COPY server/alembic.ini server/pyproject.toml ./
 COPY server/migrations ./migrations
 
-# 网页端构建产物（compose 场景改由 volume 挂载以便热更；此为无 volume 时的兜底）
+# 网页端构建产物（默认随镜像部署，热更挂载需启用 override）
 COPY --from=frontend-builder /build/dist ./frontend/dist
 
 EXPOSE 8000
