@@ -19,10 +19,14 @@ WORKDIR /app
 COPY server/requirements.txt ./
 ARG PIP_INDEX_URL=""
 ARG INSTALL_ACADEMIC_BROWSER=false
+ARG APT_MIRROR=""
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 COPY server/requirements-academic.txt ./
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 RUN pip install --no-cache-dir -r requirements.txt
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i "s|http://deb.debian.org/debian-security|${APT_MIRROR}/debian-security|g; s|http://deb.debian.org/debian|${APT_MIRROR}/debian|g" /etc/apt/sources.list.d/debian.sources; \
+    fi
 RUN if [ "$INSTALL_ACADEMIC_BROWSER" = "true" ]; then \
       pip install --no-cache-dir -r requirements-academic.txt && \
       python -m playwright install --with-deps chromium; \
