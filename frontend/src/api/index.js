@@ -47,6 +47,12 @@ function offlineError(message) {
 }
 
 export async function api(url, options = {}) {
+  const { timeoutMs = 30000, signal: callerSignal, ...requestOptions } = options;
+  const controller = new AbortController();
+  const abort = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abort();
+  else callerSignal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const headers = { ...(options.headers || {}) };
   const token = getToken();
   if (token) {
@@ -54,19 +60,23 @@ export async function api(url, options = {}) {
   }
 
   let response;
+  let body = {};
   try {
-    response = await fetch(apiUrl(url), { ...options, headers });
+    response = await fetch(apiUrl(url), { ...requestOptions, headers, signal: controller.signal });
+    // Reading the response is part of the deadline too.
+    try {
+      body = await response.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+    }
   } catch (error) {
-    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+    if (controller.signal.aborted || error?.name === 'TimeoutError' || error?.name === 'AbortError') {
       throw offlineError('请求超时，服务端可能仍在处理，请稍后刷新课表确认');
     }
     throw offlineError('网络连接失败，请检查网络后重试');
-  }
-  let body = {};
-  try {
-    body = await response.json();
-  } catch {
-    // 允许空响应或非 JSON
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', abort);
   }
 
   if (!response.ok) {
@@ -76,9 +86,9 @@ export async function api(url, options = {}) {
     }
     if (response.status >= 500) {
       // 服务端暂不可达：与断网同走离线兜底（区别于鉴权失败）
-      throw offlineError(body.detail || '服务暂不可用，请稍后重试');
+      throw offlineError((body.detail?.message || (typeof body.detail === 'string' ? body.detail : '服务暂不可用，请稍后重试')));
     }
-    throw new Error(body.detail || '请求失败');
+    throw new Error((body.detail?.message || (typeof body.detail === 'string' ? body.detail : '请求失败')));
   }
 
   return response.status === 204 ? null : body;
@@ -114,9 +124,6 @@ export const schedulesApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-  },
-  async ensureAdjusted(id) {
-    return api(`/api/schedules/${id}/adjusted`, { method: 'POST' });
   },
   async delete(id) {
     return api(`/api/schedules/${id}`, { method: 'DELETE' });
@@ -165,7 +172,7 @@ export const adjustmentsApi = {
     const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout
       ? AbortSignal.timeout(30000)
       : undefined;
-    return api('/api/adjustments/parse', { method: 'POST', body: form, signal });
+    return api('/api/adjustments/parse', { method: 'POST', body: form, signal, timeoutMs: 30000 });
   },
   async apply(scheduleId, items) {
     return api('/api/adjustments/apply', {
@@ -194,6 +201,7 @@ export const importerApi = {
       method: 'POST',
       body: formData,
       signal,
+      timeoutMs: 75000,
     });
   },
   async importHtml(payload) {
@@ -205,6 +213,7 @@ export const importerApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       signal,
+      timeoutMs: 75000,
     });
   },
 };
@@ -223,4 +232,17 @@ export const feedbackApi = {
       body: JSON.stringify(data),
     });
   },
+};
+
+export const academicApi = {
+  backups: () => api('/api/academic/backups'),
+  restore: id => api('/api/academic/backups/' + encodeURIComponent(id) + '/restore', { method: 'POST' }),
+  task: id => api('/api/academic/binding/sync/tasks/' + encodeURIComponent(id)),
+  latestTask: () => api('/api/academic/binding/sync/tasks/latest'),
+  sync: (term, refresh = false) => api('/api/academic/binding/sync/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ term, refresh }) }),
+  binding: () => api('/api/academic/binding'),
+  bind: student_id => api('/api/academic/binding', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student_id }) }),
+  unbind: () => api('/api/academic/binding', { method: 'DELETE' }),
+  students: params => api('/api/academic/students?' + new URLSearchParams(params), { timeoutMs: 75000 }),
+  terms: id => api('/api/academic/students/' + encodeURIComponent(id) + '/terms', { timeoutMs: 75000 }),
 };

@@ -60,6 +60,8 @@ services:
     build:
       context: ../..
       dockerfile: server/deploy/Dockerfile
+      args:
+        INSTALL_ACADEMIC_BROWSER: ${INSTALL_ACADEMIC_BROWSER:-false}
     restart: unless-stopped
     environment:
       APP_ENV: production
@@ -92,6 +94,8 @@ services:
       VISION_ENABLE_THINKING: ${VISION_ENABLE_THINKING:-false}
       # Agent 渠道
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      ACADEMIC_DIRECTORY_WORKER_ENABLED: ${ACADEMIC_DIRECTORY_WORKER_ENABLED:-true}
+      ACADEMIC_SYNC_WORKER_ENABLED: ${ACADEMIC_SYNC_WORKER_ENABLED:-true}
       BINDING_CODE_TTL_SECONDS: ${BINDING_CODE_TTL_SECONDS:-300}
       AGENT_BASE_URL: ${AGENT_BASE_URL:-}
       AGENT_API_KEY: ${AGENT_API_KEY:-}

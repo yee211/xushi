@@ -38,6 +38,7 @@ class FeedbackDb:
 
 
 def test_create_feedback_persists_then_queues_notification(monkeypatch):
+    monkeypatch.setattr("app.rate_limit.get_redis", lambda: None)
     db = FeedbackDb()
     queued = []
     tasks = BackgroundTasks()

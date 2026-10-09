@@ -15,7 +15,6 @@ from app.redis import (
     reset_redis_client,
     set_redis_client,
 )
-from app.services import schedule_share
 
 
 class FakePipeline:
@@ -135,6 +134,9 @@ def cleanup_redis():
 
 def test_redis_client_safe_degradation_without_config(monkeypatch):
     """未配置或配置为空时，快捷工具函数平滑返回 None/False 而不抛出异常。"""
+    from dataclasses import replace
+    from app import redis as redis_module
+    monkeypatch.setattr(redis_module, "settings", replace(redis_module.settings, redis_url=""))
     monkeypatch.setenv("REDIS_URL", "")
     monkeypatch.setenv("AGENT_REDIS_URL", "")
     assert get_redis() is None
@@ -286,62 +288,6 @@ def test_sliding_window_limiter_fallback_to_memory_when_redis_broken():
     allowed3, retry_after = limiter.hit("ip_1")
     assert allowed3 is False
     assert retry_after >= 1
-
-
-def test_schedule_share_preview_cache(monkeypatch):
-    """验证公开分享课表预览缓存的命中与回填机制。"""
-    fake = ComprehensiveFakeRedis()
-    set_redis_client(fake)
-
-    mock_row = {
-        "code": "AB3456",
-        "schedule_id": 10,
-        "user_id": 1,
-        "expires_at": datetime.now(UTC) + timedelta(days=3),
-        "schedule_name": "计算机2024班级课表",
-        "term": "2025-2026学年第2学期",
-        "start_date": "2026-03-01",
-        "end_date": "2026-07-01",
-        "username": "班长",
-        "email": "monitor@example.com",
-    }
-    db_calls = 0
-
-    class MockShareDB:
-        def execute(self, sql, params=None):
-            nonlocal db_calls
-            db_calls += 1
-            if "COUNT(*)" in sql:
-                return MockShareDBResult([{"count": 15}])
-            return MockShareDBResult([mock_row])
-
-    class MockShareDBResult:
-        def __init__(self, rows):
-            self.rows = rows
-
-        def fetchone(self):
-            return self.rows[0] if self.rows else None
-
-    # 1. 首次查询：查 DB，回填 Redis
-    res1 = schedule_share.get_share_info(MockShareDB(), "AB3456")
-    assert res1["name"] == "计算机2024班级课表"
-    assert res1["course_count"] == 15
-    assert db_calls == 2  # 一次查 share_codes+schedules，一次查课程计数 COUNT(*)
-    assert fake.get("xushi:share:preview:AB3456") is not None
-
-    # 2. 第二次查询：命中 Redis 缓存，DB 次数不增加
-    res2 = schedule_share.get_share_info(MockShareDB(), "AB3456")
-    assert res2["name"] == "计算机2024班级课表"
-    assert res2["course_count"] == 15
-    assert db_calls == 2  # 保持 2，证明纯读缓存！
-
-    # 3. 淘汰缓存
-    schedule_share.invalidate_share_cache("AB3456")
-    assert fake.get("xushi:share:preview:AB3456") is None
-
-    # 4. 第三次查询：重新回源查 DB
-    schedule_share.get_share_info(MockShareDB(), "AB3456")
-    assert db_calls == 4
 
 
 def test_clawbot_rate_limiting(monkeypatch):

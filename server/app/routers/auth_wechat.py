@@ -1,6 +1,5 @@
-"""微信登录路由（小程序端）：wx.login code 换会话令牌 + 公共配置。"""
+"""微信登录路由（小程序端）：wx.login code 换会话令牌。"""
 import json
-import os
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -41,10 +40,3 @@ def wechat_login(payload: WechatLoginIn, request: Request):
     user_dict = {"id": user["id"], "openid": user["openid"], "email": user["email"], "username": user["username"]}
     redis_set(f"xushi:session:{digest}", json.dumps(user_dict), ex=ttl_seconds)
     return {"token": token, "expires_at": expires.isoformat()}
-
-
-@router.get("/config")
-def public_app_config():
-    """小程序前端公共环境配置与审核安全开关。"""
-    show_agent = os.getenv("SHOW_AGENT_ENTRY", "true").strip().lower() in ("1", "true", "yes", "on")
-    return {"show_agent": show_agent}

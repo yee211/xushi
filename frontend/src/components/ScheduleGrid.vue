@@ -14,6 +14,7 @@ import {
 
 const props = defineProps({
   schedule: { type: Object, default: null },
+  readOnly: { type: Boolean, default: false },
   week: { type: Number, default: 1 },
   loading: { type: Boolean, default: false },
   colorMap: { type: Map, default: () => new Map() },
@@ -277,6 +278,7 @@ function resetDrag() {
 }
 
 function beginDrag(event, course) {
+  if (props.readOnly) return;
   if (event.button !== undefined && event.button !== 0) return;
   if (drag.active || drag.pending || drag.settling) {
     resetDrag();

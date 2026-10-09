@@ -141,16 +141,6 @@ def init_db():
             attempt_count SMALLINT NOT NULL DEFAULT 0,
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
         db.execute("CREATE INDEX IF NOT EXISTS binding_codes_user_idx ON identity_binding_codes(user_id,provider)")
-        db.execute("""CREATE TABLE IF NOT EXISTS schedule_share_codes (
-            id BIGSERIAL PRIMARY KEY,
-            code VARCHAR(16) NOT NULL UNIQUE,
-            schedule_id BIGINT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
-            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            expires_at TIMESTAMPTZ NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
-        db.execute("CREATE INDEX IF NOT EXISTS schedule_share_codes_schedule_idx ON schedule_share_codes(schedule_id)")
-        db.execute("CREATE INDEX IF NOT EXISTS schedule_share_codes_user_idx ON schedule_share_codes(user_id)")
-        db.execute("CREATE INDEX IF NOT EXISTS schedule_share_codes_code_idx ON schedule_share_codes(code)")
         db.execute("""CREATE TABLE IF NOT EXISTS channel_accounts (
             id BIGSERIAL PRIMARY KEY,
             provider VARCHAR(32) NOT NULL,
@@ -242,6 +232,25 @@ def init_db():
         db.execute("DELETE FROM channel_messages WHERE processed_at < CURRENT_TIMESTAMP - INTERVAL '30 days'")
         db.execute("DELETE FROM api_request_logs WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'")
 
+        db.execute("""CREATE TABLE IF NOT EXISTS academic_bindings (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            student JSONB NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+        db.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS academic_student_id TEXT")
+        db.execute("ALTER TABLE academic_bindings ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 1")
+        db.execute("ALTER TABLE academic_bindings ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ")
+        db.execute("ALTER TABLE academic_bindings ADD COLUMN IF NOT EXISTS last_synced_term TEXT")
+        db.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS academic_snapshot_hash TEXT")
+        db.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS academic_synced_at TIMESTAMPTZ")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_schedules_academic_identity ON schedules(user_id,academic_student_id,term)")
+        from ..services.academic_directory import SCHEMA as DIRECTORY_SCHEMA
+        for sql in DIRECTORY_SCHEMA:
+            db.execute(sql)
+        from ..services.schedule_backups import INDEX, SCHEMA
+
+        db.execute(SCHEMA)
+        db.execute(INDEX)
         _seed_demo(db)
 
 

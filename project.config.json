@@ -72,6 +72,10 @@
       {
         "type": "suffix",
         "value": ".log"
+      },
+      {
+        "type": "folder",
+        "value": "miniapp/pages/editor"
       }
     ],
     "include": []

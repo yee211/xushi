@@ -1,6 +1,6 @@
 """Tests verifying in-place edits on original schedules without creating adjusted copies."""
 
-from app.routers import adjustments, courses, schedules
+from app.routers import adjustments, courses
 from app.schemas import AdjustmentApplyItem, AdjustmentApplyRequest, CourseAdjustmentIn, CourseIn
 
 
@@ -141,20 +141,3 @@ def test_apply_notice_on_original_schedule(monkeypatch):
     )
     res = adjustments.apply_notice(payload, idempotency_key=None, user={"id": 100})
     assert res["applied"] == 1
-
-
-def test_ensure_adjusted_schedule_returns_self(monkeypatch):
-    """验证 ensure_adjusted_schedule 返回当前课表自身且 created=False。"""
-    class MockDb:
-        def __enter__(self): return self
-        def __exit__(self, *args): return False
-        def execute(self, sql, params=None):
-            if "SELECT id FROM schedules WHERE id=%s AND user_id=%s" in sql:
-                return Result([{"id": 42}])
-            raise AssertionError(f"Unexpected SQL: {sql}")
-
-    monkeypatch.setattr(schedules, "connect", lambda: MockDb())
-    res = schedules.ensure_adjusted_schedule(42, user={"id": 100})
-    assert res["schedule_id"] == 42
-    assert res["created"] is False
-    assert res["course_map"] == {}

@@ -5,14 +5,13 @@
     <view class="page-wallpaper-bottom-fade" aria-hidden="true"></view>
   </block>
   <view class="ambient" wx:else aria-hidden="true"><view class="orb orb-a"></view><view class="orb orb-b"></view><view class="orb orb-c"></view><view class="orb orb-d"></view></view>
-  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}" refresher-enabled refresher-default-style="{{nightMode ? 'white' : 'black'}}" refresher-background="transparent" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
+  <scroll-view class="page-scroll {{currentTab === 'home' ? '' : 'page-scroll-hidden'}}" scroll-y enhanced show-scrollbar="{{false}}" refresher-enabled refresher-default-style="{{nightMode ? 'white' : 'black'}}" refresher-background="transparent" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
     <view class="page-content">
     <view class="control-wrap" wx:if="{{schedule}}">
       <view class="control-card card">
         <view class="term-week-bar">
-          <view class="term-picker" hover-class="term-picker-hover" hover-stay-time="100" bindtap="openTermSheet">
+          <view class="term-picker">
             <text class="term-title-text">{{schedule.term || schedule.name}}</text>
-            <text class="term-chevron">▾</text>
           </view>
           <view class="week-inline">
             <view class="week-chip" hover-class="week-chip-hover" hover-stay-time="100" bindtap="toggleWeekPicker" aria-label="选择周数">
@@ -52,16 +51,13 @@
           <text class="empty-icon-glyph">📅</text>
         </view>
         <text class="empty-title">还没有课表</text>
-        <text class="empty-desc">导入教务系统导出的 Excel 课表文件，或输入同学的分享码</text>
+        <text class="empty-desc">绑定学校身份同步课表，Excel 文件可作备用导入</text>
         <view class="empty-buttons-row">
           <button class="empty-button" hover-class="empty-button-hover" bindtap="openImportModal">
             <text class="empty-button-icon">＋</text>
-            <text>导入课表</text>
+            <text>课表中心</text>
           </button>
-          <button class="empty-button secondary" hover-class="empty-button-hover" bindtap="openShareImportModal">
-            <text class="empty-button-icon">🔑</text>
-            <text>口令导入</text>
-          </button>
+
         </view>
       </view>
 
@@ -89,12 +85,12 @@
             <view class="step-badge">3</view>
             <view class="step-main">
               <text class="step-title">一键解析排课</text>
-              <text class="step-desc">点击上方「＋ 导入课表」按钮，从微信聊天记录中选择该文件，系统即可智能识别并排好完整课表。</text>
+              <text class="step-desc">点击「课表中心 → 导入课表」，从微信聊天记录中选择该文件，系统即可智能识别并排好完整课表。</text>
             </view>
           </view>
         </view>
         <view class="guide-footer">
-          <text class="guide-footer-tip">✨ 提示：若学期中途有调课改动，重新导入同学期课表即可覆盖更新。</text>
+          <text class="guide-footer-tip">✨ 提示：日常使用学校身份同步；学校连接暂不可用时，可使用 Excel 备用导入。</text>
         </view>
       </view>
     </view>
@@ -119,10 +115,10 @@
           </view>
           <view class="day-area">
             <view class="day-column" wx:for="{{weekDays}}" wx:for-index="dayIndex" wx:key="name">
-              <view class="grid-cell {{moveMode ? 'cell-active' : ''}}" wx:for="{{shownSections}}" wx:for-item="section" wx:key="number" data-day="{{dayIndex + 1}}" data-section="{{section.number}}" bindtap="cellTap"></view>
+              <view class="grid-cell" wx:for="{{shownSections}}" wx:for-item="section" wx:key="number"></view>
             </view>
             <view class="course-slot" wx:for="{{gridCourses}}" wx:key="id" style="{{item.slotStyle}}">
-              <view class="grid-course {{moveMode && movingCourse.id == item.id ? 'moving' : ''}}" data-course="{{item}}" hover-class="course-pressed" hover-start-time="0" bindtap="openCourseDetail" bindlongpress="startMoveMode" style="{{item.jellyStyle}}">
+              <view class="grid-course" data-course="{{item}}" hover-class="course-pressed" hover-start-time="0" bindtap="openCourseDetail" style="{{item.jellyStyle}}">
                 <text class="adjusted-tag" wx:if="{{item.adjusted}}">调</text>
                 <text class="grid-course-name" style="{{item.nameStyle}}">{{item.name}}</text>
                 <text class="grid-course-meta" style="{{item.metaStyle}}">{{item.room || '教室待定'}}</text>
@@ -130,9 +126,7 @@
               </view>
             </view>
             <view class="no-course" wx:if="{{!gridCourses.length && !moveMode}}"><text>本周没有课程</text></view>
-            <view class="course-slot ghost-slot" wx:if="{{moveOpen && moveForm}}" style="left:{{(moveForm.weekday - 1) * 14.2857}}%;width:14.2857%;top:{{(moveForm.start_section - 1) * (rowHeightRpx || 112)}}rpx;height:{{(moveForm.end_section - moveForm.start_section + 1) * (rowHeightRpx || 112)}}rpx;">
-              <view class="ghost-course"></view>
-            </view>
+
           </view>
         </view>
       </view>
@@ -141,10 +135,102 @@
   </view>
 </scroll-view>
 
-<view class="move-hint" wx:if="{{moveMode}}">
-  <text class="move-hint-text">移动「{{movingCourse.name}}」：点按目标位置（2 节对齐）</text>
-  <button class="move-hint-cancel" bindtap="cancelMoveMode">取消移动</button>
-</view>
+<!-- 我的（个人中心）页面内容：用户身份模块 + 四大条形核心服务 -->
+<scroll-view class="page-scroll mine-scroll {{currentTab === 'mine' ? '' : 'page-scroll-hidden'}}" scroll-y enhanced show-scrollbar="{{false}}">
+  <view class="page-content mine-page-content">
+
+    <!-- 用户身份模块：绑定学校身份显示姓名与班级，未绑定提示去绑定 -->
+    <view class="mine-user-card card" hover-class="mine-user-card-hover" hover-stay-time="100" bindtap="openAcademicQuery">
+      <view class="mine-user-avatar-wrap">
+        <view class="user-avatar-glow"></view>
+        <view class="mine-user-avatar {{boundStudent ? 'bound' : ''}}">
+          <text wx:if="{{boundStudent}}">{{boundStudent.name[0] || '学'}}</text>
+          <text wx:else class="user-default-icon">👤</text>
+        </view>
+      </view>
+      <view class="mine-user-info-col">
+        <view class="mine-user-name-row">
+          <text class="mine-user-display-name">{{boundStudent ? boundStudent.name : '未关联学校身份'}}</text>
+          <view class="user-status-chip {{boundStudent ? 'verified' : 'unverified'}}">
+            <text class="chip-dot"></text>
+            <text class="chip-text">{{boundStudent ? (boundStudent.class_name || '已认证') : '未绑定'}}</text>
+          </view>
+        </view>
+        <text class="mine-user-sub-desc" wx:if="{{boundStudent}}">{{boundStudent.class_name ? boundStudent.class_name + ' · ' : ''}}已同步学校课表</text>
+        <text class="mine-user-sub-desc" wx:else>点击绑定学校教务，自动同步课表与学生姓名</text>
+      </view>
+      <view class="mine-user-action-arrow">
+        <text class="action-arrow-text">{{boundStudent ? '管理' : '绑定'}}</text>
+        <text class="action-arrow-glyph">›</text>
+      </view>
+    </view>
+
+    <!-- 核心四大服务：条形卡片排列 -->
+    <view class="mine-services-list">
+      <!-- 模块 1：课表中心 -->
+      <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openImportModal">
+        <view class="service-icon-box icon-blue">
+          <text class="service-emoji">📥</text>
+        </view>
+        <view class="service-text-col">
+          <text class="service-title">课表中心</text>
+          <text class="service-desc">从学校更新 · Excel 备用导入</text>
+        </view>
+        <view class="service-right-group">
+          <text class="service-tag tag-blue">课表来源</text>
+          <text class="service-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 模块 2：课表助手 -->
+      <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openAgent">
+        <view class="service-icon-box icon-cyan">
+          <text class="service-emoji">✦</text>
+        </view>
+        <view class="service-text-col">
+          <text class="service-title">课表助手</text>
+          <text class="service-desc">连接微信 ClawBot，自然语言实时问课</text>
+        </view>
+        <view class="service-right-group">
+          <text class="service-tag tag-cyan">AI 问答</text>
+          <text class="service-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 模块 3：外观与主题 -->
+      <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openThemeSheet">
+        <view class="service-icon-box icon-amber">
+          <text class="service-emoji">◐</text>
+        </view>
+        <view class="service-text-col">
+          <text class="service-title">外观与主题</text>
+          <text class="service-desc">日夜间高透晶体 · 自定义课表背景壁纸</text>
+        </view>
+        <view class="service-right-group">
+          <text class="service-tag tag-amber">{{nightMode ? '夜间模式' : '日间模式'}}</text>
+          <text class="service-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 模块 4：问题反馈 -->
+      <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openFeedback">
+        <view class="service-icon-box icon-emerald">
+          <text class="service-emoji">💬</text>
+        </view>
+        <view class="service-text-col">
+          <text class="service-title">问题反馈</text>
+          <text class="service-desc">向作者直接反馈体验问题或功能建议</text>
+        </view>
+        <view class="service-right-group">
+          <text class="service-tag tag-emerald">直连作者</text>
+          <text class="service-arrow">›</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="bottom-safe"></view>
+  </view>
+</scroll-view>
 
 <view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{detailOpen}}" bindtap="closeCourseDetail">
   <view class="dialog detail-dialog" catchtap="noop">
@@ -162,120 +248,14 @@
       <view class="detail-item"><text>上课时间</text><text>{{selectedCourse.timeText}}</text></view>
       <view class="detail-item"><text>上课周次</text><text>{{selectedCourse.weeksText}}</text></view>
     </view>
-    <view class="detail-records">
-      <view class="detail-records-title">本课程修改记录</view>
-      <text class="records-empty small" wx:if="{{courseRecordsLoading}}">正在读取记录…</text>
-      <text class="records-empty small" wx:elif="{{!courseRecords.length}}">暂无修改记录</text>
-      <view class="course-record" wx:for="{{courseRecords}}" wx:key="id">
-        <view class="record-head"><text class="record-badge">{{item.action_type == 'batch_import' ? '图片调课' : item.action_type == 'drag_move' ? '位置移动' : '主动编辑'}}</text><text class="record-time">{{item.timeText}}</text></view>
-        <view class="course-record-diff" wx:for="{{item.diffs}}" wx:for-item="diff" wx:key="_idx"><text>{{diff.text}}</text></view>
-        <view class="record-actions">
-          <button wx:if="{{item.canRevoke}}" class="record-revoke" data-detail="{{item.revokeDetail}}" bindtap="revokeAdjustment">撤销调课</button>
-          <button wx:if="{{item.course_id}}" class="record-restore" data-record="{{item}}" bindtap="restoreCourseRecord">恢复修改</button>
-          <button class="record-delete" data-record="{{item}}" bindtap="deleteRecord">删除记录</button>
-        </view>
-      </view>
-    </view>
     </scroll-view>
     <view class="dialog-actions">
       <button class="btn dialog-cancel" bindtap="closeCourseDetail">关闭</button>
-      <button wx:if="{{selectedCourse.adjusted}}" class="btn danger-button" bindtap="removeCurrentAdjustment">撤销调课</button>
-      <button class="btn dialog-cancel" bindtap="openAdjustment">调整本周</button>
-      <button class="btn primary dialog-submit" bindtap="editSelectedCourse">编辑课程</button>
     </view>
   </view>
 </view>
 
-<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{courseEditorOpen}}" bindtap="closeCourseEditor">
-  <view class="dialog course-editor-dialog" catchtap="noop">
-    <view class="dialog-handle"></view>
-    <view class="course-editor-header">
-      <view>
-        <text class="dialog-eyebrow">{{courseForm.id ? 'EDIT COURSE' : 'NEW COURSE'}}</text>
-        <text class="dialog-title">{{courseForm.id ? '编辑课程' : '添加课程'}}</text>
-      </view>
-    </view>
-    <scroll-view class="course-editor-body" scroll-y enhanced show-scrollbar="{{false}}">
-      <view class="course-field">
-        <text class="course-field-label">课程名称 <text class="required">*</text></text>
-        <input class="course-input" value="{{courseForm.name}}" placeholder="例如：计算机网络、高等数学" placeholder-class="course-placeholder" maxlength="80" cursor-spacing="20" data-key="name" bindinput="courseField" />
-      </view>
-      <view class="course-field-row">
-        <view class="course-field course-field-half">
-          <text class="course-field-label">教室地点</text>
-          <input class="course-input" value="{{courseForm.room}}" placeholder="选填，如：教1-102" placeholder-class="course-placeholder" maxlength="40" cursor-spacing="20" data-key="room" bindinput="courseField" />
-        </view>
-        <view class="course-field course-field-half">
-          <text class="course-field-label">任课教师</text>
-          <input class="course-input" value="{{courseForm.teacher}}" placeholder="选填，如：张老师" placeholder-class="course-placeholder" maxlength="40" cursor-spacing="20" data-key="teacher" bindinput="courseField" />
-        </view>
-      </view>
-      <view class="course-field">
-        <text class="course-field-label">星期</text>
-        <picker mode="selector" range="{{days}}" value="{{courseForm.weekday - 1}}" bindchange="courseWeekday">
-          <view class="course-picker">
-            <text>{{days[courseForm.weekday - 1]}}</text>
-            <text>›</text>
-          </view>
-        </picker>
-      </view>
-      <view class="course-field-row">
-        <view class="course-field course-field-half">
-          <text class="course-field-label">开始节次</text>
-          <picker mode="selector" range="{{sectionPickerOptions}}" value="{{courseForm.startSection - 1}}" bindchange="courseStartSection">
-            <view class="course-picker">
-              <text>第 {{courseForm.startSection}} 节</text>
-              <text>›</text>
-            </view>
-          </picker>
-        </view>
-        <view class="course-field course-field-half">
-          <text class="course-field-label">结束节次</text>
-          <picker mode="selector" range="{{sectionPickerOptions}}" value="{{courseForm.endSection - 1}}" bindchange="courseEndSection">
-            <view class="course-picker">
-              <text>第 {{courseForm.endSection}} 节</text>
-              <text>›</text>
-            </view>
-          </picker>
-        </view>
-      </view>
-      <view class="course-field">
-        <text class="course-field-label">上课周次</text>
-        <input class="course-input" value="{{courseForm.weeks}}" placeholder="如：1-16，或 1-8,10,12-16" placeholder-class="course-placeholder" cursor-spacing="20" data-key="weeks" bindinput="courseField" />
-        <text class="course-field-tip">支持连续周次和逗号分隔，例如 1-8,10,12-16</text>
-      </view>
-      <view class="course-field course-field-last">
-        <text class="course-field-label">课程颜色</text>
-        <view class="course-color-grid">
-          <view class="course-color-swatch {{courseForm.color == item ? 'selected' : ''}}" wx:for="{{editorColors}}" wx:key="*this" style="background-color:{{item}}" data-color="{{item}}" bindtap="pickCourseColor"></view>
-        </view>
-      </view>
-    </scroll-view>
-    <view class="course-editor-actions">
-      <button wx:if="{{courseForm.id}}" class="btn danger-button" disabled="{{courseSaving}}" bindtap="removeCourse">删除课程</button>
-      <button class="btn dialog-cancel" disabled="{{courseSaving}}" bindtap="closeCourseEditor">取消</button>
-      <button class="btn primary dialog-submit" loading="{{courseSaving}}" disabled="{{courseSaving}}" bindtap="saveCourse">保存课程</button>
-    </view>
-  </view>
-</view>
-
-<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{moveOpen}}" bindtap="closeMove">
-  <view class="dialog" catchtap="noop">
-    <view class="dialog-handle"></view><text class="dialog-eyebrow">移动课程</text><text class="dialog-title">确认移动位置</text>
-    <view class="detail-list move-summary">
-      <view class="detail-item"><text>课程</text><text>{{moveForm.course.name}}</text></view>
-      <view class="detail-item"><text>原位置</text><text>{{days[moveForm.course.weekday - 1]}} 第{{moveForm.course.start_section}}-{{moveForm.course.end_section}}节</text></view>
-      <view class="detail-item"><text>新位置</text><text class="move-target">{{days[moveForm.weekday - 1]}} 第{{moveForm.start_section}}-{{moveForm.end_section}}节</text></view>
-    </view>
-    <text class="move-tip">「仅本周」保留原课表不动，只调整本周；整学期固定时间请用「编辑课程」修改。</text>
-    <view class="dialog-actions move-actions">
-      <button class="btn dialog-cancel" bindtap="closeMove">取消</button>
-      <button class="btn primary dialog-submit" loading="{{moveSaving}}" disabled="{{moveSaving}}" bindtap="saveMove">仅本周</button>
-    </view>
-  </view>
-</view>
-
-<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{semesterOpen}}" bindtap="closeSemester">
+<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{semesterOpen && !schedule.academic_student_id}}" bindtap="closeSemester">
   <view class="dialog" catchtap="noop">
     <view class="dialog-handle"></view><text class="dialog-eyebrow">学期与日期管理</text><text class="dialog-title">学期设置</text>
     <view class="semester-status {{semesterStatusClass}}">
@@ -297,146 +277,6 @@
       <view class="semester-btn-group">
         <button class="btn semester-btn-cancel" bindtap="closeSemester">取消</button>
         <button class="btn primary semester-btn-save" loading="{{semesterSaving}}" disabled="{{semesterSaving || !semesterChanged}}" bindtap="saveSemester">{{semesterChanged ? '保存' : '已保存'}}</button>
-      </view>
-    </view>
-  </view>
-</view>
-
-<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{adjustmentOpen}}" bindtap="closeAdjustment">
-  <view class="dialog" catchtap="noop">
-    <view class="dialog-handle"></view><text class="dialog-eyebrow">单周课程调整</text><text class="dialog-title">调整第 {{week}} 周</text>
-    <text class="adjust-course-name">{{adjustmentForm.course.name}}</text>
-    <view class="date-row"><text class="date-label">星期</text><picker mode="selector" range="{{days}}" value="{{adjustmentForm.weekday - 1}}" data-key="weekday" bindchange="adjustmentPicker"><text class="date-value">{{days[adjustmentForm.weekday - 1]}} ›</text></picker></view>
-    <view class="date-row"><text class="date-label">开始节次</text><picker mode="selector" range="{{sectionOptions}}" value="{{adjustmentForm.start_section - 1}}" data-key="start_section" bindchange="adjustmentPicker"><text class="date-value">第 {{adjustmentForm.start_section}} 节 ›</text></picker></view>
-    <view class="date-row"><text class="date-label">结束节次</text><picker mode="selector" range="{{sectionOptions}}" value="{{adjustmentForm.end_section - 1}}" data-key="end_section" bindchange="adjustmentPicker"><text class="date-value">第 {{adjustmentForm.end_section}} 节 ›</text></picker></view>
-    <view class="term-field adjust-room"><text class="term-field-label">教室地点</text><input class="term-input" data-key="room" value="{{adjustmentForm.room}}" bindinput="adjustmentField" /></view>
-    <view class="dialog-actions">
-      <button wx:if="{{adjustmentForm.course.adjusted}}" class="btn danger-button" bindtap="cancelAdjustmentFromModal">撤销调课</button>
-      <button class="btn dialog-cancel" bindtap="closeAdjustment">取消</button>
-      <button class="btn primary dialog-submit" loading="{{adjustmentSaving}}" bindtap="saveAdjustment">保存调课</button>
-    </view>
-  </view>
-</view>
-
-<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{recordsOpen}}" bindtap="closeRecords">
-  <view class="dialog records-dialog" catchtap="noop">
-    <view class="dialog-handle"></view><text class="dialog-eyebrow">课程变更</text><text class="dialog-title">调课中心</text>
-
-    <block wx:if="{{parseStage == 'idle'}}">
-      <view class="adjustment-guide">
-        <view class="adjustment-guide-head">
-          <text class="adjustment-guide-title">课程安排有变动？</text>
-          <text class="adjustment-guide-tag">推荐重新导入</text>
-        </view>
-        <text class="adjustment-guide-text">若教务系统已有新课表，推荐重新导入完整课表覆盖旧课表；也可以在这里仅调整受影响的课程。</text>
-      </view>
-      <button class="parse-entry" bindtap="chooseNoticeImage">📷 调课通知图片识别</button>
-      <scroll-view class="records-list" scroll-y enhanced show-scrollbar="{{false}}">
-        <text class="records-empty" wx:if="{{recordsLoading}}">正在读取变更记录…</text>
-        <block wx:elif="{{recordsError}}">
-          <text class="records-empty">调课记录读取失败：{{recordsError}}</text>
-          <button class="records-jump" bindtap="retryRecords">重新加载</button>
-        </block>
-        <block wx:elif="{{!records.length && recordsHint}}">
-          <text class="records-empty">当前课表暂无调课记录</text>
-          <button class="records-jump" bindtap="jumpCounterpartRecords">调课记录在「{{recordsHint}}」中，点击切换查看 ›</button>
-        </block>
-        <text class="records-empty" wx:elif="{{!records.length}}">暂无调课记录</text>
-        <view class="record-card" wx:for="{{records}}" wx:key="id">
-          <view class="record-head"><text class="record-badge">{{item.action_type == 'batch_import' ? '图片调课' : item.action_type == 'drag_move' ? '位置移动' : '主动编辑'}}</text><text class="record-time">{{item.timeText}}</text></view>
-          <text class="record-title">{{item.title}}</text><text class="record-desc">{{item.description}}</text>
-          <view class="record-actions">
-            <button wx:if="{{item.details.length > 1 || item.action_type == 'batch_import'}}" class="record-expand" data-id="{{item.id}}" bindtap="toggleRecord">{{expandedRecordId == item.id ? '收起详情' : '查看详情 ' + item.details.length + ' 条'}}</button>
-            <button wx:if="{{(item.details.length > 1 || item.action_type == 'batch_import') && item.can_revoke}}" class="record-revoke" data-record="{{item}}" bindtap="revokeBatchRecord">一键撤销</button>
-            <button wx:if="{{item.details.length == 1 && item.details[0].can_revoke}}" class="record-revoke" data-detail="{{item.details[0]}}" bindtap="revokeAdjustment">撤销改动</button>
-            <button wx:elif="{{item.course_id}}" class="record-restore" data-record="{{item}}" bindtap="restoreCourseRecord">恢复修改</button>
-            <button class="record-delete" data-record="{{item}}" bindtap="deleteRecord">删除记录</button>
-          </view>
-          <view class="record-details" wx:if="{{expandedRecordId == item.id}}">
-            <view class="record-detail-row" wx:for="{{item.details}}" wx:for-item="detail" wx:key="_idx">
-              <text class="record-detail-text">{{detail.course_name ? detail.course_name + '：' : ''}}{{detail.diffText}}</text>
-              <button wx:if="{{detail.can_revoke}}" class="record-revoke small" data-detail="{{detail}}" bindtap="revokeAdjustment">撤销</button>
-            </view>
-          </view>
-        </view>
-      </scroll-view>
-      <button class="btn dialog-close-btn" bindtap="closeRecords">关闭</button>
-    </block>
-
-    <block wx:elif="{{parseStage == 'parsing'}}">
-      <view class="parse-loading"><view class="parse-spinner"></view><text>正在识别调课通知…</text><text class="parse-privacy">{{parseFile}}</text></view>
-    </block>
-
-    <block wx:elif="{{parseStage == 'result'}}">
-      <text class="filename">{{parseFile}}</text>
-      <text class="parse-help">以下是识别到的调课条目，已匹配的课程默认勾选。</text>
-      <scroll-view class="parse-list" scroll-y enhanced show-scrollbar="{{false}}">
-        <view class="parse-item {{item.status == 'matched' ? '' : 'disabled'}} {{item.selected ? 'checked' : ''}}" wx:for="{{parseItems}}" wx:key="_idx" data-index="{{index}}" bindtap="toggleParseItem">
-          <view class="parse-check {{item.selected ? 'on' : ''}}" wx:if="{{item.status == 'matched'}}">✓</view>
-          <view class="parse-copy">
-            <view class="parse-item-head">
-              <text class="parse-name">{{item.course_name}}</text>
-              <text class="parse-status {{item.status}}">{{item.statusText}}</text>
-            </view>
-            <text class="parse-week">{{item.weekText}}<text wx:if="{{item.matched_course_name}}"> · 匹配：{{item.matched_course_name}}</text></text>
-            <view class="parse-diff"><text class="parse-old">{{item.oldText}}</text><text class="parse-arrow">→</text><text class="parse-new">{{item.newText}}</text></view>
-            <text class="parse-hint" wx:if="{{item.status == 'ambiguous'}}">匹配到多个同名课程，请手动调课</text>
-            <text class="parse-hint" wx:elif="{{item.status == 'unmatched'}}">未在课表中找到对应课程，请手动调课</text>
-          </view>
-        </view>
-      </scroll-view>
-      <view class="dialog-actions">
-        <button class="btn dialog-cancel" bindtap="openRecords">返回</button>
-        <button class="btn primary dialog-submit" loading="{{parseApplying}}" disabled="{{parseApplying}}" bindtap="applyParse">应用勾选调课</button>
-      </view>
-    </block>
-  </view>
-</view>
-
-<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{termSheetOpen}}" bindtap="closeTermSheet">
-  <view class="dialog term-sheet-dialog" catchtap="noop">
-    <view class="dialog-handle"></view>
-    <view class="term-sheet-header">
-      <view>
-        <text class="dialog-eyebrow">学期课表</text>
-        <text class="dialog-title">切换课表</text>
-      </view>
-      <button class="sheet-close-btn" bindtap="closeTermSheet">✕</button>
-    </view>
-    <scroll-view class="term-sheet-list" scroll-y enhanced show-scrollbar="{{false}}">
-      <view class="term-card {{item.isSelected ? 'selected' : ''}}" hover-class="term-card-hover" hover-stay-time="100" wx:for="{{scheduleList}}" wx:key="id" data-id="{{item.id}}" bindtap="selectScheduleItem">
-        <view class="term-card-head">
-          <view class="term-card-title-group">
-            <text class="term-card-title">{{item.displayName}}</text>
-            <text class="term-card-badge adjusted" wx:if="{{item.isAdjusted}}">调课版</text>
-          </view>
-          <text class="term-card-status {{item.statusType}}">{{item.statusText}}</text>
-        </view>
-        <view class="term-card-meta">
-          <view class="term-card-info">
-            <text wx:if="{{item.dateRange}}">📅 {{item.dateRange}}</text>
-            <text>📚 {{item.uniqueCount}}门 · {{item.lessonCount}}课时</text>
-          </view>
-          <view class="term-card-tag selected" wx:if="{{item.isSelected}}">
-            <text>✓ 当前使用</text>
-          </view>
-          <view class="term-card-tag unselected" wx:else>
-            <text>切换 ›</text>
-          </view>
-        </view>
-      </view>
-    </scroll-view>
-    <view class="term-sheet-actions">
-      <view class="term-actions-row">
-        <button class="btn dialog-cancel" bindtap="openShareModal">📤 分享课表</button>
-        <button class="btn dialog-cancel" bindtap="openShareImportModal">🔑 口令导入</button>
-      </view>
-      <view class="term-actions-row">
-        <button class="btn dialog-cancel" bindtap="openSemesterFromSheet">⚙ 学期设置</button>
-        <button class="btn primary" bindtap="openImportFromSheet">＋ 导入新课表</button>
-      </view>
-      <view class="term-actions-row">
-        <button class="btn sync-btn {{syncing ? 'syncing' : ''}}" disabled="{{syncing}}" bindtap="syncSchedules">{{syncing ? '同步中…' : '🔄 同步课表'}}</button>
       </view>
     </view>
   </view>
@@ -532,87 +372,77 @@
 </view>
 
 <!-- 课表分享弹窗 -->
-<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{shareModalOpen}}" bindtap="closeShareModal">
-  <view class="dialog share-dialog" catchtap="noop">
-    <view class="dialog-handle"></view>
-    <text class="dialog-eyebrow">课表分享</text>
-    <text class="dialog-title">分享当前课表</text>
 
-    <view class="share-card">
-      <text class="share-sched-name">{{schedule.name || schedule.term || '当前课表'}}</text>
-      <view class="share-code-box" wx:if="{{!shareGenerating}}">
-        <text class="share-code-text">{{shareCode}}</text>
-      </view>
-      <view class="share-loading" wx:else>
-        <view class="import-spinner mini"></view>
-        <text>正在生成口令…</text>
-      </view>
-      <text class="share-hint">提取码 7 天内有效，支持多人多次导入</text>
-      <text class="share-subhint">复制口令发送给同学，对方在小程序内点击「口令导入」即可一键克隆课表。</text>
-    </view>
 
-    <view class="dialog-actions">
-      <button class="btn dialog-cancel" bindtap="closeShareModal">关闭</button>
-      <button class="btn primary dialog-submit" disabled="{{shareGenerating || !shareCode}}" bindtap="copyShareCode">📋 复制口令</button>
-    </view>
-  </view>
-</view>
-
-<!-- 口令导入弹窗 -->
-<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{shareImportModalOpen}}" bindtap="closeShareImportModal">
-  <view class="dialog share-import-dialog" catchtap="noop">
-    <view class="dialog-handle"></view>
-    <text class="dialog-eyebrow">口令导入</text>
-    <text class="dialog-title">输入课表提取码</text>
-
-    <view class="share-input-wrap">
-      <input class="share-code-input" placeholder="输入 6 位分享码（如 K8P2X9）" maxlength="6" value="{{inputShareCode}}" bindinput="onShareCodeInput" auto-focus />
-      <button class="share-paste-btn" bindtap="pasteShareCode">粘贴</button>
-    </view>
-
-    <view class="share-preview-card" wx:if="{{sharePreview}}">
-      <view class="share-preview-head">
-        <text class="share-preview-badge">📋 发现课表</text>
-        <text class="share-preview-author">来自 {{sharePreview.creator_name}}</text>
-      </view>
-      <text class="share-preview-title">{{sharePreview.name}}</text>
-      <view class="share-preview-meta">
-        <text wx:if="{{sharePreview.term}}">学期：{{sharePreview.term}}</text>
-        <text>包含课程：{{sharePreview.course_count}} 门</text>
-      </view>
-    </view>
-    <view class="share-preview-loading" wx:elif="{{checkingShareCode}}">
-      <view class="import-spinner mini"></view>
-      <text>正在查询课表信息…</text>
-    </view>
-
-    <view class="dialog-actions">
-      <button class="btn dialog-cancel" bindtap="closeShareImportModal">取消</button>
-      <button class="btn primary dialog-submit" loading="{{importingShare}}" disabled="{{!sharePreview || importingShare}}" bindtap="confirmImportShare">确认导入</button>
-    </view>
-  </view>
-</view>
-
-<!-- 底部悬浮操作条：高频操作常驻，位于滚动区之外（fixed） -->
-<view class="action-dock {{nightMode ? 'night' : ''}} {{moveMode ? 'dock-hidden' : ''}}" aria-label="快捷操作">
+<!-- 底部悬浮双 Tab 导航条：首页（课表）与我的 -->
+<view class="action-dock tab-dock {{nightMode ? 'night' : ''}} {{moveMode ? 'dock-hidden' : ''}}" aria-label="底部导航">
   <view class="dock-sheen" aria-hidden="true"></view>
-  <button class="dock-item" hover-class="dock-item-hover" bindtap="openImportModal">
-    <text class="dock-icon">↓</text><text class="dock-label">导入课表</text>
-  </button>
-  <button wx:if="{{showAddCourse}}" class="dock-item" hover-class="dock-item-hover" disabled="{{!schedule}}" bindtap="addCourse">
-    <text class="dock-icon">＋</text><text class="dock-label">添加课程</text>
-  </button>
-  <button wx:if="{{showAdjustCenter}}" class="dock-item" hover-class="dock-item-hover" disabled="{{!schedule}}" bindtap="openRecords">
-    <text class="dock-icon">⇄</text><text class="dock-label">调课中心</text>
-  </button>
-  <button class="dock-item" hover-class="dock-item-hover" bindtap="openThemeSheet">
-    <text class="dock-icon">◐</text><text class="dock-label">主题</text>
-  </button>
-  <button class="dock-item" hover-class="dock-item-hover" bindtap="openFeedback">
-    <text class="dock-icon">💬</text><text class="dock-label">问题反馈</text>
-  </button>
-  <button class="dock-item dock-agent" hover-class="dock-item-hover" bindtap="openAgent">
-    <text class="dock-icon">✦</text><text class="dock-label">课表助手</text>
-  </button>
+  <view class="dock-item tab-dock-item {{currentTab === 'home' ? 'active' : ''}}" hover-class="dock-item-hover" hover-stay-time="80" data-tab="home" bindtap="switchTab">
+    <view class="tab-icon-wrap">
+      <text class="dock-icon">📅</text>
+      <view class="tab-active-dot" wx:if="{{currentTab === 'home'}}"></view>
+    </view>
+    <text class="dock-label">首页</text>
+  </view>
+  <view class="dock-item tab-dock-item {{currentTab === 'mine' ? 'active' : ''}}" hover-class="dock-item-hover" hover-stay-time="80" data-tab="mine" bindtap="switchTab">
+    <view class="tab-icon-wrap">
+      <text class="dock-icon">👤</text>
+      <view class="tab-active-dot" wx:if="{{currentTab === 'mine'}}"></view>
+    </view>
+    <text class="dock-label">我的</text>
+  </view>
 </view>
+</view>
+
+<!-- 课表中心弹窗：彻底重构为高透液态毛玻璃选项卡 -->
+<view class="mask {{nightMode ? 'night' : ''}}" wx:if="{{scheduleCenterOpen}}" bindtap="closeScheduleCenter">
+  <view class="dialog schedule-center-dialog" catchtap="noop">
+    <view class="dialog-handle"></view>
+    <view class="schedule-center-header">
+      <view>
+        <text class="dialog-eyebrow">SCHEDULE HUB</text>
+        <text class="dialog-title">课表中心</text>
+      </view>
+      <button class="sheet-close-btn" bindtap="closeScheduleCenter">✕</button>
+    </view>
+    <text class="center-description">选择学校身份快速更新，Excel 文件作为备用导入</text>
+
+    <view class="center-options-list">
+      <!-- 选项 1：绑定学校身份 -->
+      <view class="center-option-card opt-academic" hover-class="center-option-hover" hover-stay-time="80" bindtap="openAcademicQuery">
+        <view class="opt-icon-badge opt-icon-blue">
+          <text class="opt-emoji">🏫</text>
+        </view>
+        <view class="opt-content">
+          <view class="opt-title-row">
+            <text class="opt-title">绑定学校身份</text>
+            <text class="opt-tag tag-blue">教务同步</text>
+          </view>
+          <text class="opt-desc">关联学生身份信息，自动拉取并同步学校全学期课表</text>
+        </view>
+        <text class="opt-arrow">›</text>
+      </view>
+
+      <!-- 选项 2：导入课表 -->
+      <view class="center-option-card opt-excel" hover-class="center-option-hover" hover-stay-time="80" bindtap="chooseCenterImport">
+        <view class="opt-icon-badge opt-icon-green">
+          <text class="opt-emoji">📊</text>
+        </view>
+        <view class="opt-content">
+          <view class="opt-title-row">
+            <text class="opt-title">备用：Excel 导入</text>
+            <text class="opt-tag tag-green">智能解析</text>
+          </view>
+          <text class="opt-desc">从微信聊天记录选择教务导出的 .xlsx / .xls，秒级智能排课</text>
+        </view>
+        <text class="opt-arrow">›</text>
+      </view>
+
+
+    </view>
+
+    <view class="dialog-actions">
+      <button class="btn dialog-cancel" bindtap="closeScheduleCenter">关闭</button>
+    </view>
+  </view>
 </view>

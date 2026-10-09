@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>序时 · 管理后台</title>
-  <link rel="stylesheet" href="/admin/static/admin.css?v=20260921_01">
+  <link rel="stylesheet" href="/admin/static/admin.css?v=20261008_02">
 </head>
 <body>
   <div class="ambient"><i></i><i></i><i></i></div>
@@ -35,6 +35,8 @@
         <button class="nav" data-page="feedback">用户反馈</button>
         <button class="nav" data-page="traffic">流量监控</button>
         <button class="nav" data-page="llm">大模型配置</button>
+        <button class="nav" data-page="academic">学校教务连接</button>
+        <button class="nav" data-page="academicSync">课表同步</button>
         <button class="nav" data-page="system">系统运维</button>
         <button class="nav" data-page="admins">管理员</button>
       </nav>
@@ -50,20 +52,22 @@
         <button id="refresh" class="ghost">刷新数据</button>
       </header>
 
+      <section id="academicSyncPage" class="page hidden"></section>
+      <section id="academicPage" class="page hidden"></section>
       <section id="overviewPage" class="page"></section>
 
       <section id="usersPage" class="page hidden">
-        <form id="userSearchForm" class="glass toolbar" onsubmit="event.preventDefault()">
+        <form id="userSearchForm" class="glass toolbar users-toolbar" onsubmit="event.preventDefault()">
           <input id="userSearch" placeholder="搜索用户ID、邮箱、用户名、OpenID、课表名或课程名">
-          <button id="btnSearchUser" type="submit" class="save" style="margin:0;width:auto;padding:0 24px;">搜索</button>
-          <button id="btnResetUser" type="button" class="ghost" style="margin:0;width:auto;padding:0 18px;">重置</button>
+          <button id="btnSearchUser" type="submit" class="save">搜索</button>
+          <button id="btnResetUser" type="button" class="ghost">重置</button>
         </form>
-        <div id="usersList" class="users-grid" style="margin-top:16px;"></div>
-        <div id="usersPagination" class="pagination-bar" style="margin-top:16px;display:flex;justify-content:center;gap:12px;align-items:center;"></div>
+        <div id="usersList" class="users-grid"></div>
+        <div id="usersPagination" class="pagination-bar"></div>
       </section>
 
       <section id="feedbackPage" class="page hidden">
-        <div class="glass toolbar">
+        <div class="glass toolbar feedback-toolbar">
           <input id="feedbackSearch" placeholder="搜索编号、描述或邮箱">
           <select id="feedbackStatus">
             <option value="">全部状态</option>
@@ -93,8 +97,8 @@
       <section id="systemPage" class="page hidden">
         <div class="grid-2">
           <div class="glass panel">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-              <h2 style="margin:0;">Redis 缓存运行指标</h2>
+            <div class="panel-header-row">
+              <h2>Redis 缓存运行指标</h2>
               <span id="redisStatusTag" class="tag">检测中</span>
             </div>
             <div class="metric-row"><span>服务状态</span><b id="redisConnected">-</b></div>
@@ -110,32 +114,32 @@
             <div id="botsList" style="margin-top:10px;"></div>
           </div>
         </div>
-        <div class="grid-2" style="margin-top:16px;">
+        <div class="grid-2 mt-16">
           <div class="glass panel">
             <h2>限流快速解封 (Rate Limit Unban)</h2>
-            <p class="meta" style="margin-bottom:14px;">立即清除指定 IP、用户 ID 或特定限流 Key，恢复请求配额。支持输入 IP（如 <code>192.168.1.1</code>）或全量通配符 <code>*</code>。</p>
-            <div style="display:flex;gap:10px;">
+            <p class="meta mb-14">立即清除指定 IP、用户 ID 或特定限流 Key，恢复请求配额。支持输入 IP（如 <code>192.168.1.1</code>）或全量通配符 <code>*</code>。</p>
+            <div class="action-input-row">
               <input id="ratelimitKeyInput" placeholder="输入 IP 或限流 Key，例如 127.0.0.1 或 *">
-              <button id="ratelimitSubmitBtn" type="button" class="save" style="margin:0;white-space:nowrap;padding:0 20px;">立即解封</button>
+              <button id="ratelimitSubmitBtn" type="button" class="save">立即解封</button>
             </div>
           </div>
           <div class="glass panel">
             <h2>会话缓存清除 (Force Re-auth)</h2>
-            <p class="meta" style="margin-bottom:14px;">清除指定用户在 Redis 中的所有 Session 鉴权缓存。对应用户下次请求将重新读取数据库并刷新缓存。</p>
-            <div style="display:flex;gap:10px;">
+            <p class="meta mb-14">清除指定用户在 Redis 中的所有 Session 鉴权缓存。对应用户下次请求将重新读取数据库并刷新缓存。</p>
+            <div class="action-input-row">
               <input id="sessionUserIdInput" type="number" placeholder="输入目标用户 ID，例如 10001">
-              <button id="sessionSubmitBtn" type="button" class="ghost" style="margin:0;white-space:nowrap;padding:0 20px;color:#e11d48;border-color:rgba(225,29,72,.3);">清除会话</button>
+              <button id="sessionSubmitBtn" type="button" class="ghost danger-text">清除会话</button>
             </div>
           </div>
         </div>
       </section>
 
       <section id="adminsPage" class="page hidden">
-        <div class="glass toolbar" style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="glass toolbar admins-toolbar">
           <span class="meta">系统管理员账号与权限管理</span>
-          <button id="openAddAdmin" type="button" class="save" style="margin:0;width:auto;padding:10px 20px;">+ 添加管理员</button>
+          <button id="openAddAdmin" type="button" class="save">+ 添加管理员</button>
         </div>
-        <div id="adminsList" class="admins-grid" style="margin-top:16px;"></div>
+        <div id="adminsList" class="admins-grid"></div>
       </section>
     </main>
   </div>
@@ -184,6 +188,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script src="/admin/static/admin.js?v=20260921_01" defer></script>
+  <script src="/admin/static/admin.js?v=20261008_02" defer></script>
 </body>
 </html>

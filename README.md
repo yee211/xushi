@@ -1,7 +1,7 @@
 # 📅 序时 (XuShi) —— 统一全栈仓库
 
 > 本仓库由 `ClassSchedule`（网页 + Android）与 `wx_ClassSchedule`（微信小程序）整合而成：
-> **一套 FastAPI 后端同时服务网页端、Android 客户端与微信小程序**；三端前端代码各自保留原样。
+> **一套 FastAPI 后端同时服务网页端、Android 客户端与微信小程序**；网页与 Android 共用 Vue，微信小程序独立实现界面。
 
 ```
 xushi/
@@ -13,19 +13,19 @@ xushi/
 │   │   ├── observability.py# 结构化日志
 │   │   ├── db/             # 连接池 + 幂等建表/旧库就地升级
 │   │   ├── auth/           # JWT(网页) + sessions(小程序) 双通道统一依赖
-│   │   ├── routers/        # 按领域拆分的 12 个路由模块
+│   │   ├── routers/        # 按领域拆分的 业务路由模块
 │   │   ├── services/       # 导入落库/课表查询/LLM配置/推送/天气/绑定/反馈
 │   │   ├── agent/          # 课表 Agent（意图识别 → 技能调度 → 润色）
 │   │   ├── channels/       # 微信 ClawBot iLink Worker + 企业微信回调
 │   │   ├── excel/parser/html_parser  # Excel/HTML 多格式读取与确定性解析
 │   │   └── ai.py adjustment_ai.py    # OpenAI 兼容 AI 解析（支持管理后台动态配置）
 │   ├── admin/              # 管理后台静态页（/admin）
-│   ├── tests/              # 300+ 离线单元测试（两侧套件合并）
-│   ├── migrations/         # alembic 迁移（0001~0011）
+│   ├── tests/              # 单元测试与可选 PostgreSQL 集成测试
+│   ├── migrations/         # alembic 迁移（0001~0015）
 │   ├── deploy/             # Dockerfile + docker-compose（api+worker+db+redis+备份）
 │   └── scripts/            # e2e / 备份 / 发版 / A/B 对比脚本
-├── frontend/               # Vue3 网页端 + Capacitor Android 工程（原样保留）
-├── miniapp/                # 微信小程序（原样保留）
+├── frontend/               # Vue3 网页端 + Capacitor Android 工程
+├── miniapp/                # 微信小程序
 ├── data/app_version.json   # Android 版本元数据
 └── static/downloads/       # APK 分发目录
 ```
@@ -38,7 +38,7 @@ xushi/
 | 鉴权 | `Authorization: Bearer <JWT>` | `Authorization: Bearer <session token>` |
 | 课表/课程/调课/导入/反馈 | 同一套端点、同一套业务规则 | 同一套端点、同一套业务规则 |
 | 账号互通（微信同步课表） | 个人中心生成六位绑定码：`POST /api/account/link/code` | 课表助手页输码绑定：`POST /api/account/link`（openid 并入邮箱账号行，两端共用同一份课表，无需同步） |
-| 平台专属 | `/api/import-html`、`/api/app/version`、`/downloads` | `/api/config`、`/api/schedules/demo`、Agent 绑定与扫码连接 |
+| 平台专属 | `/api/import-html`、`/api/app/version`、`/downloads` | Agent 绑定与扫码连接 |
 
 统一鉴权依赖 `app/auth/deps.py`：JWT 形态令牌（含两个点）直接无状态校验；
 小程序随机令牌查 `sessions` 表（可撤销、有过期）。两类令牌空间不重叠。
@@ -68,7 +68,7 @@ cd frontend && npm install && npm run dev
 
 ```bash
 cd server
-venv/Scripts/python -m pytest tests/ -q        # 300+ 离线单元测试
+venv/Scripts/python -m pytest tests/ -q        # 单元测试；集成测试按环境变量启用
 venv/Scripts/python -m ruff check app tests scripts migrations
 ```
 
@@ -97,3 +97,9 @@ docker compose build && docker compose up -d
 - **全新库**：直接得到完整统一 schema + 演示数据种子。
 
 把 `DATABASE_URL` 指向任意一侧的旧库即可平滑切换，无需手动迁移。
+
+## 架构与运行链路
+
+完整说明见 [docs/architecture.md](docs/architecture.md)。普通浏览器默认展示宣传页；访问 `/?mode=app` 进入课表界面。
+
+Vite 默认代理到 `http://127.0.0.1:8000`，可通过启动环境变量 `VITE_DEV_API_TARGET` 修改。

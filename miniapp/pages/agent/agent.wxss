@@ -1,7 +1,8 @@
 page { width:100%; min-height:100%; overflow-x:hidden; background:#cde4fa; color:#172033; }
 .page {
+  position: relative;
   width:100%;
-  min-height:100%;
+  min-height:100vh;
   padding:40rpx 28rpx calc(48rpx + env(safe-area-inset-bottom));
   box-sizing:border-box;
   background:
@@ -9,6 +10,26 @@ page { width:100%; min-height:100%; overflow-x:hidden; background:#cde4fa; color
     radial-gradient(circle at 88% 18%, rgba(56, 189, 248, 0.45), transparent 40%),
     linear-gradient(155deg, #d2e7fa 0%, #dce8f8 50%, #eaf2fd 100%);
 }
+.page.has-wallpaper {
+  background: transparent !important;
+}
+.page.night {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(99, 102, 241, 0.20), transparent 42%),
+    radial-gradient(circle at 88% 18%, rgba(56, 189, 248, 0.22), transparent 40%),
+    linear-gradient(155deg, #070d19 0%, #0d1527 50%, #131d31 100%) !important;
+  color: #cbd5e1;
+}
+.page.night.has-wallpaper {
+  background: #070d19 !important;
+}
+.agent-content {
+  position: relative;
+  z-index: 1;
+}
+.night .title { color: #f8fafc; }
+.night .subtitle, .night .description { color: #94a3b8; }
+.night .examples { color: #cbd5e1; }
 .hero { display:flex; flex-direction:column; align-items:center; padding:36rpx 20rpx 42rpx; }
 .spark { width:96rpx; height:96rpx; border-radius:30rpx; display:flex; align-items:center; justify-content:center; color:#fff; font-size:48rpx; background:linear-gradient(135deg,#0ea5e9,#2563eb); box-shadow:0 14rpx 32rpx rgba(14,165,233,.30); }
 .title { margin-top:24rpx; font-size:40rpx; font-weight:700; }

@@ -10,6 +10,8 @@ import json
 import re
 from html.parser import HTMLParser
 
+from bs4 import BeautifulSoup
+
 from .parser import (
     _find_detail_header,
     _find_term,
@@ -172,7 +174,7 @@ def _parse_html_detail_table(rows: list) -> list[dict]:
     return normalize_courses(raw_courses)
 
 
-def parse_qiangzhi_json(raw_data) -> dict | None:
+def parse_qiangzhi_json(raw_data, *, exact: bool = False) -> dict | None:
     """解析强智等高校教务系统（如长沙工业学院 tls.ccsut.cn）返回的原生课表 JSON 数据。"""
     if isinstance(raw_data, str):
         raw_data = raw_data.strip()
@@ -189,7 +191,10 @@ def parse_qiangzhi_json(raw_data) -> dict | None:
 
     items = None
     if isinstance(data, dict):
-        if isinstance(data.get("data"), list):
+        if isinstance(data.get("data"), dict) and isinstance(data["data"].get("kckbData"), list):
+            items = data["data"]["kckbData"]
+            exact = True
+        elif isinstance(data.get("data"), list):
             items = data["data"]
         elif isinstance(data.get("courses"), list):
             items = data["courses"]
@@ -249,7 +254,7 @@ def parse_qiangzhi_json(raw_data) -> dict | None:
             "weeks": weeks,
         })
 
-    normalized = normalize_courses(courses)
+    normalized = normalize_courses(courses, exact=exact)
     if not normalized:
         return None
 
@@ -357,6 +362,61 @@ def _parse_html_grid_table(matrix: list) -> list[dict]:
     return normalize_courses(courses)
 
 
+def parse_ccsut_report(html, term):
+    """Parse the school's report layout without splitting wrapped course names."""
+    soup = BeautifulSoup(html, "html.parser")
+    page = soup.select_one("#report1_totalpage_input")
+    if page and page.get("value") != "1":
+        raise ValueError("报表包含多页，需要使用逐周接口核验")
+    tables = [t for t in soup.select("table") if "星期一" in t.get_text() and "节次" in t.get_text()]
+    if not tables:
+        raise ValueError("未收到有效整学期课表")
+    extractor = MatrixTableExtractor()
+    extractor.feed(str(tables[0]))
+    if not extractor.tables:
+        raise ValueError("课表矩阵无法解析")
+    courses, notes = [], []
+    matrix = extractor.tables[0]
+    header = next((i for i, row in enumerate(matrix) if len(row) >= 8 and row[0]["text"].strip() == "节次"), None)
+    if header is None:
+        raise ValueError("课表缺少星期表头")
+    for row in matrix[header + 1:]:
+        label = row[0]["text"].strip()
+        if label == "备注":
+            notes.extend(c["text"].strip() for c in row[1:] if c["is_origin"] and c["text"].strip())
+            continue
+        if not label.isdigit():
+            continue
+        section = int(label)
+        for weekday, cell in enumerate(row[1:8], 1):
+            if not cell["is_origin"] or not cell["text"].strip():
+                continue
+            lines = [line.strip() for line in cell["text"].splitlines() if line.strip()]
+            previous = 0
+            found = False
+            for i, line in enumerate(lines):
+                match = re.fullmatch(r"(.*?)【([^】]*周[^】]*)】", line)
+                if not match:
+                    continue
+                name = "".join(lines[previous:i])
+                if not name or i + 1 >= len(lines):
+                    raise ValueError("课程名称或教室字段不完整")
+                weeks = parse_weeks(match[2])
+                if not weeks:
+                    raise ValueError("课程周次无法解析")
+                courses.append({"name": name, "teacher": match[1].strip(), "room": lines[i + 1],
+                                "weekday": weekday, "start_section": section,
+                                "end_section": section + cell["rowspan"] - 1, "weeks": weeks})
+                previous, found = i + 2, True
+            if not found or previous != len(lines):
+                raise ValueError("报表包含未识别的课程内容")
+    normalized = normalize_courses(courses, exact=True)
+    if len(normalized) == 0 and courses:
+        raise ValueError("课表课程字段无效")
+    return {"name": "长沙工业学院教务课表", "term": term, "courses": normalized, "notes": notes}
+
+
+
 def parse_html_schedule(payload_str: str) -> dict | None:
     """确定性解析教务系统导出的网页、DOM 结构或原生 JSON 响应。
 
@@ -397,6 +457,14 @@ def parse_html_schedule(payload_str: str) -> dict | None:
 
         if not raw_html and text:
             continue
+
+        # CCSUT report and WebView capture share the same strict layout parser.
+        if re.search(r'id=["\']report1(?:_totalpage_input)?["\']', raw_html):
+            try:
+                return parse_ccsut_report(raw_html, _find_term(title + " " + text + " " + raw_html[:8000])
+                                          or "2026-2027学年第1学期")
+            except ValueError:
+                return None
 
         extractor = SimpleHTMLTableExtractor()
         try:

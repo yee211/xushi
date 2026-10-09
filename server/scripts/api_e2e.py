@@ -48,12 +48,8 @@ with psycopg.connect(DATABASE_URL) as db:
         courses = cur.fetchall()
 math_id, eng_id = courses[0][0], courses[1][0]
 
-# 3. ensure adjusted 副本
-r = c.post(f"/api/schedules/{sid}/adjusted", headers=H)
-check("ensure adjusted", r.status_code in (200, 201) and r.json()["created"] is True, r.text[:120])
-adj_sid = r.json()["schedule_id"]
-math_adj = r.json()["course_map"][str(math_id)]
-eng_adj = r.json()["course_map"][str(eng_id)]
+# 3. 编辑当前课表，不再派生调课副本。
+adj_sid, math_adj, eng_adj = sid, math_id, eng_id
 
 # 4. 单周调课成功
 r = c.put(f"/api/courses/{math_adj}/adjustments/3?source=drag", headers=H,
@@ -105,6 +101,5 @@ r = c.post("/api/adjustments/parse", headers=H, files={"file": ("a.png", tiny_pn
 check("parse pipeline reached vision model", r.status_code in (422, 200), f"status={r.status_code} {r.text[:120]}")
 
 # 11. 清理
-c.delete(f"/api/schedules/{adj_sid}", headers=H)
 c.delete(f"/api/schedules/{sid}", headers=H)
 print("ALL E2E TESTS PASSED")

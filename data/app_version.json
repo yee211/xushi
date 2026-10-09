@@ -1,14 +1,14 @@
 {
-  "versionCode": 29,
-  "versionName": "2.4.7",
+  "versionCode": 31,
+  "versionName": "2.4.8",
   "minVersionCode": 1,
-  "title": "发现新版本 v2.4.7",
+  "title": "发现新版本 v2.4.8",
   "changelog": [
-    "新增学期课表手动同步按钮，多端修改秒级拉取最新数据",
-    "优化单课表下拉菜单交互体验与周次浏览状态保持",
-    "修复渠道换绑状态机死锁问题，全面提升课表助手连接稳定性"
+    "精简个人中心界面，彻底移除学期设置与删除备用课表入口",
+    "学校身份绑定与课表同步，自动读取学校校历",
+    "修复覆盖导入后的课表选择及账号关联缓存问题"
   ],
-  "downloadUrl": "https://gh-proxy.com/https://raw.githubusercontent.com/yee211/xushi/main/static/downloads/%E5%BA%8F%E6%97%B6_v2.4.7.apk",
-  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.7.apk",
+  "downloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6_v2.4.8.apk",
+  "backupDownloadUrl": "https://api.tanzeng.xyz/downloads/%E5%BA%8F%E6%97%B6.apk",
   "forceUpdate": false
 }

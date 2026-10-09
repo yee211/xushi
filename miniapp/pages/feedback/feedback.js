@@ -1,13 +1,5 @@
 const app = getApp()
 
-const categories = [
-  { label: '课表导入', value: 'import' },
-  { label: '课程显示', value: 'schedule' },
-  { label: '调课功能', value: 'adjustment' },
-  { label: '课表助手', value: 'agent' },
-  { label: '其他问题', value: 'other' },
-]
-
 function clientInfo() {
   let device = {}
   let base = {}
@@ -27,20 +19,27 @@ function clientInfo() {
 
 Page({
   data: {
-    categories,
-    categoryLabels: categories.map(item => item.label),
-    categoryIndex: 0,
     description: '',
     contact: '',
     submitting: false,
     submitted: false,
     feedbackNo: '',
+    nightMode: false,
+    backgroundPath: '',
+  },
+  onShow() {
+    const nightMode = wx.getStorageSync('night_mode') === true
+    const backgroundPath = wx.getStorageSync('schedule_background') || ''
+    this.setData({ nightMode, backgroundPath })
+    if (wx.setNavigationBarColor) {
+      wx.setNavigationBarColor({
+        frontColor: (nightMode || backgroundPath) ? '#ffffff' : '#000000',
+        backgroundColor: nightMode ? '#070d19' : (backgroundPath ? '#000000' : '#f3f6fb')
+      }).catch(() => {})
+    }
   },
   onLoad(options) {
     this.scheduleId = Number(options && options.scheduleId) || 0
-  },
-  selectCategory(event) {
-    this.setData({ categoryIndex: Number(event.detail.value) || 0 })
   },
   setDescription(event) {
     this.setData({ description: event.detail.value })
@@ -52,18 +51,14 @@ Page({
     const description = this.data.description.trim()
     if (description.length < 5) return this.toast('请至少填写 5 个字的问题描述')
     const contact = this.data.contact.trim()
-    if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) {
-      return this.toast('请填写格式正确的邮箱地址')
-    }
     if (this.data.submitting) return
     this.setData({ submitting: true })
     try {
       const result = await app.request('/api/feedback', {
         method: 'POST',
         data: {
-          category: categories[this.data.categoryIndex].value,
           description,
-          contact: this.data.contact.trim(),
+          contact,
           schedule_id: this.scheduleId || null,
           client_info: clientInfo(),
         },

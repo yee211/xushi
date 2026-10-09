@@ -18,8 +18,15 @@ WORKDIR /app
 
 COPY server/requirements.txt ./
 ARG PIP_INDEX_URL=""
+ARG INSTALL_ACADEMIC_BROWSER=false
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+COPY server/requirements-academic.txt ./
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 RUN pip install --no-cache-dir -r requirements.txt
+RUN if [ "$INSTALL_ACADEMIC_BROWSER" = "true" ]; then \
+      pip install --no-cache-dir -r requirements-academic.txt && \
+      python -m playwright install --with-deps chromium; \
+    fi
 
 # 后端源码、管理后台静态页、迁移配置
 COPY server/app ./app
@@ -32,5 +39,5 @@ COPY --from=frontend-builder /build/dist ./frontend/dist
 
 EXPOSE 8000
 
-# init_db 为幂等就地迁移，兼容全新库与两侧旧库；alembic 仅用于全新库的版本化基线
-CMD ["sh", "-c", "(alembic upgrade head || true) && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# 迁移失败阻止启动，避免运行在部分升级的 schema 上；init_db 保留幂等旧库兼容
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

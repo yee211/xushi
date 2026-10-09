@@ -31,16 +31,38 @@ class FakeLinkDb:
     """按 SQL 前缀路由的离线假库，记录全部语句供断言。"""
 
     def __init__(self, wx_user=None, target_user=None, binding_row=None,
-                 wx_identities=(), wx_schedules=(), target_schedules=()):
+                 wx_identities=(), wx_schedules=(), target_schedules=(), school_bindings=None):
         self.wx_user, self.target_user = wx_user, target_user
         self.binding_row = binding_row
         self.wx_identities = list(wx_identities)
         self.wx_schedules, self.target_schedules = list(wx_schedules), list(target_schedules)
         self.calls = []
+        self.school_bindings = school_bindings or {}
 
     def execute(self, sql, params=None):
         sql = " ".join(sql.split())
         self.calls.append((sql, params))
+        if sql.startswith("SELECT user_id,revision,updated_at FROM academic_bindings"):
+            return FakeResult([{"user_id": uid, "revision": self.school_bindings[uid].get('revision',1), "updated_at": 'stable'} for uid in sorted(params[0])])
+        if sql.startswith("DELETE FROM academic_bindings"):
+            self.school_bindings.pop(params[0], None)
+            return FakeResult([], rowcount=1)
+        if sql.startswith("UPDATE academic_bindings SET revision"):
+            self.school_bindings[params[0]]['revision'] = self.school_bindings[params[0]].get('revision',1)+1
+            return FakeResult([], rowcount=1)
+        if sql.startswith("UPDATE academic_sync_jobs") or sql.startswith("INSERT INTO academic_sync_jobs"):
+            return FakeResult([], rowcount=1)
+        if sql.startswith("SELECT id FROM schedules WHERE user_id") and 'academic_student_id' in sql:
+            candidates = self.wx_schedules if params[0] == 9 else self.target_schedules
+            return FakeResult([row for row in candidates if row.get('academic_student_id') == params[1]][:1])
+        if "pg_advisory_xact_lock" in sql:
+            return FakeResult([])
+        if sql.startswith("SELECT student FROM academic_bindings"):
+            record = self.school_bindings.get(params[0])
+            return FakeResult([record] if record else [])
+        if sql.startswith("UPDATE academic_bindings SET user_id"):
+            self.school_bindings[params[0]] = self.school_bindings.pop(params[1])
+            return FakeResult([], rowcount=1)
         if sql.startswith("SELECT openid FROM users"):
             return FakeResult([{"openid": self.wx_user["openid"]}] if self.wx_user else [])
         if sql.startswith("SELECT id, openid, email, username FROM users"):
@@ -310,3 +332,73 @@ def test_status_endpoint_reports_binding_state(client_module, monkeypatch):
     response = client_module.get("/api/account/link", headers={"Authorization": "Bearer session-token"})
     assert response.status_code == 200
     assert response.json() == {"openid_bound": True, "email": "a@b.c", "username": "tom"}
+
+
+def test_account_link_migrates_school_association():
+    db = FakeLinkDb(wx_user=shell_user(), target_user={"id": 5, "openid": None, "email": "a@b.c", "username": "tom"},
+                    binding_row=binding_row(), school_bindings={9: {"student": {"id": "student123"}}})
+    account_link.link_wechat_account(db, "ABCD23", shell_user())
+    assert db.school_bindings[5]["student"]["id"] == "student123"
+    assert 9 not in db.school_bindings
+    assert call("UPDATE academic_bindings", db)
+
+
+def test_account_link_rejects_different_school_associations_before_mutation():
+    db = FakeLinkDb(wx_user=shell_user(), target_user={"id": 5, "openid": None, "email": "a@b.c", "username": "tom"},
+                    binding_row=binding_row(), school_bindings={9: {"student": {"id": "student123"}},
+                                                               5: {"student": {"id": "student456"}}})
+    with pytest.raises(AccountLinkError) as error:
+        account_link.link_wechat_account(db, "ABCD23", shell_user())
+    assert error.value.code == "SCHOOL_BINDING_CONFLICT"
+    assert not call("UPDATE sessions", db)
+    assert not call("DELETE FROM users", db)
+
+
+
+def conflicting_db():
+    return FakeLinkDb(wx_user=shell_user(), target_user={"id":5,"openid":None,"email":"a@b.c","username":"tom"},
+        binding_row=binding_row(), school_bindings={9:{"student":{"id":"student123","name":"微信同学"}},
+        5:{"student":{"id":"student456","name":"App同学"}}},
+        wx_schedules=[{"id":91,"academic_student_id":"student123"}],
+        target_schedules=[{"id":51,"academic_student_id":"student456"}])
+
+
+@pytest.mark.parametrize('choice,student_id,schedule_id', [('app','student456',51),('wechat','student123',91)])
+def test_school_conflict_choice_keeps_one_binding_and_selected_schedule(choice,student_id,schedule_id):
+    db = conflicting_db()
+    with pytest.raises(AccountLinkError) as conflict:
+        account_link.link_wechat_account(db,'ABCD23',shell_user())
+    details = conflict.value.details
+    assert details['app']['name'] == 'App同学'
+    assert details['wechat']['name'] == '微信同学'
+    assert not call('DELETE FROM',db)
+    result = account_link.link_wechat_account(db,'ABCD23',shell_user(),choice,details['conflict_version'])
+    assert result['school_conflict_resolved'] and result['schedule_id'] == schedule_id
+    assert db.school_bindings[5]['student']['id'] == student_id
+    assert 9 not in db.school_bindings
+    assert call('INSERT INTO academic_sync_jobs',db)
+    assert call('UPDATE academic_sync_jobs',db)
+    deleted = call('DELETE FROM schedules WHERE user_id=ANY',db)
+    assert deleted == [([9,5],schedule_id,schedule_id)]
+
+
+def test_changed_conflict_requires_new_confirmation_before_deleting():
+    db=conflicting_db()
+    with pytest.raises(AccountLinkError) as conflict:
+        account_link.link_wechat_account(db,'ABCD23',shell_user())
+    db.school_bindings[5]['revision']=2
+    with pytest.raises(AccountLinkError) as refreshed:
+        account_link.link_wechat_account(db,'ABCD23',shell_user(),'wechat',conflict.value.details['conflict_version'])
+    assert refreshed.value.details['conflict_version'] != conflict.value.details['conflict_version']
+    assert not call('DELETE FROM',db)
+
+
+def test_school_choice_without_school_schedule_clears_wrong_schedule_and_enqueues():
+    db=conflicting_db()
+    db.wx_schedules=[]
+    with pytest.raises(AccountLinkError) as conflict:
+        account_link.link_wechat_account(db,'ABCD23',shell_user())
+    result=account_link.link_wechat_account(db,'ABCD23',shell_user(),'wechat',conflict.value.details['conflict_version'])
+    assert result['schedule_id'] is None
+    assert call('DELETE FROM schedules WHERE user_id=ANY',db) == [([9,5],None,None)]
+    assert call('INSERT INTO academic_sync_jobs',db)

@@ -26,12 +26,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from .agent.http_client import close_llm_client
 from .db import close_pool, connect, init_db, init_pool, is_pool_ready
 from .observability import configure_logging
+from .paths import DOWNLOADS_DIR, FRONTEND_DIST
 from .redis import reset_redis_client
 from .routers import (
+    academic,
     account_link,
     adjustments,
     admin,
@@ -42,15 +45,13 @@ from .routers import (
     courses,
     feedback,
     importer,
-    schedule_share,
     schedules,
     wecom_callback,
 )
+from .services import academic_directory, academic_jobs, academic_login, user_cache
 from .settings import settings, validate_settings
 
 ROOT = Path(__file__).resolve().parent.parent
-FRONTEND_DIST = ROOT / "frontend" / "dist"
-DOWNLOADS_DIR = ROOT / "static" / "downloads"
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 ADMIN_DIR = ROOT / "admin"
 logger = logging.getLogger("uvicorn.error")
@@ -62,9 +63,14 @@ async def lifespan(_: FastAPI):
     configure_logging()
     init_pool()
     init_db()
+    academic_jobs.start()
+    academic_directory.start()
     try:
         yield
     finally:
+        await run_in_threadpool(academic_directory.stop)
+        await run_in_threadpool(academic_jobs.stop)
+        academic_login.stop()
         close_llm_client()
         close_pool()
         reset_redis_client()
@@ -79,6 +85,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(admin.router)
+app.include_router(academic.router)
 if ADMIN_DIR.exists():
     app.mount("/admin/static", StaticFiles(directory=ADMIN_DIR), name="admin_static")
 
@@ -118,6 +125,9 @@ async def request_metrics(request, call_next):
     try:
         response = await call_next(request)
         status_code = response.status_code
+        user_id = getattr(request.state, "authenticated_user_id", None)
+        if user_id and request.method in {"POST", "PUT", "PATCH", "DELETE"} and 200 <= status_code < 300:
+            await run_in_threadpool(user_cache.invalidate_user, user_id)
         duration = round((time.perf_counter() - started) * 1000)
         logger.info(json.dumps({"event": "http_request", "request_id": request_id,
             "method": request.method, "path": request.url.path, "status": status_code,
@@ -134,11 +144,15 @@ async def request_metrics(request, call_next):
         if is_pool_ready() and not path.startswith("/admin/static") and not path.endswith((".ico", ".png", ".jpg", ".css", ".js")):
             try:
                 duration = round((time.perf_counter() - started) * 1000)
-                with connect() as db:
-                    db.execute("""INSERT INTO api_request_logs(method, path, status, duration_ms)
-                        VALUES(%s, %s, %s, %s)""", (request.method, path[:250], status_code, duration))
+                await run_in_threadpool(write_request_metric, request.method, path, status_code, duration)
             except Exception:
                 pass
+
+
+def write_request_metric(method, path, status_code, duration):
+    with connect() as db:
+        db.execute("""INSERT INTO api_request_logs(method, path, status, duration_ms)
+            VALUES(%s, %s, %s, %s)""", (method, path[:250], status_code, duration))
 
 
 # 注册业务路由模块
@@ -146,7 +160,6 @@ app.include_router(auth_email.router)
 app.include_router(auth_wechat.router)
 app.include_router(account_link.router)
 app.include_router(schedules.router)
-app.include_router(schedule_share.router)
 app.include_router(courses.router)
 app.include_router(adjustments.router)
 app.include_router(importer.router)
@@ -180,6 +193,10 @@ if FRONTEND_DIST.exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     def frontend(path: str):
+        # Retired/unknown API endpoints must not fall through to the SPA HTML.
+        if path == 'api' or path.startswith('api/'):
+            from fastapi import HTTPException
+            raise HTTPException(404, "接口不存在")
         candidate = FRONTEND_DIST / path
         return FileResponse(candidate if candidate.is_file() else FRONTEND_DIST / "index.html")
 

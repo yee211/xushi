@@ -1,10 +1,12 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { api } from '../api';
+import { computed, onMounted, ref, watch } from 'vue';
+import { api, academicApi } from '../api';
 import ConfirmModal from './ConfirmModal.vue';
 
 const props = defineProps({
   user: { type: Object, default: null },
+  active: { type: Boolean, default: true },
+  academicOpen: { type: Boolean, default: false },
   schedule: { type: Object, default: null },
   customBg: { type: String, default: 'default' },
   appVersion: { type: String, default: '2.2.8' },
@@ -19,12 +21,31 @@ const BG_LABELS = {
 const customBgLabel = computed(() => BG_LABELS[props.customBg] || '默认');
 
 const emit = defineEmits([
+  'open-import',
   'open-bg-picker',
+  'open-academic',
   'check-update',
   'open-feedback',
   'logout',
   'notify',
 ]);
+
+const schoolStudent = ref(null);
+const schoolBadge = computed(() => schoolStudent.value ? (schoolStudent.value.name || '已绑定') : '未绑定');
+let schoolStatusRevision = 0;
+
+watch(() => [props.user?.id, props.active, props.academicOpen], async () => {
+  const current = ++schoolStatusRevision;
+  schoolStudent.value = null;
+  if (!props.user || !props.active || props.academicOpen) return;
+  try {
+    const saved = await academicApi.binding();
+    if (current === schoolStatusRevision) schoolStudent.value = saved.student;
+  } catch {
+    // 请求失败时不把未知状态误显示为未绑定。
+    if (current === schoolStatusRevision) schoolStudent.value = { name: '状态未知' };
+  }
+}, { immediate: true });
 
 // ---------- 微信小程序绑定（账号互通） ----------
 const linkStatus = ref(null);
@@ -100,21 +121,23 @@ async function unbindWechat() {
         <b class="profile-username">{{ user?.username || '未登录用户' }}</b>
         <small class="profile-email">{{ user?.email || '暂无绑定邮箱' }}</small>
       </div>
+      <button
+        type="button"
+        class="profile-card-logout-btn"
+        @click="emit('logout')"
+      >
+        退出登录
+      </button>
     </div>
 
-    <!-- 偏好设置分组 -->
+    <div class="profile-actions-container" :class="{ 'native-actions': isNative }">
     <div class="profile-section">
-      <span class="profile-section-label">外观</span>
+      <span class="profile-section-label">学校</span>
       <div class="profile-actions-list">
-        <!-- 自定义背景 -->
-        <button
-          type="button"
-          class="profile-action-item minimal-card"
-          @click="emit('open-bg-picker')"
-        >
-          <span class="action-icon">🎨</span>
-          <span class="action-label">自定义背景</span>
-          <span class="action-state-badge">{{ customBgLabel }}</span>
+        <button type="button" class="profile-action-item minimal-card" @click="emit('open-academic')">
+          <span class="action-icon">🎓</span>
+          <span class="action-label">学校身份绑定</span>
+          <span class="action-state-badge school-state-badge" :title="schoolBadge">{{ schoolBadge }}</span>
           <span class="action-arrow">›</span>
         </button>
       </div>
@@ -141,6 +164,35 @@ async function unbindWechat() {
             在微信小程序「课表助手」页输入此码，绑定后小程序与 App 共用同一份课表<template v-if="linkExpiresLabel">，{{ linkExpiresLabel }} 前有效</template>
           </small>
         </div>
+      </div>
+    </div>
+
+    <div v-if="isNative" class="profile-section">
+      <span class="profile-section-label">我的课表</span>
+      <div class="profile-actions-list">
+        <button type="button" class="profile-action-item minimal-card" @click="emit('open-import')">
+          <span class="action-icon">📥</span>
+          <span class="action-label">备用导入</span>
+          <span class="action-arrow">›</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 偏好设置分组 -->
+    <div class="profile-section">
+      <span class="profile-section-label">外观</span>
+      <div class="profile-actions-list">
+        <!-- 自定义背景 -->
+        <button
+          type="button"
+          class="profile-action-item minimal-card"
+          @click="emit('open-bg-picker')"
+        >
+          <span class="action-icon">🎨</span>
+          <span class="action-label">自定义背景</span>
+          <span class="action-state-badge">{{ customBgLabel }}</span>
+          <span class="action-arrow">›</span>
+        </button>
       </div>
     </div>
 
@@ -183,15 +235,8 @@ async function unbindWechat() {
       </div>
     </div>
 
-    <!-- 退出登录 -->
-    <div class="profile-footer">
-      <button
-        type="button"
-        class="profile-logout-btn"
-        @click="emit('logout')"
-      >
-        退出登录
-      </button>
+
+
     </div>
 
     <ConfirmModal
@@ -210,6 +255,33 @@ async function unbindWechat() {
 
 
 <style scoped>
+.native-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.native-actions .profile-section,
+.native-actions .profile-actions-list {
+  display: contents;
+}
+
+.native-actions .profile-section-label {
+  display: none;
+}
+
+.native-actions .profile-action-item {
+  width: 100%;
+  margin: 0;
+}
+
+.school-state-badge {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .profile-section {
   margin-bottom: 6px;
 }

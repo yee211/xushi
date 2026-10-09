@@ -436,28 +436,12 @@ def test_import_db_failure_rolls_back_transaction(client, monkeypatch):
     assert db.committed is False
 
 
-def test_public_app_config_endpoint(client, monkeypatch):
-    monkeypatch.delenv("SHOW_AGENT_ENTRY", raising=False)
-    res = client.get("/api/config")
-    assert res.status_code == 200
-    assert res.json() == {"show_agent": True}
-
-    monkeypatch.setenv("SHOW_AGENT_ENTRY", "false")
-    res = client.get("/api/config")
-    assert res.status_code == 200
-    assert res.json() == {"show_agent": False}
-
-
-def test_create_demo_schedule_endpoint(client, monkeypatch):
-    from app.routers import schedules as schedules_module
-
-    db = MockImportDb(existing_schedule=None)
-    monkeypatch.setattr(schedules_module, "connect", lambda: db)
-    res = client.post("/api/schedules/demo")
-    assert res.status_code == 201
-    data = res.json()
-    assert data["schedule_id"] == 101
-    assert "示例" in data["term_name"]
-    assert data["imported"] == 7
-    assert len(db.inserted_courses) == 7
-
+def test_school_sync_updates_target_without_deleting_personal_variant():
+    db = ImportDb()
+    result = write_schedule(db, user_id=7, overwrite=True, create_new=True,
+                           target_schedule_id=11, preserve_adjusted=True,
+                           parsed={"name": "学校课表", "term": "2026-2027-1", "courses": [
+                               {"name": "高数", "weekday": 1, "start_section": 1, "end_section": 2, "weeks": [1]}]})
+    assert result["schedule_id"] == 11
+    assert db.deleted_adjusted is None
+    assert db.deleted_courses == (11,)

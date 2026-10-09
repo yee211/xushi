@@ -1,4 +1,15 @@
-<scroll-view class="page" scroll-y enhanced show-scrollbar="{{false}}">
+<view class="feedback-page {{nightMode ? 'night' : ''}} {{backgroundPath ? 'has-wallpaper' : ''}}">
+  <block wx:if="{{backgroundPath}}">
+    <image class="page-wallpaper" src="{{backgroundPath}}" mode="aspectFill"></image>
+    <view class="page-wallpaper-tint"></view>
+  </block>
+  <view class="ambient" wx:else aria-hidden="true">
+    <view class="orb orb-a"></view>
+    <view class="orb orb-b"></view>
+    <view class="orb orb-c"></view>
+    <view class="orb orb-d"></view>
+  </view>
+  <scroll-view class="page" scroll-y enhanced show-scrollbar="{{false}}">
   <view class="page-content">
     <view class="hero">
       <view class="hero-icon">✦</view>
@@ -19,24 +30,14 @@
 
     <view class="form-card" wx:else>
       <view class="field">
-        <text class="field-label">问题类型</text>
-        <picker mode="selector" range="{{categoryLabels}}" value="{{categoryIndex}}" bindchange="selectCategory">
-          <view class="picker-value">
-            <text>{{categoryLabels[categoryIndex]}}</text>
-            <text class="picker-arrow">›</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="field">
-        <text class="field-label">详细描述 <text class="required">*</text></text>
+        <text class="field-label">问题描述 <text class="required">*</text></text>
         <textarea class="textarea" value="{{description}}" maxlength="1000" auto-height="{{false}}" placeholder="请描述发生了什么、在哪个页面或操作中出现，以及期望的效果" placeholder-class="placeholder" bindinput="setDescription"></textarea>
         <text class="counter">{{description.length}} / 1000</text>
       </view>
 
       <view class="field field-last">
-        <text class="field-label">联系邮箱（选填）</text>
-        <input class="input" value="{{contact}}" maxlength="120" placeholder="请填写你的邮箱地址" placeholder-class="placeholder" bindinput="setContact" />
+        <text class="field-label">联系方式（选填）</text>
+        <input class="input" value="{{contact}}" maxlength="120" placeholder="QQ / 微信 / 邮箱" placeholder-class="placeholder" bindinput="setContact" />
         <text class="field-tip">仅用于向你同步修复进度，绝不对外公开</text>
       </view>
 
@@ -44,3 +45,4 @@
     </view>
   </view>
 </scroll-view>
+</view>

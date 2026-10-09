@@ -7,13 +7,15 @@ const featureFlags = FEATURES;
 const props = defineProps({
   activeTab: { type: String, default: 'schedule' },
   showAction: { type: Boolean, default: true },
+  schoolSchedule: { type: Boolean, default: false },
   iconType: { type: String, default: 'grid' }, // 'grid' | 'plus' | 'more' | 'sliders'
 });
 
 const emit = defineEmits([
   'update:activeTab',
   'open-profile',
-  'open-course-center',
+  'open-academic',
+  'open-course-list',
   'add-course',
   'upload',
   'open-import',
@@ -41,14 +43,15 @@ function closeMenu() {
 
 function handleAction(action) {
   closeMenu();
-  if (action === 'course-center') {
-    emit('open-course-center');
+  if (action === 'course-list') {
+    emit('open-course-list');
   } else if (action === 'add') {
     emit('add-course');
   } else if (action === 'adjust') {
     emit('open-adjustments');
   } else if (action === 'delete') {
     emit('delete-schedule');
+
   } else if (action === 'import') {
     emit('open-import');
   }
@@ -144,12 +147,12 @@ onUnmounted(() => {
       <!-- 极简操作弹层菜单 (添加课程 / 调课中心 / 删除课表) -->
       <Transition name="dock-menu">
         <div v-if="menuOpen" class="dock-action-menu" role="menu" aria-label="课表操作菜单">
-          <!-- 0. 课表中心 (全部课程与学时) -->
+          <!-- 0. 全部课程 (全部课程与学时) -->
           <button
             type="button"
             class="dock-menu-item"
             role="menuitem"
-            @click="handleAction('course-center')"
+            @click="handleAction('course-list')"
           >
             <div class="menu-item-icon">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -158,7 +161,7 @@ onUnmounted(() => {
               </svg>
             </div>
             <div class="menu-item-content">
-              <span class="menu-item-title">课表中心</span>
+              <span class="menu-item-title">全部课程</span>
               <span class="menu-item-desc">查看本学期全部课程与学时</span>
             </div>
           </button>
@@ -198,8 +201,8 @@ onUnmounted(() => {
               </svg>
             </div>
             <div class="menu-item-content">
-              <span class="menu-item-title">导入课表</span>
-              <span class="menu-item-desc">Excel 文件或教务在线导入</span>
+              <span class="menu-item-title">备用导入</span>
+              <span class="menu-item-desc">Excel 文件或登录教务导入</span>
             </div>
           </button>
 
@@ -235,7 +238,7 @@ onUnmounted(() => {
             type="button"
             class="dock-menu-item danger"
             role="menuitem"
-            @click="handleAction('delete')"
+            @click="schoolSchedule ? (emit('open-academic'), menuOpen = false) : handleAction('delete')"
           >
             <div class="menu-item-icon danger-icon">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -246,8 +249,8 @@ onUnmounted(() => {
               </svg>
             </div>
             <div class="menu-item-content">
-              <span class="menu-item-title">删除课表</span>
-              <span class="menu-item-desc">删除当前学期及全部课程</span>
+              <span class="menu-item-title">{{ schoolSchedule ? '学校绑定管理' : '删除课表' }}</span>
+              <span class="menu-item-desc">{{ schoolSchedule ? '解除绑定或更换学校身份' : '删除备用导入的课表' }}</span>
             </div>
           </button>
         </div>

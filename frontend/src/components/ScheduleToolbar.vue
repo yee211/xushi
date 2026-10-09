@@ -9,6 +9,8 @@ import {
 } from '../utils/schedule.js';
 
 const props = defineProps({
+  allowScheduleSwitch: { type: Boolean, default: true },
+  showCourseList: { type: Boolean, default: true },
   schedules: { type: Array, default: () => [] },
   schedule: { type: Object, default: null },
   week: { type: Number, default: 1 },
@@ -22,7 +24,8 @@ const emit = defineEmits([
   'go-current-week',
   'open-semester-settings',
   'open-adjustments',
-  'open-course-center',
+  'open-course-list',
+  'open-academic',
   'sync-schedules',
 ]);
 
@@ -105,23 +108,24 @@ onUnmounted(() => {
       <button
         type="button"
         class="simplified-term-btn"
-        :aria-expanded="termMenuOpen"
+        :disabled="!allowScheduleSwitch"
+        :aria-expanded="allowScheduleSwitch && termMenuOpen"
         aria-haspopup="listbox"
-        @click="toggleTermMenu"
+        @click="allowScheduleSwitch && toggleTermMenu()"
       >
         <span class="term-title-text">{{ schedule?.term || schedule?.name || '我的课表' }}</span>
-        <span class="dropdown-caret" :class="{ open: termMenuOpen }">⌄</span>
+        <span v-if="allowScheduleSwitch" class="dropdown-caret" :class="{ open: termMenuOpen }">⌄</span>
       </button>
 
       <!-- 学期下拉卡片菜单 -->
-      <div v-if="termMenuOpen" class="term-menu-panel glass" role="listbox" aria-label="选择学期">
+      <div v-if="allowScheduleSwitch && termMenuOpen" class="term-menu-panel glass" role="listbox" aria-label="选择学期">
         <div class="term-menu-head">
           <b>切换学期课表</b>
           <span class="term-count-tip">共 {{ schedules.length }} 个学期</span>
         </div>
         <div class="term-menu-list">
           <button
-            v-for="item in schedules"
+            v-for="item in schedules.filter(item => item.variant_type !== 'adjusted')"
             :key="item.id"
             type="button"
             class="term-card-option"
@@ -152,18 +156,20 @@ onUnmounted(() => {
           <button
             type="button"
             class="term-settings-btn"
-            @click="emit('open-course-center'); termMenuOpen = false;"
+            v-if="showCourseList"
+            @click="emit('open-course-list'); termMenuOpen = false;"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
             </svg>
-            <span>课表中心 · 全部课程</span>
+            <span>全部课程</span>
           </button>
           <button
             type="button"
             class="term-settings-btn"
             @click="emit('open-semester-settings'); termMenuOpen = false;"
+            v-if="!schedule?.academic_student_id"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"/>
@@ -182,8 +188,9 @@ onUnmounted(() => {
               <polyline points="1 20 1 14 7 14"/>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
             </svg>
-            <span>{{ syncing ? '同步中…' : '同步课表' }}</span>
+            <span>{{ syncing ? '刷新中…' : '刷新课表' }}</span>
           </button>
+          <button type="button" class="term-settings-btn" @click="emit('open-academic'); termMenuOpen = false">从学校更新</button>
         </div>
       </div>
     </div>
@@ -231,6 +238,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.simplified-term-btn:disabled { opacity: 1; cursor: default; }
 .term-meta-row {
   display: flex;
   align-items: center;

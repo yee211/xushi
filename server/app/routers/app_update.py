@@ -1,7 +1,6 @@
 """Android 客户端版本检测与 APK 下载直线路由。"""
 import json
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -9,11 +8,7 @@ from pydantic import BaseModel, Field
 router = APIRouter(prefix="/api/app", tags=["App Update"])
 logger = logging.getLogger("classschedule")
 
-# server/ 目录（容器内为 /app，data 由 compose 挂载至此）；本地开发回退仓库根 data/
-SERVER_ROOT = Path(__file__).resolve().parents[2]
-VERSION_FILE = SERVER_ROOT / "data" / "app_version.json"
-if not VERSION_FILE.is_file():
-    VERSION_FILE = SERVER_ROOT.parent / "data" / "app_version.json"
+from ..paths import VERSION_FILE
 
 DEFAULT_VERSION_INFO = {
     "versionCode": 1,

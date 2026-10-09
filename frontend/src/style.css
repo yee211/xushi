@@ -2690,6 +2690,46 @@ html[data-bg="night"] .profile-avatar {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
+}
+
+.profile-card-logout-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 6px 13px;
+  border-radius: var(--minimal-radius-pill, 9999px);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
+  transition: all 0.15s ease;
+}
+
+.profile-card-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.profile-card-logout-btn:active {
+  transform: scale(0.96);
+  background: rgba(239, 68, 68, 0.22);
+}
+
+html[data-bg="night"] .profile-card-logout-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+html[data-bg="night"] .profile-card-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
 }
 
 .profile-username {

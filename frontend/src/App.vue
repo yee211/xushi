@@ -37,6 +37,7 @@ import AdjustmentCenterModal from './components/AdjustmentCenterModal.vue';
 import ImporterModal from './components/ImporterModal.vue';
 import SemesterModal from './components/SemesterModal.vue';
 import AuthModal from './components/AuthModal.vue';
+import { savedAccountsApi } from './api/savedAccounts.js';
 import UpdateModal from './components/UpdateModal.vue';
 import SplashScreen from './components/SplashScreen.vue';
 import ConfirmModal from './components/ConfirmModal.vue';
@@ -44,7 +45,8 @@ import FeedbackModal from './components/FeedbackModal.vue';
 import FloatingDock from './components/FloatingDock.vue';
 import UserProfileView from './components/UserProfileView.vue';
 import ImportSourceModal from './components/ImportSourceModal.vue';
-import CourseCenterModal from './components/CourseCenterModal.vue';
+import AcademicQueryModal from './components/AcademicQueryModal.vue';
+import CourseListModal from './components/CourseListModal.vue';
 import AppLandingPage from './components/AppLandingPage.vue';
 import BgPickerModal from './components/BgPickerModal.vue';
 
@@ -59,38 +61,9 @@ import {
   openDownloadUrl,
 } from './utils/version.js';
 
-// 通用确认模态弹窗状态（替代原生 window.confirm 浏览器弹窗）
-const confirmState = ref({
-  open: false,
-  title: '操作确认',
-  message: '',
-  confirmText: '确定',
-  cancelText: '取消',
-  danger: true,
-  resolve: null,
-});
+import { useConfirmation } from './composables/useConfirmation.js';
 
-function confirmAction(message, options = {}) {
-  return new Promise(resolve => {
-    confirmState.value = {
-      open: true,
-      title: options.title || '操作确认',
-      message,
-      confirmText: options.confirmText || '确定',
-      cancelText: options.cancelText || '取消',
-      danger: options.danger ?? true,
-      resolve,
-    };
-  });
-}
-
-function handleConfirmResult(result) {
-  if (confirmState.value.resolve) {
-    confirmState.value.resolve(result);
-  }
-  confirmState.value.open = false;
-  confirmState.value.resolve = null;
-}
+const { confirmState, confirmAction, handleConfirmResult } = useConfirmation();
 
 // 检测运行环境：Android 原生 App vs 网页端宣传落地页
 // 默认在普通网页浏览器中展示安卓 App 极简宣传落地页；在 Capacitor 原生宿主或带有 ?mode=app / ?preview=app 参数时运行课表管理功能
@@ -134,6 +107,50 @@ const authMode = ref('login');
 const authError = ref('');
 const authLoading = ref(false);
 const authForm = reactive({ email: '', username: '', password: '' });
+const savedAccounts = ref([]);
+const rememberAccount = ref(true);
+
+async function refreshSavedAccounts() {
+  if (!isNative.value) return;
+  try {
+    savedAccounts.value = (await savedAccountsApi.list()).accounts || [];
+  } catch (error) {
+    authError.value = error.message || '无法读取已保存账号，请重新输入登录信息';
+  }
+}
+
+async function removeSavedAccount(account) {
+  if (authLoading.value) return;
+  authLoading.value = true;
+  try {
+    await savedAccountsApi.remove(account ? { email: account.email } : { all: true });
+    authError.value = '';
+    await refreshSavedAccounts();
+  } catch (error) {
+    authError.value = error.message || '移除账号失败';
+  } finally {
+    authLoading.value = false;
+  }
+}
+
+async function loginSavedAccount(account) {
+  if (authLoading.value || !isNative.value) return;
+  authLoading.value = true;
+  authError.value = '';
+  authMode.value = 'login';
+  try {
+    const credentials = await savedAccountsApi.read({ email: account.email });
+    authForm.email = credentials.email;
+    authForm.password = credentials.password;
+    rememberAccount.value = true;
+    await submitAuth();
+  } catch (error) {
+    authError.value = error.message || '快捷登录失败，请重新输入密码';
+  } finally {
+    authForm.password = '';
+    authLoading.value = false;
+  }
+}
 
 // 弹窗状态
 const previewOpen = ref(false);
@@ -156,7 +173,8 @@ const moveSaving = ref(false);
 const adjustmentCenterOpen = ref(false);
 // 离线模式：接口不可达时展示本地缓存的课表（只读）
 const offline = ref(false);
-const courseCenterOpen = ref(false);
+const courseListOpen = ref(false);
+const academicQueryOpen = ref(false);
 const changeLogs = ref([]);
 const changeLogsLoading = ref(false);
 const currentTab = ref('schedule');
@@ -226,7 +244,7 @@ function notify(text) {
   window.clearTimeout(notify.timer);
   notify.timer = window.setTimeout(() => {
     message.value = '';
-  }, 2200);
+  }, Math.min(8000, Math.max(2800, String(text || '').length * 120)));
 }
 
 // 登出
@@ -234,11 +252,14 @@ function logout() {
   clearAuth();
   localStorage.removeItem('cache_user');
   localStorage.removeItem('cache_schedules');
+  localStorage.removeItem('latest_import_schedule_id');
   user.value = null;
   schedule.value = null;
   schedules.value = [];
   offline.value = false;
   loading.value = false;
+  authForm.password = '';
+  authMode.value = 'login';
 }
 
 // 登录 / 注册提交
@@ -267,12 +288,26 @@ async function submitAuth() {
       ? { email, username, password: authForm.password }
       : { email, password: authForm.password };
     const result = isRegister ? await authApi.register(payload) : await authApi.login(payload);
+    let accountSaveFailed = false;
+
+    if (isNative.value) {
+      try {
+        if (rememberAccount.value) {
+          await savedAccountsApi.save({ email: result.user.email || email, username: result.user.username || '', password: payload.password });
+        } else {
+          await savedAccountsApi.remove({ email: email.toLowerCase() });
+        }
+        await refreshSavedAccounts();
+      } catch (error) {
+        accountSaveFailed = true;
+      }
+    }
 
     setToken(result.token);
     user.value = result.user;
     authForm.password = '';
     await load();
-    notify(isRegister ? '注册成功，欢迎加入' : '欢迎回来');
+    notify(accountSaveFailed ? '登录成功，但账号保存失败，请下次重新输入密码' : isRegister ? '注册成功，欢迎加入' : '欢迎回来');
     // 登录前若已发现新版本，待登录弹窗关闭后再弹出更新
     if (pendingUpdateAfterLogin.value) {
       pendingUpdateAfterLogin.value = false;
@@ -295,9 +330,17 @@ async function retryOnline() {
   await load();
 }
 
+async function handleAcademicSynced(result) {
+  await load(result.schedule_id);
+  academicQueryOpen.value = false;
+  currentTab.value = 'schedule';
+  goCurrentWeek();
+  notify(result.restored ? '已恢复同步前的课表和调课' : result.warnings?.length ? result.warnings.join('；') : result.unchanged ? '课表已是最新' : `已同步 ${result.imported} 条课程安排`);
+}
+
 async function load(preferredId = null) {
   try {
-    const list = await schedulesApi.list();
+    const list = (await schedulesApi.list()).filter(item => !isNative.value || item.variant_type !== 'adjusted');
     schedules.value = list;
 
     // 联网加载成功：刷新本地缓存供断网时兜底（仅 Android 原生端启用离线模式）
@@ -316,6 +359,14 @@ async function load(preferredId = null) {
     let selected = null;
     if (preferredId) {
       selected = list.find(item => item.id === Number(preferredId));
+    }
+
+    if (selected && isNative.value && preferredId) {
+      localStorage.setItem('latest_import_schedule_id', String(selected.id));
+    }
+    if (!selected && isNative.value) {
+      selected = list.find(item => item.id === Number(localStorage.getItem('latest_import_schedule_id')))
+        || list.reduce((latest, item) => item.id > latest.id ? item : latest, list[0]);
     }
 
     if (!selected) {
@@ -342,14 +393,12 @@ async function load(preferredId = null) {
   } catch (error) {
     // 断网 / 服务不可达：回退到本地缓存的课表，进入只读离线模式（仅 Android 原生端）
     if (isNative.value && error?.offline) {
-      const cached = readLocalJson('cache_schedules');
+      const cached = readLocalJson('cache_schedules')?.filter(item => item.variant_type !== 'adjusted');
       if (Array.isArray(cached) && cached.length) {
         offline.value = true;
         schedules.value = cached;
-        const savedId = getActiveScheduleId();
-        schedule.value = cached.find(item => item.id === savedId)
-          || findCurrentSchedule(cached)
-          || cached[0];
+        schedule.value = cached.find(item => item.id === Number(localStorage.getItem('latest_import_schedule_id')))
+          || cached.reduce((latest, item) => item.id > latest.id ? item : latest, cached[0]);
         const totalWeeks = scheduleWeekCount(schedule.value);
         currentWeek.value = termWeek(schedule.value?.start_date, totalWeeks, schedule.value);
         week.value = currentWeek.value;
@@ -374,7 +423,7 @@ async function syncSchedules(resolve) {
       if (prevWeek > 0 && prevWeek <= weekOptions.value.length) {
         week.value = prevWeek;
       }
-      notify('课表已同步到最新');
+      notify('课表已刷新');
     }
   } catch (error) {
     notify(error.message || '同步失败，请稍后重试');
@@ -409,6 +458,10 @@ function selectSchedule(payload) {
 async function deleteSchedule() {
   const current = schedule.value;
   if (!current) return;
+  if (current.academic_student_id) {
+    academicQueryOpen.value = true;
+    return;
+  }
   const title = current.term || current.name || '当前课表';
   const ok = await confirmAction(`确认删除“${title}”？该课表中的全部课程也会被删除。`, {
     title: '删除课表',
@@ -476,6 +529,7 @@ function editPreview(course) {
 }
 
 function openAdjustment(course) {
+  if (isNative.value) return;
   previewOpen.value = false;
   adjustmentCourse.value = course;
   Object.assign(adjustmentForm, {
@@ -618,6 +672,7 @@ async function applyAdjustmentNotice() {
 }
 
 function requestCourseMove(move) {
+  if (isNative.value) return;
   pendingMove.value = move;
   moveModalOpen.value = true;
 }
@@ -685,6 +740,7 @@ async function saveCourseMove(scope) {
 const editingAdjustedWeek = ref(null);
 
 function openEditor(course) {
+  if (isNative.value && course?.id) return;
   editingAdjustedWeek.value = course?.adjusted_week || null;
   Object.assign(form, emptyCourse(), course || {});
   form.weeks = formatWeeks(course?.weeks) || '1-16';
@@ -805,7 +861,7 @@ async function restoreCourseRecord(record) {
     notify('未找到可恢复的变更项');
     return;
   }
-  const ok = await confirmAction(`确认撤销改动，将《${course.name}》直接回滚至此记录修改前的状态？`, {
+  const ok = await confirmAction(`确认撤销改动，将《${course.name}》恢复到这次修改前的安排？`, {
     title: '回滚改动',
     confirmText: '回滚',
     danger: true,
@@ -863,7 +919,7 @@ async function restoreCourseRecord(record) {
       } catch (_) {}
     }
 
-    notify('已成功撤销并回滚至该次修改前的状态');
+    notify('已恢复修改前的课程安排');
     await load(schedule.value.id);
     await loadChangeLogs();
     if (previewCourse.value && previewCourse.value.id === course.id) {
@@ -1104,6 +1160,7 @@ function readLocalJson(key) {
 }
 
 onMounted(async () => {
+  await refreshSavedAccounts();
   applyBg(customBg.value);
 
   if (!showApp.value) {
@@ -1199,6 +1256,9 @@ onUnmounted(() => {
         </div>
       </Transition>
       <ScheduleToolbar
+        :allow-schedule-switch="!isNative"
+        :show-course-list="!isNative"
+        @open-academic="academicQueryOpen = true"
         :schedules="schedules"
         :schedule="schedule"
         :week="week"
@@ -1209,11 +1269,12 @@ onUnmounted(() => {
         @go-current-week="goCurrentWeek"
         @open-semester-settings="openSemesterSettings"
         @open-adjustments="adjustmentCenterOpen = true"
-        @open-course-center="courseCenterOpen = true"
+        @open-course-list="courseListOpen = true"
         @sync-schedules="syncSchedules"
       />
 
       <ScheduleGrid
+        :read-only="isNative"
         :key="schedule?.id"
         :schedule="schedule"
         :week="week"
@@ -1232,14 +1293,18 @@ onUnmounted(() => {
     <!-- 个人中心全屏视图 -->
     <div v-show="currentTab === 'profile'" class="tab-view profile-view">
       <UserProfileView
+        :active="currentTab === 'profile'"
+        :academic-open="academicQueryOpen"
         :user="user"
         :schedule="schedule"
+        @open-import="importSourceOpen = true"
         :custom-bg="customBg"
         :app-version="CURRENT_VERSION_NAME"
         :is-native="isNative"
+        @open-academic="academicQueryOpen = true"
         @open-bg-picker="bgPickerOpen = true"
         @check-update="handleCheckUpdate(false)"
-        @open-feedback="feedbackOpen = true"
+          @open-feedback="feedbackOpen = true"
         @logout="logout"
         @notify="notify"
       />
@@ -1247,11 +1312,13 @@ onUnmounted(() => {
 
     <!-- 极简双Tab悬浮底栏与操作中枢 (Floating Dock) -->
     <FloatingDock
+      :school-schedule="Boolean(schedule?.academic_student_id)"
+      @open-academic="academicQueryOpen = true"
       :active-tab="currentTab"
-      :show-action="currentTab === 'schedule'"
+      :show-action="currentTab === 'schedule' && !isNative"
       @update:active-tab="currentTab = $event"
       @open-profile="currentTab = 'profile'"
-      @open-course-center="courseCenterOpen = true"
+      @open-course-list="courseListOpen = true"
       @add-course="openEditor()"
       @upload="upload"
       @open-import="importSourceOpen = true"
@@ -1280,6 +1347,12 @@ onUnmounted(() => {
 
   <!-- 登录 / 注册模态弹窗 -->
   <AuthModal
+    :saved-accounts="savedAccounts"
+    :remember-account="rememberAccount"
+    @update:remember-account="rememberAccount = $event"
+    @saved-login="loginSavedAccount"
+    @remove-account="removeSavedAccount"
+    @clear-accounts="removeSavedAccount(null)"
     :open="!user"
     :auth-mode="authMode"
     :auth-form="authForm"
@@ -1295,6 +1368,7 @@ onUnmounted(() => {
 
   <!-- 课程预览模态弹窗 -->
   <CoursePreviewModal
+    :read-only="isNative"
     :open="previewOpen"
     :course="previewCourse"
     :color-map="courseColorMap"
@@ -1310,6 +1384,7 @@ onUnmounted(() => {
 
   <!-- 课程编辑 / 新建模态弹窗 -->
   <CourseEditorModal
+    v-if="!isNative"
     :open="editorOpen"
     :form="form"
     @close="editorOpen = false"
@@ -1318,6 +1393,7 @@ onUnmounted(() => {
   />
 
   <CourseAdjustmentModal
+    v-if="!isNative"
     :open="adjustmentOpen"
     :course="adjustmentCourse"
     :week="week"
@@ -1329,6 +1405,7 @@ onUnmounted(() => {
   />
 
   <AdjustmentImportModal
+    v-if="!isNative"
     :open="adjustmentImportOpen"
     :loading="adjustmentImportLoading"
     :applying="adjustmentImportApplying"
@@ -1340,6 +1417,7 @@ onUnmounted(() => {
   />
 
   <AdjustmentCenterModal
+    v-if="!isNative"
     :open="adjustmentCenterOpen"
     :records="changeLogs"
     :loading="changeLogsLoading"
@@ -1351,13 +1429,15 @@ onUnmounted(() => {
     @delete="deleteChangeLog"
   />
 
-  <!-- 课表中心模态弹窗 (显示导入的全部课程信息与学时统计) -->
-  <CourseCenterModal
-    :open="courseCenterOpen"
+  <!-- 全部课程列表（从“我的”查看课程信息） -->
+  <AcademicQueryModal @synced="handleAcademicSynced" :open="academicQueryOpen" @close="academicQueryOpen = false" />
+  <CourseListModal
+    :read-only="isNative"
+    :open="courseListOpen"
     :schedule="schedule"
     :week="week"
     :color-map="courseColorMap"
-    @close="courseCenterOpen = false"
+    @close="courseListOpen = false"
     @preview-course="openPreview"
     @edit-course="openEditor"
     @adjust-course="openAdjustment"
@@ -1366,6 +1446,7 @@ onUnmounted(() => {
   />
 
   <CourseMoveModal
+    v-if="!isNative"
     :open="moveModalOpen"
     :move="pendingMove"
     :week="week"

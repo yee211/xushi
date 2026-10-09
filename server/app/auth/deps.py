@@ -12,7 +12,7 @@ import json
 from datetime import UTC, datetime
 
 import jwt
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 
 from ..db import connect
 from ..redis import redis_delete, redis_get, redis_set
@@ -75,15 +75,15 @@ def _looks_like_jwt(token: str) -> bool:
     return token.count(".") == 2
 
 
-def get_current_user(authorization: str | None = Header(default=None)) -> dict:
+def get_current_user(authorization: str | None = Header(default=None), request: Request = None) -> dict:
     """FastAPI 依赖：解析 Bearer 令牌并返回当前登录用户，失败时抛出 401。"""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "请先登录")
     token = authorization[7:].strip()
     if _looks_like_jwt(token):
-        return _user_from_jwt(token)
-    user = _user_from_session(token)
-    if user:
-        return user
-    # 非会话令牌：尝试按 JWT 解析（兼容旧客户端），失败统一按无效凭证处理
-    return _user_from_jwt(token)
+        user = _user_from_jwt(token)
+    else:
+        user = _user_from_session(token) or _user_from_jwt(token)
+    if request is not None:
+        request.state.authenticated_user_id = user["id"]
+    return user

@@ -12,7 +12,7 @@ const emit = defineEmits(['close', 'select-excel', 'select-academic']);
       <div class="modal-head">
         <div>
           <p>导入课表</p>
-          <h2>选择导入方式</h2>
+          <h2>备用导入</h2>
         </div>
         <button type="button" class="icon" @click="emit('close')">×</button>
       </div>
@@ -57,8 +57,8 @@ const emit = defineEmits(['close', 'select-excel', 'select-academic']);
           </div>
           <div class="source-card-info">
             <div class="source-card-title-row">
-              <span class="source-title">教务系统导入</span>
-              <span class="source-tag academic-tag">实时同步</span>
+              <span class="source-title">登录教务导入</span>
+              <span class="source-tag academic-tag">备用更新</span>
             </div>
             <p class="source-desc">登录长沙工业学院教务网关，进入课表页一键提取导入</p>
           </div>

@@ -11,7 +11,7 @@ async function api(path, options = {}) {
   const response = await fetch(`/api/admin${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(options.headers || {}) } })
   const data = response.status === 204 ? null : await response.json().catch(() => ({}))
   if (response.status === 401 && path !== '/login') { logout(); throw new Error('管理登录已过期') }
-  if (!response.ok) throw new Error(data.detail || '请求失败')
+  if (!response.ok) throw new Error((data.detail?.message || (typeof data.detail === 'string' ? data.detail : '请求失败')))
   return data
 }
 
@@ -182,16 +182,18 @@ async function loadAdmins() {
   $('adminsList').innerHTML = list.map(item => {
     const isMe = item.username === myUser
     const canDelete = !item.is_system_root && !isMe
-    return `<article class="glass stat" style="text-align:left;position:relative;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-weight:750;font-size:18px;">${esc(item.username)}</span>
+    return `<article class="glass stat admin-card">
+      <div class="admin-card-header">
+        <span class="admin-username">${esc(item.username)}</span>
         <span class="tag ${item.role === 'superadmin' ? 'processing' : 'closed'}">${item.role === 'superadmin' ? '超级管理员' : '普通管理员'}</span>
       </div>
-      <div class="meta" style="margin-top:6px;">创建人：${esc(item.created_by || '系统')}</div>
-      <div class="meta" style="margin-top:3px;">创建时间：${timeText(item.created_at)}</div>
-      ${item.is_system_root ? '<span class="tag pending" style="margin-top:10px;">环境变量根账号</span>' : ''}
-      ${isMe ? '<span class="tag good" style="margin-top:10px;">当前登录账号</span>' : ''}
-      ${canDelete ? `<button type="button" class="ghost" style="margin-top:12px;color:#e11d48;border-color:rgba(225,29,72,.3);padding:6px 12px;font-size:12px;" onclick="deleteAdmin(${item.id}, '${esc(item.username)}')">删除账号</button>` : ''}
+      <div class="meta mt-8">创建人：${esc(item.created_by || '系统')}</div>
+      <div class="meta">创建时间：${timeText(item.created_at)}</div>
+      <div class="admin-tags-row">
+        ${item.is_system_root ? '<span class="tag pending">环境变量根账号</span>' : ''}
+        ${isMe ? '<span class="tag good">当前登录账号</span>' : ''}
+      </div>
+      ${canDelete ? `<button type="button" class="danger-btn" onclick="deleteAdmin(${item.id}, '${esc(item.username)}')">删除账号</button>` : ''}
     </article>`
   }).join('')
 }
@@ -225,15 +227,15 @@ async function loadUsers(page = 1) {
       const providers = (user.providers || []).map(p => `<span class="provider-badge ${esc(p)}">${esc(p)}</span>`).join('')
       const displayName = user.username || user.nickname || (user.openid ? '微信用户 ' + user.openid.slice(-6) : '用户 #' + user.id)
       return `<article class="glass user-card" onclick="openUserDetail(${user.id})">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span style="font-weight:750;font-size:16px;color:#0369a1;">UID: ${user.id}</span>
+        <div class="user-card-head">
+          <span class="user-uid">UID: ${user.id}</span>
           <span class="tag ${user.schedule_count > 0 ? 'good' : 'closed'}">${user.schedule_count} 张课表</span>
         </div>
-        <div style="font-weight:600;font-size:14px;color:#1e293b;margin-bottom:4px;">${esc(displayName)}</div>
-        <div class="meta" style="word-break:break-all;">邮箱：${esc(user.email || '未绑定')}</div>
-        ${user.openid ? `<div class="meta" style="word-break:break-all;margin-top:2px;">OpenID：<code>${esc(user.openid)}</code></div>` : ''}
-        <div style="margin-top:8px;">${providers || '<span class="meta">无关联三方身份</span>'}</div>
-        <div class="meta" style="margin-top:8px;font-size:11px;">注册时间：${timeText(user.created_at)}</div>
+        <div class="user-name">${esc(displayName)}</div>
+        <div class="meta user-email">邮箱：${esc(user.email || '未绑定')}</div>
+        ${user.openid ? `<div class="meta user-openid">OpenID：<code>${esc(user.openid)}</code></div>` : ''}
+        <div class="user-providers">${providers || '<span class="meta">无关联三方身份</span>'}</div>
+        <div class="meta user-time">注册时间：${timeText(user.created_at)}</div>
       </article>`
     }).join('')
 
@@ -282,18 +284,18 @@ async function openUserDetail(userId) {
 
     const schedCards = schedules.map(s => `
       <div class="schedule-card">
-        <div>
-          <div style="font-weight:700;font-size:15px;color:#1e293b;">${esc(s.name)} ${s.is_active ? '<span class="tag good" style="margin-left:6px;">当前主课表</span>' : ''}</div>
-          <div class="meta" style="margin-top:4px;">学期: ${esc(s.term || s.semester || '-')} · 起始日: ${esc(s.start_date || '-')} · ${s.course_count ?? '-'} 门课程</div>
+        <div class="schedule-info">
+          <div class="schedule-title">${esc(s.name)} ${s.is_active ? '<span class="tag good">当前主课表</span>' : ''}</div>
+          <div class="meta mt-8">学期: ${esc(s.term || s.semester || '-')} · 起始日: ${esc(s.start_date || '-')} · ${s.course_count ?? '-'} 门课程</div>
         </div>
-        <button type="button" class="save" style="margin:0;width:auto;padding:8px 16px;font-size:12px;" onclick="viewScheduleCourses(${userId}, ${s.id})">透视课程清单</button>
+        <button type="button" class="save schedule-inspect-btn" onclick="viewScheduleCourses(${userId}, ${s.id})">透视课程清单</button>
       </div>
-    `).join('') || '<div class="empty" style="padding:20px;">该用户尚未创建任何课表</div>'
+    `).join('') || '<div class="empty">该用户尚未创建任何课表</div>'
 
     $('userDetailContent').innerHTML = `
       <p class="eyebrow">USER PROFILE · UID ${u.id}</p>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h2 style="margin:0;">${esc(displayName)}</h2>
+      <div class="dialog-title-row">
+        <h2>${esc(displayName)}</h2>
         ${hasWechat ? `<button type="button" class="danger-btn" onclick="unbindWechat(${u.id})">解绑微信 (解除账号锁定)</button>` : ''}
       </div>
       <div class="metric-row"><span>用户 ID</span><b>${u.id}</b></div>
@@ -303,13 +305,13 @@ async function openUserDetail(userId) {
       <div class="metric-row"><span>注册时间</span><b>${timeText(u.created_at)}</b></div>
       <div class="metric-row"><span>最近活跃</span><b>${timeText(u.last_login_at || u.updated_at)}</b></div>
 
-      <h3 style="margin:20px 0 8px;font-size:16px;">三方身份绑定 (${identities.length})</h3>
+      <h3 class="dialog-section-title">三方身份绑定 (${identities.length})</h3>
       ${idCards}
 
-      <h3 style="margin:20px 0 8px;font-size:16px;">微信/企微助手绑定 (${bots.length})</h3>
+      <h3 class="dialog-section-title">微信/企微助手绑定 (${bots.length})</h3>
       ${botRows}
 
-      <h3 style="margin:20px 0 8px;font-size:16px;">用户课表数据 (${schedules.length})</h3>
+      <h3 class="dialog-section-title">用户课表数据 (${schedules.length})</h3>
       ${schedCards}
     `
   } catch (error) {
@@ -355,8 +357,10 @@ async function viewScheduleCourses(userId, scheduleId) {
 
     $('coursesContent').innerHTML = `
       <p class="eyebrow">SCHEDULE INSPECT</p>
-      <h2>${esc(sched.name)} <small class="meta" style="font-size:14px;font-weight:normal;">(${esc(sched.semester || '无学期')})</small></h2>
-      <p class="meta">共 ${courses.length} 门课程明细 · 用户 UID: ${userId}</p>
+      <div class="courses-dialog-head">
+        <h2>${esc(sched.name)} <small class="meta">(${esc(sched.semester || '无学期')})</small></h2>
+        <span class="meta">共 ${courses.length} 门课程明细 · 用户 UID: ${userId}</span>
+      </div>
       <div class="courses-table-container">
         <table class="courses-table">
           <thead>
@@ -449,6 +453,8 @@ async function loadPage() {
     else if (state.page === 'traffic') await loadTraffic()
     else if (state.page === 'llm') await loadLlm()
     else if (state.page === 'system') await loadSystemStatus()
+    else if (state.page === 'academic') await loadAcademicConnection()
+    else if (state.page === 'academicSync') await loadAcademicSync()
     else if (state.page === 'admins') await loadAdmins()
   } catch (error) { toast(error.message) }
 }
@@ -458,6 +464,8 @@ function switchPage(page) {
   document.querySelectorAll('.page').forEach(x => x.classList.add('hidden'))
   $(`${page}Page`).classList.remove('hidden')
   $('pageTitle').textContent = {
+    academic: '学校教务连接',
+    academicSync: '课表同步',
     overview: '运行概览',
     users: '用户与课表管理',
     feedback: '用户反馈',
@@ -554,3 +562,192 @@ $('sessionSubmitBtn').onclick = clearUserSession
 if(state.token){$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');loadPage()}
 
 
+
+let academicLoginTimer
+
+function syncSummary(sync) {
+  const counts = sync.counts || {}
+  const paused = sync.pause_until && new Date(sync.pause_until) > new Date()
+  return `课表同步：排队 ${counts.queued || 0} · 执行 ${counts.running || 0} · 成功 ${counts.succeeded || 0} · 失败 ${counts.failed || 0}。每天北京时间 00:00 发起；${paused ? '学校连接失效，等待管理员恢复。' : '依次处理，失败保留原课表。'}`
+}
+
+async function loadAcademicConnection() {
+  clearTimeout(academicLoginTimer)
+  const target = $('academicPage')
+  target.innerHTML = '<div class="empty">正在检查教务连接…</div>'
+  const [data, login] = await Promise.all([api('/academic/connection'), api('/academic/login/status')])
+  const browser = data.browser || { state: 'not_started' }
+  const labels = { connected: '浏览器会话可用', needs_login: '需要管理员重新登录', error: '浏览器检查失败', not_started: '会话维护进程未启动' }
+  target.innerHTML = `<div class="glass panel academic-card">
+    <div class="academic-header">
+      <h2>连接学校账号</h2>
+      <span class="tag ${login.saved ? 'good' : 'closed'}">${login.saved ? '已存凭据' : '未配置'}</span>
+    </div>
+    <div class="academic-status-box">
+      <p id="schoolLoginStatus" class="academic-status-text">${esc(login.message)}</p>
+      <p id="schoolCredentialsSummary" class="meta">${login.saved ? '手机号已加密保存 · ' + esc(login.account || '') : '保存学校绑定手机号后发起验证码登录。'}</p>
+    </div>
+    <form id="schoolCredentialsForm" class="academic-form">
+      <div class="form-row-2">
+        <label>学校绑定手机号<input id="schoolAccount" type="tel" autocomplete="tel" inputmode="numeric" pattern="1[0-9]{10}" maxlength="11" required value="${esc(login.account || '')}" placeholder="11 位手机号"></label>
+      </div>
+      <button class="save academic-btn-save" type="submit">保存手机号</button>
+    </form>
+    <div class="academic-actions-bar">
+      <button id="schoolLoginStart" class="btn-primary" ${!login.saved || login.running ? 'disabled' : ''}>发起后台自动维护</button>
+      <button id="schoolLoginVisible" class="btn-primary" ${login.running ? 'disabled' : ''} style="background:linear-gradient(135deg, #2563eb, #1d4ed8);">🖥️ 弹出可视浏览器登录（人工/扫码）</button>
+      <button id="schoolLoginStop" class="btn-warning" ${!login.running ? 'disabled' : ''}>停止维护</button>
+      <button id="schoolDeleteCredentials" class="btn-danger" ${!login.saved || login.running ? 'disabled' : ''}>删除手机号</button>
+    </div>
+    <div id="schoolCodePanel" class="school-code-box" ${['ready_for_code', 'waiting_code'].includes(login.state) ? '' : 'hidden'}>
+      <div class="code-header">
+        <span class="code-tip">学校要求安全验证码</span>
+        <button id="schoolSendCode" class="ghost btn-code-send">获取验证码</button>
+      </div>
+      <form id="schoolCodeForm" class="code-form">
+        <input id="schoolCode" type="text" autocomplete="one-time-code" maxlength="32" placeholder="收到验证码后输入">
+        <button type="submit" class="save">提交验证码并登录</button>
+      </form>
+    </div>
+    <p id="schoolLoginError" class="error"></p><div id="schoolDiagnostic" hidden><p class="meta">学校登录页面（输入内容已隐藏）</p><img id="schoolDiagnosticImage" style="max-width:100%;border-radius:12px" alt="学校当前登录页面"></div>
+    <p class="meta school-notice">💡 <b>推荐方式</b>：点击「🖥️ 弹出可视浏览器登录」，可在桌面直接弹出 Chrome 窗口。请选择「验证码登录」，输入学校绑定手机号和短信验证码，再点击「统一认证登录」进入教务系统。登录成功后系统会自动捕获并同步会话！</p>
+  </div>
+  <details class="glass panel academic-advanced-panel">
+    <summary class="advanced-summary">高级设置：手动配置 Cookie 与会话</summary>
+    <div class="advanced-content">
+      <h2>长沙工业学院教务连接</h2>
+      <div class="metric-row"><span>会话状态</span><b>${esc(labels[browser.state] || browser.state)}${browser.checked_at ? ' · 最近检查 ' + esc(new Date(browser.checked_at).toLocaleString('zh-CN')) : ''}</b></div>
+      <div class="metric-row"><span>年级信息</span><b>${data.connected ? '已连接 · 年级 ' + esc(data.grades.join('、')) : esc(data.message)}</b></div>
+      <p class="meta mt-10">由超级管理员维护学校登录会话。普通用户使用序时账号查询课表，学校会话不会返回给用户。</p>
+      <form id="academicConnectionForm" class="cookie-form mt-14">
+        <label>教务 Cookie<input id="academicCookie" type="password" autocomplete="off" required maxlength="16000" placeholder="从已登录学校网页的请求头复制 Cookie"></label>
+        <label>User-Agent<input id="academicAgent" maxlength="500" placeholder="对应浏览器 User-Agent" value="Mozilla/5.0"></label>
+        <p class="meta mt-8">保存前验证连接；会话加密保存，过期后重新配置。更改 ADMIN_SESSION_SECRET 后需重新配置。</p>
+        <button class="save mt-12" type="submit">验证并保存连接</button>
+        <p id="academicConnectionError" class="error"></p>
+      </form>
+    </div>
+  </details>`
+  let latest = login
+  let diagnosticUrl = null
+  let diagnosticState = null
+  async function refreshLogin() {
+    clearTimeout(academicLoginTimer)
+    if (state.page !== 'academic') return
+    try {
+      latest = await api('/academic/login/status')
+      if (state.page !== 'academic' || !$('schoolLoginStatus')) return
+      const previousState = $('schoolLoginStatus').dataset.state
+      $('schoolLoginStatus').dataset.state = latest.state
+      $('schoolLoginStatus').style.color = latest.state === 'connected' ? '#16804a' : ''
+      if (latest.state === 'connected' && previousState !== 'connected') toast('学校账号连接成功，自动维护已启动')
+      if (latest.diagnostic && diagnosticState !== latest.state) {
+        diagnosticState = latest.state
+        const response = await fetch('/api/admin/academic/login/diagnostic', { headers: { Authorization: 'Bearer ' + state.token } })
+        if (response.ok && $('schoolDiagnosticImage')) {
+          if (diagnosticUrl) URL.revokeObjectURL(diagnosticUrl)
+          diagnosticUrl = URL.createObjectURL(await response.blob())
+          $('schoolDiagnosticImage').src = diagnosticUrl
+          $('schoolDiagnostic').hidden = false
+        }
+      }
+      $('schoolLoginStatus').textContent = latest.message + (latest.page_host ? ' · 当前页面：' + latest.page_host : '') + (latest.checked_at ? ' · ' + new Date(latest.checked_at).toLocaleString('zh-CN') : '')
+      $('schoolCredentialsSummary').textContent = latest.saved ? '手机号已加密保存 · ' + (latest.account || '') : '保存学校绑定手机号后发起验证码登录。'
+      $('schoolCodeForm').querySelector('button').disabled = latest.state !== 'waiting_code'
+      $('schoolCodePanel').hidden = !['ready_for_code', 'waiting_code', 'processing', 'submitting', 'continuing'].includes(latest.state)
+      $('schoolLoginStart').disabled = !latest.saved || latest.running
+      if ($('schoolLoginVisible')) $('schoolLoginVisible').disabled = latest.running
+      $('schoolLoginStop').disabled = !latest.running
+      $('schoolDeleteCredentials').disabled = !latest.saved || latest.running
+      $('schoolCredentialsForm').querySelector('button').disabled = latest.running
+      $('schoolSendCode').disabled = latest.state !== 'ready_for_code' && latest.state !== 'waiting_code'
+    } catch (e) { if ($('schoolLoginError')) $('schoolLoginError').textContent = e.message }
+    if (state.page === 'academic') academicLoginTimer = setTimeout(refreshLogin, 2000)
+  }
+  async function loginAction(path, options) {
+    $('schoolLoginError').textContent = ''
+    try { await api('/academic/login/' + path, options); await refreshLogin() }
+    catch (e) { $('schoolLoginError').textContent = e.message }
+  }
+  $('schoolCredentialsForm').onsubmit = async event => {
+    event.preventDefault()
+    const account = $('schoolAccount').value.trim()
+    await loginAction('credentials', { method: 'PUT', body: JSON.stringify({ account }) })
+  }
+  $('schoolLoginStart').onclick = () => loginAction('start', { method: 'POST' })
+  if ($('schoolLoginVisible')) {
+    $('schoolLoginVisible').onclick = async () => {
+      await loginAction('start?visible=true', { method: 'POST' })
+      toast('已在桌面弹出浏览器窗口，请在窗口中登录')
+    }
+  }
+  $('schoolLoginStop').onclick = () => loginAction('command', { method: 'POST', body: JSON.stringify({ job_id: latest.job_id, action: 'stop' }) })
+  $('schoolDeleteCredentials').onclick = () => loginAction('credentials', { method: 'DELETE' })
+  $('schoolSendCode').onclick = () => loginAction('command', { method: 'POST', body: JSON.stringify({ job_id: latest.job_id, action: 'send_code' }) })
+  $('schoolCodeForm').onsubmit = async event => {
+    event.preventDefault()
+    const code = $('schoolCode').value
+    $('schoolCode').value = ''
+    await loginAction('command', { method: 'POST', body: JSON.stringify({ job_id: latest.job_id, action: 'submit_code', code }) })
+  }
+  await refreshLogin()
+  $('academicConnectionForm').onsubmit = async event => {
+    event.preventDefault()
+    const button = event.target.querySelector('button')
+    button.disabled = true
+    try {
+      await api('/academic/connection', { method: 'PUT', body: JSON.stringify({ cookie: $('academicCookie').value, user_agent: $('academicAgent').value || 'Mozilla/5.0' }) })
+      $('academicCookie').value = ''
+      toast('教务连接已保存')
+      await loadAcademicConnection()
+    } catch (e) { $('academicConnectionError').textContent = e.message }
+    finally { button.disabled = false }
+  }
+}
+
+
+let academicSyncTimer
+let academicSyncRevision = 0
+async function loadAcademicSync() {
+  clearTimeout(academicSyncTimer)
+  const current = ++academicSyncRevision
+  const target = $('academicSyncPage')
+  target.innerHTML = `<div class="glass panel"><h2>课表同步</h2><p class="meta">每天北京时间 00:00 自动发起。主动同步会为全部已绑定账号刷新课表，已有任务的账号自动跳过。</p><p class="meta">同步成功后只留一份学校课表，覆盖导入内容和个人修改；失败保留原课表。</p><button id="startAllSchoolSync" class="save">立即同步全部已绑定账号</button><p id="allSchoolSyncMessage" role="status" class="meta"></p><p id="allSchoolSyncError" role="alert" class="error"></p></div><div id="allSchoolSyncStats"></div><div class="glass panel"><h2>最近 30 个任务</h2><div id="allSchoolSyncJobs"></div></div>`
+  target.insertAdjacentHTML('afterbegin', `<div class="glass panel"><h2>学生目录</h2><p class="meta">完整名单同步成功后，身份搜索直接查询本地目录。刷新失败保留原名单；首次同步前使用学校实时搜索。</p><button id="refreshStudentDirectory" class="save">刷新完整学生名单</button><p id="studentDirectoryStatus" role="status" class="meta"></p><p id="studentDirectoryError" role="alert" class="error"></p></div>`)
+  $('refreshStudentDirectory').onclick = async () => {
+    $('refreshStudentDirectory').disabled = true
+    try { await api('/academic/directory/refresh', { method: 'POST' }); await refreshSync() }
+    catch (e) { if (current === academicSyncRevision && state.page === 'academicSync') { $('studentDirectoryError').textContent = e.message; $('refreshStudentDirectory').disabled = false } }
+  }
+  async function refreshSync() {
+    if (state.page !== 'academicSync' || current !== academicSyncRevision) return
+    try {
+      const [data, directory] = await Promise.all([api('/academic/sync/status'), api('/academic/directory/status')])
+      if (state.page !== 'academicSync' || current !== academicSyncRevision) return
+      const directoryStates = { idle: '尚未同步', queued: '等待同步', running: '正在同步', succeeded: '同步成功', failed: '同步失败' }
+      $('studentDirectoryStatus').textContent = `${directoryStates[directory.state] || directory.state} · 已保存 ${directory.student_count} 人 · 班级进度 ${directory.classes_done}/${directory.classes_total} · 最近成功：${timeText(directory.synced_at)}`
+      $('studentDirectoryError').textContent = directory.error || ''
+      $('refreshStudentDirectory').disabled = ['queued', 'running'].includes(directory.state)
+      const counts = data.counts || {}
+      $('allSchoolSyncStats').innerHTML = `<div class="stats">${stat('已绑定账号', data.bound_count)}${stat('排队', counts.queued || 0)}${stat('执行中', counts.running || 0)}${stat('成功（近 30 天）', counts.succeeded || 0)}${stat('失败（近 30 天）', counts.failed || 0)}</div><p class="meta">${esc(syncSummary(data))} 最近自动批次：${esc(data.last_daily_run?.run_date || '尚未生成')}</p>`
+      const states = { queued: '排队中', running: '同步中', succeeded: '成功', failed: '失败' }
+      const sources = { daily: '零点自动', manual: '用户发起', admin: '后台主动' }
+      $('allSchoolSyncJobs').innerHTML = (data.recent || []).map(job => `<div class="path-row"><span><b>${esc(states[job.state] || job.state)}</b> · 用户 ${esc(job.user_id)} · ${esc(job.term)} · ${esc(sources[job.source] || job.source)}${job.error ? '<br><small class="bad">' + esc(job.error) + '</small>' : ''}</span><small>尝试 ${esc(job.attempts)} 次 · ${timeText(job.updated_at)}</small></div>`).join('') || '<div class="empty">暂无同步任务</div>'
+    } catch (e) { if (current === academicSyncRevision && state.page === 'academicSync') $('allSchoolSyncError').textContent = e.message }
+    if (state.page === 'academicSync' && current === academicSyncRevision) academicSyncTimer = setTimeout(refreshSync, 3000)
+  }
+  $('startAllSchoolSync').onclick = async () => {
+    const button = $('startAllSchoolSync')
+    button.disabled = true
+    $('allSchoolSyncError').textContent = ''
+    try {
+      const result = await api('/academic/sync/start', { method: 'POST' })
+      if (state.page !== 'academicSync' || current !== academicSyncRevision) return
+      $('allSchoolSyncMessage').textContent = `已加入 ${result.enqueued} 个任务，跳过 ${result.skipped} 个已有任务或缺少学期的账号。任务依次处理，可离开此页面。`
+      clearTimeout(academicSyncTimer)
+      await refreshSync()
+    } catch (e) { if (current === academicSyncRevision && state.page === 'academicSync') $('allSchoolSyncError').textContent = e.message }
+    finally { if (current === academicSyncRevision) button.disabled = false }
+  }
+  await refreshSync()
+}

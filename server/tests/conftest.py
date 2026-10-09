@@ -37,3 +37,22 @@ def make_file(tmp_path):
         target.write_bytes(content)
         return target
     return _make
+
+
+@pytest.fixture(autouse=True)
+def isolate_user_data_cache(monkeypatch):
+    """Local request tests must never populate the developer's real Redis."""
+    monkeypatch.setattr("app.services.user_cache.get_redis", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def isolate_school_worker(monkeypatch):
+    """Unit tests must not start real school fetches or touch durable job tables."""
+    monkeypatch.setattr("app.services.academic_directory.start", lambda: None)
+    monkeypatch.setattr("app.services.academic_directory.stop", lambda: None)
+    monkeypatch.setattr("app.services.academic_directory.grades", lambda: None)
+    monkeypatch.setattr("app.services.academic_directory.search", lambda **kwargs: None)
+    monkeypatch.setattr("app.services.academic_directory.student", lambda sid: None)
+    monkeypatch.setattr("app.services.academic_jobs.start", lambda: None)
+    monkeypatch.setattr("app.services.academic_jobs.stop", lambda: None)
+    monkeypatch.setattr("app.services.academic_rate_limit.acquire", lambda deadline: None)

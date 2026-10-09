@@ -1,12 +1,12 @@
-"""课表路由：列表、更新、删除、调课版派生、示例课表。"""
-from datetime import date, timedelta
+"""课表路由：列表、更新和删除。"""
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user
 from ..db import connect, row_dict
 from ..schemas import ScheduleUpdate
-from ..services.schedule_import import write_schedule
+from ..services import user_cache
 
 router = APIRouter(prefix="/api/schedules", tags=["schedules"])
 
@@ -48,12 +48,16 @@ def _attach_courses(db, schedule_row) -> dict:
 @router.get("")
 def list_schedules(user=Depends(get_current_user)):
     """获取当前用户的所有课表及其课程列表。"""
+    cached, cache_key = user_cache.read("schedules", user["id"])
+    if isinstance(cached, list):
+        return cached
     with connect() as db:
         rows = db.execute(
             "SELECT * FROM schedules WHERE user_id=%s ORDER BY id DESC",
             (user["id"],),
         ).fetchall()
         if not rows:
+            user_cache.store(cache_key, [])
             return []
 
         schedule_ids = [row["id"] for row in rows]
@@ -76,20 +80,9 @@ def list_schedules(user=Depends(get_current_user)):
             item["adjustments"] = adjustments_by_course.get(course["id"], [])
             courses_by_schedule[course["schedule_id"]].append(item)
 
-        return [{**row_dict(row), "courses": courses_by_schedule.get(row["id"], [])} for row in rows]
-
-
-@router.post("/{schedule_id}/adjusted", status_code=201)
-def ensure_adjusted_schedule(schedule_id: int, user=Depends(get_current_user)):
-    """为向下兼容保留；现在支持在原表上就地编辑，直接返回当前课表。"""
-    with connect() as db:
-        source = db.execute(
-            "SELECT id FROM schedules WHERE id=%s AND user_id=%s",
-            (schedule_id, user["id"]),
-        ).fetchone()
-        if not source:
-            raise HTTPException(404, "课表不存在")
-        return {"schedule_id": source["id"], "created": False, "course_map": {}}
+        result = [{**row_dict(row), "courses": courses_by_schedule.get(row["id"], [])} for row in rows]
+    user_cache.store(cache_key, result)
+    return result
 
 
 @router.put("/{schedule_id}")
@@ -136,51 +129,3 @@ def delete_schedule(schedule_id: int, user=Depends(get_current_user)):
             (schedule_id, user["id"]),
         ).fetchone():
             raise HTTPException(404, "课表不存在")
-
-
-@router.post("/demo", status_code=201)
-def create_demo_schedule(user=Depends(get_current_user)):
-    """为新用户与审核员提供一键体验示例课表，无需本地 Excel 文件即可体验完整课表。"""
-    today = date.today()
-    # 计算当前学期起始周一（让当前日期落在学期第 3 周，直观展示正在进行的课程）
-    monday_offset = today.weekday()
-    start_date = today - timedelta(days=monday_offset + 14)
-    end_date = start_date + timedelta(weeks=16) - timedelta(days=1)
-    year = today.year
-    term_name = f"{year}年春季学期（示例）" if today.month in range(2, 8) else f"{year}年秋季学期（示例）"
-
-    parsed = {
-        "name": term_name,
-        "term": term_name,
-        "courses": [
-            {"name": "高等数学(下)", "teacher": "张教授", "room": "公教楼 201", "weekday": 1,
-             "start_section": 1, "end_section": 2, "weeks": list(range(1, 17)), "color": "#3b82f6"},
-            {"name": "大学英语(四)", "teacher": "Smith", "room": "外语楼 302", "weekday": 1,
-             "start_section": 3, "end_section": 4, "weeks": list(range(1, 17)), "color": "#10b981"},
-            {"name": "计算机网络", "teacher": "李副教授", "room": "信息楼 405", "weekday": 2,
-             "start_section": 1, "end_section": 2, "weeks": list(range(1, 17)), "color": "#8b5cf6"},
-            {"name": "大学体育(羽毛球)", "teacher": "陈教练", "room": "体育馆 2号场", "weekday": 2,
-             "start_section": 5, "end_section": 6, "weeks": list(range(1, 17)), "color": "#ec4899"},
-            {"name": "数据结构与算法", "teacher": "王老师", "room": "机房 301", "weekday": 3,
-             "start_section": 3, "end_section": 4, "weeks": list(range(1, 17)), "color": "#f59e0b"},
-            {"name": "操作系统原理", "teacher": "周教授", "room": "信息楼 201", "weekday": 4,
-             "start_section": 1, "end_section": 2, "weeks": list(range(1, 17)), "color": "#06b6d4"},
-            {"name": "形势与政策", "teacher": "赵老师", "room": "大礼堂", "weekday": 5,
-             "start_section": 3, "end_section": 4, "weeks": list(range(1, 9)), "color": "#f43f5e"},
-        ],
-    }
-    with connect() as db:
-        result = write_schedule(
-            db,
-            user_id=user["id"],
-            parsed=parsed,
-            overwrite=True,
-            start_date=start_date,
-            end_date=end_date,
-        )
-    return {
-        "schedule_id": result["schedule_id"],
-        "term_name": term_name,
-        "imported": result["imported"],
-        "replaced": result["replaced"],
-    }

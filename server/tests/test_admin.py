@@ -446,10 +446,20 @@ def test_admin_web_routes():
     assert resp_js.status_code == 200
 
 
-def test_favicon_returns_204():
-    from app.main import favicon
-    res = favicon()
-    assert res.status_code == 204
+def test_favicon_returns_204(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, 'FRONTEND_DIST', tmp_path)
+    assert main.favicon().status_code == 204
+
+
+def test_favicon_serves_existing_asset(tmp_path, monkeypatch):
+    from app import main
+    icon = tmp_path / 'favicon.ico'
+    icon.write_bytes(b'icon-fixture')
+    monkeypatch.setattr(main, 'FRONTEND_DIST', tmp_path)
+    response = main.favicon()
+    assert response.status_code == 200
+    assert response.path == icon
 
 
 def test_admin_list_users():

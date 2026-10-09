@@ -1,0 +1,510 @@
+/* ===== 绑定学校身份页面：真正液态毛玻璃设计规范 ===== */
+page {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  background-color: #f3f6fb;
+  color: #172033;
+}
+
+.academic-page {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(56, 189, 248, 0.28), transparent 42%),
+    radial-gradient(circle at 86% 22%, rgba(99, 102, 241, 0.22), transparent 45%),
+    linear-gradient(155deg, #e8f2fc 0%, #f1f6fd 50%, #f8fafd 100%);
+  box-sizing: border-box;
+}
+
+.academic-page.night {
+  background:
+    radial-gradient(circle at 14% 12%, rgba(56, 189, 248, 0.16), transparent 44%),
+    radial-gradient(circle at 84% 24%, rgba(99, 102, 241, 0.14), transparent 46%),
+    linear-gradient(155deg, #070d19 0%, #0c1527 50%, #0f1a2e 100%);
+  color: #cbd5e1;
+}
+
+/* 弥散光斑 */
+.ambient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(50px);
+  opacity: 0.6;
+}
+.orb-a {
+  width: 320rpx;
+  height: 320rpx;
+  top: -60rpx;
+  left: -40rpx;
+  background: rgba(56, 189, 248, 0.35);
+}
+.orb-b {
+  width: 380rpx;
+  height: 380rpx;
+  top: 300rpx;
+  right: -80rpx;
+  background: rgba(99, 102, 241, 0.28);
+}
+.orb-c {
+  width: 280rpx;
+  height: 280rpx;
+  bottom: 120rpx;
+  left: 20rpx;
+  background: rgba(14, 165, 233, 0.22);
+}
+.night .orb { opacity: 0.35; filter: blur(65px); }
+
+.academic-scroll {
+  position: relative;
+  z-index: 1;
+  height: 100vh;
+}
+.academic-content {
+  padding: 24rpx 28rpx calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+/* Hero 头部 */
+.academic-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24rpx 12rpx 10rpx;
+}
+.hero-badge-box {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  border: 2rpx solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12rpx 28rpx rgba(14, 165, 233, 0.35), inset 0 2rpx 1rpx rgba(255, 255, 255, 0.95);
+}
+.hero-badge-icon {
+  font-size: 48rpx;
+  line-height: 1;
+}
+.hero-title {
+  margin-top: 20rpx;
+  font-size: 38rpx;
+  font-weight: 750;
+  color: #0f172a;
+}
+.night .hero-title { color: #f8fafc; }
+.hero-desc {
+  margin-top: 12rpx;
+  font-size: 25rpx;
+  color: #64748b;
+  line-height: 1.55;
+  max-width: 600rpx;
+}
+.night .hero-desc { color: #94a3b8; }
+
+/* 卡片通用内边距 */
+.academic-status-card,
+.academic-form-card,
+.students-card,
+.empty-card,
+.manage-card,
+.preview-card {
+  padding: 32rpx;
+}
+
+/* 状态卡片 */
+.status-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.status-dot-pulse {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 6rpx rgba(16, 185, 129, 0.18);
+}
+.status-label {
+  font-size: 27rpx;
+  font-weight: 700;
+  color: #059669;
+}
+.night .status-label { color: #34d399; }
+.status-task-msg {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 25rpx;
+  color: #0284c7;
+}
+.bound-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 20rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1rpx solid rgba(255, 255, 255, 0.50);
+}
+.night .bound-info-grid {
+  background: rgba(30, 41, 59, 0.28);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.bound-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+.bound-label {
+  font-size: 22rpx;
+  color: #64748b;
+}
+.bound-value {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #0f172a;
+}
+.night .bound-value { color: #f8fafc; }
+.bound-sync-time {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 23rpx;
+  color: #64748b;
+}
+
+/* 表单卡片 */
+.form-card-title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 750;
+  color: #0f172a;
+  margin-bottom: 22rpx;
+}
+.night .form-card-title { color: #f8fafc; }
+.form-card-subtitle {
+  display: block;
+  font-size: 24rpx;
+  color: #64748b;
+  margin-top: -12rpx;
+  margin-bottom: 20rpx;
+}
+.night .form-card-subtitle { color: #94a3b8; }
+
+.academic-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  margin-bottom: 28rpx;
+}
+.field-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.field-item-label {
+  font-size: 24rpx;
+  font-weight: 650;
+  color: #475569;
+}
+.night .field-item-label { color: #cbd5e1; }
+.required {
+  color: #ef4444;
+}
+
+.field-picker,
+.field-input {
+  width: 100%;
+  height: 84rpx;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1.5rpx solid rgba(255, 255, 255, 0.60);
+  box-shadow: inset 0 2rpx 1rpx rgba(255, 255, 255, 0.95), 0 4rpx 10rpx rgba(15, 23, 42, 0.03);
+  font-size: 28rpx;
+  color: #0f172a;
+  box-sizing: border-box;
+}
+.night .field-picker,
+.night .field-input {
+  background: rgba(30, 41, 59, 0.35);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1.5rpx 1rpx rgba(255, 255, 255, 0.15);
+  color: #f1f5f9;
+}
+.field-placeholder {
+  color: #94a3b8;
+}
+.picker-arrow {
+  font-size: 26rpx;
+  color: #94a3b8;
+}
+
+.search-btn {
+  width: 100%;
+  height: 88rpx;
+}
+
+/* 提示与报错条目 */
+.academic-alert {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 18rpx;
+  margin-top: 20rpx;
+  font-size: 24rpx;
+  line-height: 1.45;
+}
+.error-alert {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1rpx solid rgba(239, 68, 68, 0.28);
+  color: #dc2626;
+}
+.warning-alert {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1rpx solid rgba(245, 158, 11, 0.28);
+  color: #d97706;
+}
+.info-alert {
+  background: rgba(14, 165, 233, 0.12);
+  border: 1rpx solid rgba(14, 165, 233, 0.28);
+  color: #0284c7;
+}
+.alert-spinner.mini {
+  width: 24rpx;
+  height: 24rpx;
+  border: 3rpx solid rgba(14, 165, 233, 0.3);
+  border-top-color: #0284c7;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+/* 学生结果列表 */
+.students-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+.student-item-card {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1.5rpx solid rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 1.5rpx 1rpx rgba(255, 255, 255, 0.95), 0 4rpx 12rpx rgba(15, 23, 42, 0.04);
+  transition: all .16s ease;
+}
+.student-item-hover {
+  background: rgba(255, 255, 255, 0.28);
+  transform: translateY(-1rpx);
+}
+.student-item-card.selected {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(37, 99, 235, 0.12));
+  border-color: rgba(56, 189, 248, 0.65);
+  box-shadow: inset 0 2rpx 1rpx rgba(255, 255, 255, 0.95), 0 6rpx 18rpx rgba(14, 165, 233, 0.2);
+}
+.night .student-item-card {
+  background: rgba(30, 41, 59, 0.32);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.student-avatar-glyph {
+  width: 68rpx;
+  height: 68rpx;
+  border-radius: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 750;
+  box-shadow: inset 0 1.5rpx 1rpx rgba(255, 255, 255, 0.9);
+}
+.student-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+.student-name {
+  font-size: 29rpx;
+  font-weight: 750;
+  color: #0f172a;
+}
+.night .student-name { color: #f8fafc; }
+.student-meta {
+  font-size: 23rpx;
+  color: #64748b;
+}
+.night .student-meta { color: #94a3b8; }
+.student-arrow-wrap {
+  display: flex;
+  align-items: center;
+}
+.student-arrow {
+  font-size: 34rpx;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+/* 空状态卡片 */
+.empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40rpx 30rpx;
+}
+.empty-icon {
+  font-size: 56rpx;
+}
+.empty-title {
+  margin-top: 14rpx;
+  font-size: 30rpx;
+  font-weight: 750;
+  color: #0f172a;
+}
+.night .empty-title { color: #f8fafc; }
+.empty-desc {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  color: #64748b;
+  line-height: 1.5;
+}
+.night .empty-desc { color: #94a3b8; }
+
+/* 身份管理卡片 */
+.manage-head {
+  margin-bottom: 20rpx;
+}
+.manage-user-badge {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.manage-user-name {
+  font-size: 34rpx;
+  font-weight: 750;
+  color: #0f172a;
+}
+.night .manage-user-name { color: #f8fafc; }
+.manage-user-class {
+  font-size: 24rpx;
+  color: #0284c7;
+  padding: 4rpx 14rpx;
+  border-radius: var(--radius-pill);
+  background: rgba(14, 165, 233, 0.14);
+}
+.night .manage-user-class { color: #7dd3fc; background: rgba(56, 189, 248, 0.2); }
+
+.manage-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+  margin-top: 24rpx;
+}
+.sync-tip-text {
+  font-size: 22rpx;
+  color: #64748b;
+  line-height: 1.5;
+  padding: 4rpx 8rpx;
+}
+.night .sync-tip-text { color: #94a3b8; }
+.manage-btn-row {
+  display: flex;
+  gap: 16rpx;
+}
+.manage-btn-row .btn {
+  flex: 1;
+}
+.danger-button.unbind-btn {
+  margin-top: 8rpx;
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.08);
+}
+.night .danger-button.unbind-btn {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* 壁纸穿透模式适配 */
+.academic-page.has-wallpaper {
+  background: transparent !important;
+}
+.academic-page.night.has-wallpaper {
+  background: #070d19 !important;
+}
+.has-wallpaper .binding-action-bar {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.35) 100%) !important;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.60) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+.has-wallpaper.night .binding-action-bar {
+  background: linear-gradient(135deg, rgba(17, 28, 46, 0.75) 0%, rgba(7, 13, 25, 0.85) 100%) !important;
+  border-top-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+.bottom-safe {
+  height: calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.students-list { max-height: 640rpx; overflow-y: auto; }
+
+
+/* Keep the selected identity and confirmation visible above the safe area. */
+.academic-content.has-binding-bar {
+  padding-bottom: calc(190rpx + env(safe-area-inset-bottom));
+}
+.binding-action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
+  background: #f3f6fb;
+  border-top: 1rpx solid #dbe3ee;
+  box-shadow: 0 -8rpx 28rpx rgba(15, 23, 42, .08);
+}
+.binding-action-info { flex: 1; min-width: 0; }
+.binding-action-name, .binding-action-class {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.binding-action-name { font-size: 28rpx; font-weight: 700; color: #0f172a; }
+.binding-action-class { margin-top: 8rpx; font-size: 23rpx; color: #64748b; }
+.binding-action-button { flex-shrink: 0; width: 220rpx; margin: 0; }
+.night .binding-action-bar { background: #111c2e; border-color: #29364b; }
+.night .binding-action-name { color: #f8fafc; }
+.night .binding-action-class { color: #94a3b8; }
+
+.academic-notice { margin: 20rpx 0; padding: 20rpx 24rpx; border-radius: 16rpx; color: #52677e; background: rgba(106, 141, 177, .1); line-height: 1.6; }
+.night .academic-notice { color: #bacbe0; }

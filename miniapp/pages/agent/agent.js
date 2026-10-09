@@ -6,11 +6,21 @@ Page({
     connecting: false, loginSession: '', qrDataUrl: '', loginStatus: '', needVerifyCode: false,
     verifyCode: '', claw: { bound: false }, wecom: { bound: false },
     account: { linked: false, email: '' }, linkCode: '', linking: false,
+    nightMode: false, backgroundPath: '',
     confirmModal: { visible: false, title: '', content: '', confirmText: '确定', cancelText: '取消', danger: false } },
   onLoad(options) {
     this.scheduleId = Number(options && options.scheduleId) || 0
   },
   onShow() {
+    const nightMode = wx.getStorageSync('night_mode') === true
+    const backgroundPath = wx.getStorageSync('schedule_background') || ''
+    this.setData({ nightMode, backgroundPath })
+    if (wx.setNavigationBarColor) {
+      wx.setNavigationBarColor({
+        frontColor: (nightMode || backgroundPath) ? '#ffffff' : '#000000',
+        backgroundColor: nightMode ? '#070d19' : (backgroundPath ? '#000000' : '#cde4fa')
+      }).catch(() => {})
+    }
     this.pollCancelled = false
     this.loadStatus()
     // 离开页面（如长按识别二维码跳去微信）会中断轮询链，返回时若有进行中的扫码会话则恢复
@@ -39,14 +49,42 @@ Page({
   },
   onLinkCodeInput(event) { this.setData({ linkCode: event.detail.value }) },
   async submitLinkCode() {
+    if (this.data.linking) return
     const code = String(this.data.linkCode || '').trim().toUpperCase()
     if (code.length !== 6) return this.toast('请输入六位绑定码')
     this.setData({ linking: true })
     try {
-      const result = await app.request('/api/account/link', { method: 'POST', data: { code } })
+      let result
+      let requestData = { code }
+      while (!result) {
+        try { result = await app.request('/api/account/link', { method: 'POST', data: requestData }) }
+        catch (error) {
+          if (error.code !== 'SCHOOL_BINDING_CONFLICT') throw error
+          const details = error.data
+          const identity = student => [student.name, student.class_name, student.major_name].filter(Boolean).join(' · ')
+          const picked = await new Promise(resolve => wx.showActionSheet({
+            itemList: ['保留 App：' + identity(details.app), '保留微信：' + identity(details.wechat)],
+            success: resolve, fail: () => resolve(null)
+          }))
+          if (!picked) return
+          const choice = picked.tapIndex === 0 ? 'app' : 'wechat'
+          const confirmed = await this.modal({ title: '确认学校身份与课表覆盖',
+            content: `保留${choice === 'app' ? ' App' : '微信'}的学校身份：${identity(details[choice])}。另一端自动解除学校绑定，两端旧课表将统一为所选身份的学校课表，导入内容和个人修改会被覆盖；没有已同步课表时将等待学校同步。`,
+            confirmText: '确认覆盖并关联', danger: true })
+          if (!confirmed.confirm) return
+          requestData = { code, school_choice: choice, conflict_version: details.conflict_version }
+        }
+      }
+      // 账号关联可能替换课表归属，旧账号缓存不能继续展示。
+      for (const key of ['schedules_cache', 'bound_student', 'latest_import_schedule_id']) wx.removeStorageSync(key)
+      if (result.school_conflict_resolved) {
+        wx.removeStorageSync('active_schedule_id')
+        wx.removeStorageSync('academic_pending_task_id')
+        if (result.schedule_id) wx.setStorageSync('active_schedule_id', result.schedule_id)
+      }
       const notes = []
       if (result.schedules_moved > 0) notes.push(`${result.schedules_moved} 张课表已同步`)
-      if (result.schedules_discarded > 0) notes.push(`${result.schedules_discarded} 张重复课表已移除`)
+      if (result.schedules_discarded > 0) notes.push(`${result.schedules_discarded} 张旧课表已移除`)
       this.setData({ linkCode: '', account: { linked: true, email: result.email || '' } })
       this.toast(notes.length ? `绑定成功，${notes.join('，')}` : '绑定成功')
       this.loadStatus()
@@ -66,7 +104,7 @@ Page({
     try {
       await app.request('/api/account/link', { method: 'DELETE' })
       // 服务端已吊销全部会话：清除本地令牌，下次请求静默重新登录为全新账号
-      wx.removeStorageSync('session_token')
+      for (const key of ['session_token', 'schedules_cache', 'bound_student', 'active_schedule_id', 'latest_import_schedule_id', 'academic_pending_task_id']) wx.removeStorageSync(key)
       this.setData({ account: { linked: false, email: '' } })
       this.toast('已解除绑定')
       this.loadStatus()

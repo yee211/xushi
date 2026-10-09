@@ -1,5 +1,10 @@
 {
-  "pages": ["pages/index/index", "pages/editor/editor", "pages/agent/agent", "pages/feedback/feedback"],
+  "pages": [
+    "pages/index/index",
+    "pages/agent/agent",
+    "pages/feedback/feedback",
+    "pages/academic/academic"
+  ],
   "window": {
     "navigationBarTextStyle": "black",
     "navigationBarBackgroundColor": "#f3f6fb",

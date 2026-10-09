@@ -13,7 +13,7 @@
     }
   },
   "android": {
-    "allowMixedContent": false
+    "allowMixedContent": true
   },
   "backgroundColor": "#F6F5F2"
 }

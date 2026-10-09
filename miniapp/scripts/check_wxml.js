@@ -3,8 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
-const files = ['pages/index/index.wxml', 'pages/editor/editor.wxml', 'pages/agent/agent.wxml',
-  'pages/feedback/feedback.wxml'];
+const files = ['pages/index/index.wxml', 'pages/agent/agent.wxml',
+  'pages/feedback/feedback.wxml', 'pages/academic/academic.wxml'];
 const voids = new Set(['input', 'image']);
 let failed = false;
 for (const rel of files) {

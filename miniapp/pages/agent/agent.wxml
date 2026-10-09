@@ -1,4 +1,16 @@
-<view class="page">
+<view class="page {{nightMode ? 'night' : ''}} {{backgroundPath ? 'has-wallpaper' : ''}}">
+  <block wx:if="{{backgroundPath}}">
+    <image class="page-wallpaper" src="{{backgroundPath}}" mode="aspectFill"></image>
+    <view class="page-wallpaper-tint"></view>
+  </block>
+  <view class="ambient" wx:else aria-hidden="true">
+    <view class="orb orb-a"></view>
+    <view class="orb orb-b"></view>
+    <view class="orb orb-c"></view>
+    <view class="orb orb-d"></view>
+  </view>
+
+  <view class="agent-content">
   <view class="hero">
     <text class="spark">✦</text>
     <text class="title">课表助手</text>
@@ -89,6 +101,7 @@
       <text class="feedback-entry-desc">提交问题反馈，帮助我们继续改进序时</text>
     </view>
     <text class="feedback-entry-arrow">›</text>
+  </view>
   </view>
 
   <!-- 自定义高透毛玻璃确认弹窗（替代原生 wx.showModal） -->

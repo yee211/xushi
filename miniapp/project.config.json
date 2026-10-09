@@ -52,6 +52,10 @@
       {
         "type": "regexp",
         "value": "\\.tar\\.gz$"
+      },
+      {
+        "type": "folder",
+        "value": "pages/editor"
       }
     ],
     "include": []

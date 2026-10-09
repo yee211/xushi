@@ -153,3 +153,130 @@ button::after { border: 0; }
 
 /* 按钮与交互反馈：克制轻柔的透明度微调，去除大幅弹跳与震动 */
 .button-hover, .btn:active { opacity: .82; }
+
+/* ===== 全局壁纸穿透与流体氛围光斑体系 ===== */
+.page-wallpaper {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 0;
+  pointer-events: none;
+}
+.page-wallpaper-tint {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.04);
+}
+.night .page-wallpaper-tint {
+  background: rgba(7, 13, 25, 0.45);
+}
+
+.ambient {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(52rpx);
+  opacity: .85;
+}
+.orb-a {
+  top: -100rpx;
+  left: -80rpx;
+  width: 560rpx;
+  height: 560rpx;
+  background: radial-gradient(circle at 35% 35%, rgba(99, 102, 241, .55), transparent 70%);
+  animation: orbFloatA 18s ease-in-out infinite alternate;
+}
+.orb-b {
+  top: 100rpx;
+  right: -100rpx;
+  width: 580rpx;
+  height: 580rpx;
+  background: radial-gradient(circle at 40% 40%, rgba(56, 189, 248, .58), transparent 68%);
+  animation: orbFloatB 22s ease-in-out infinite alternate;
+}
+.orb-c {
+  top: 600rpx;
+  left: -120rpx;
+  width: 640rpx;
+  height: 640rpx;
+  background: radial-gradient(circle at 45% 40%, rgba(45, 212, 191, .42), transparent 70%);
+  animation: orbFloatC 20s ease-in-out infinite alternate;
+}
+.orb-d {
+  top: 1000rpx;
+  right: -100rpx;
+  width: 600rpx;
+  height: 600rpx;
+  background: radial-gradient(circle at 40% 40%, rgba(244, 114, 182, .38), transparent 68%);
+  animation: orbFloatD 24s ease-in-out infinite alternate;
+}
+
+@keyframes orbFloatA { 0% { transform: translate(0, 0); } 50% { transform: translate(36rpx, 30rpx); } 100% { transform: translate(-24rpx, 46rpx); } }
+@keyframes orbFloatB { 0% { transform: translate(0, 0); } 50% { transform: translate(-40rpx, 30rpx); } 100% { transform: translate(30rpx, 58rpx); } }
+@keyframes orbFloatC { 0% { transform: translate(0, 0); } 50% { transform: translate(46rpx, -30rpx); } 100% { transform: translate(-30rpx, 36rpx); } }
+@keyframes orbFloatD { 0% { transform: translate(0, 0); } 50% { transform: translate(-36rpx, -40rpx); } 100% { transform: translate(24rpx, 24rpx); } }
+
+/* 全局壁纸穿透状态：页面背景全透，内容卡片高透 */
+.has-wallpaper,
+.page.has-wallpaper,
+.page-root.has-wallpaper,
+.academic-page.has-wallpaper,
+.feedback-page.has-wallpaper,
+.editor-page.has-wallpaper {
+  background: transparent !important;
+}
+.night.has-wallpaper,
+.page.night.has-wallpaper,
+.page-root.night.has-wallpaper,
+.academic-page.night.has-wallpaper,
+.feedback-page.night.has-wallpaper,
+.editor-page.night.has-wallpaper {
+  background: #070d19 !important;
+}
+.has-wallpaper .card,
+.has-wallpaper .form-card,
+.has-wallpaper .notice,
+.has-wallpaper .academic-status-card,
+.has-wallpaper .academic-form-card,
+.has-wallpaper .students-card,
+.has-wallpaper .manage-card,
+.has-wallpaper .empty-card,
+.has-wallpaper .success-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.035) 50%, rgba(255, 255, 255, 0.07) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  box-shadow: inset 0 1.5rpx 0.5rpx rgba(255, 255, 255, 0.85), inset 0 -1rpx 1rpx rgba(0, 0, 0, 0.10), 0 12rpx 32rpx rgba(0, 0, 0, 0.08) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.has-wallpaper.night .card,
+.has-wallpaper.night .form-card,
+.has-wallpaper.night .notice,
+.has-wallpaper.night .academic-status-card,
+.has-wallpaper.night .academic-form-card,
+.has-wallpaper.night .students-card,
+.has-wallpaper.night .manage-card,
+.has-wallpaper.night .empty-card,
+.has-wallpaper.night .success-card {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.35) 0%, rgba(2, 6, 23, 0.16) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}

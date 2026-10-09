@@ -9,6 +9,7 @@ import {
 
 const props = defineProps({
   open: { type: Boolean, default: false },
+  readOnly: { type: Boolean, default: false },
   schedule: { type: Object, default: null },
   week: { type: Number, default: 1 },
   colorMap: { type: Map, default: () => new Map() },
@@ -92,7 +93,7 @@ function slotTimeDesc(slot) {
 
 <template>
   <div v-if="open" class="backdrop nested-modal-backdrop" @click.self="emit('close')">
-    <section class="modal course-center-modal" role="dialog" aria-modal="true" aria-labelledby="cc-title">
+    <section class="modal course-list-modal" role="dialog" aria-modal="true" aria-labelledby="cc-title">
 
       <!-- ── 顶部栏 ── -->
       <div class="cc-head">
@@ -102,7 +103,7 @@ function slotTimeDesc(slot) {
             <path d="M19 12H5M12 5l-7 7 7 7"/>
           </svg>
         </button>
-        <h2 id="cc-title" class="cc-title">课程管理</h2>
+        <h2 id="cc-title" class="cc-title">全部课程</h2>
         <button type="button" class="import-btn" @click="emit('import-course'); emit('close')">
           导入
         </button>
@@ -134,7 +135,7 @@ function slotTimeDesc(slot) {
           <p class="cc-empty-sub">支持 Excel 文件导入与教务系统在线同步</p>
           <div class="cc-empty-actions">
             <button type="button" class="btn-dark" @click="emit('import-course'); emit('close')">导入课表</button>
-            <button type="button" class="btn-ghost" @click="emit('add-course'); emit('close')">手动添加</button>
+            <button v-if="!readOnly" type="button" class="btn-ghost" @click="emit('add-course'); emit('close')">手动添加</button>
           </div>
         </div>
 
@@ -169,7 +170,7 @@ function slotTimeDesc(slot) {
                   <h3 class="detail-course-name">{{ selectedCourse.name }}</h3>
                 </div>
                 <div class="detail-head-actions">
-                  <button type="button" class="detail-action-btn"
+                  <button v-if="!readOnly" type="button" class="detail-action-btn"
                           @click="openEdit($event, selectedCourse.representative)">编辑</button>
                   <button type="button" class="detail-action-btn detail-action-preview"
                           @click="openPreview(selectedCourse.representative)">详情 ›</button>
@@ -184,7 +185,7 @@ function slotTimeDesc(slot) {
                       {{ isActiveThisWeek(slot) ? `第${week}周上课` : '本周无课' }}
                     </span>
                     <span class="slot-time-text">{{ slotTimeDesc(slot) }}</span>
-                    <button type="button" class="slot-adjust-btn" @click="openAdjust($event, slot)">调课</button>
+                    <button v-if="!readOnly" type="button" class="slot-adjust-btn" @click="openAdjust($event, slot)">调课</button>
                   </div>
                   <div class="slot-meta-row">
                     <span v-if="slot.room" class="slot-meta-chip">📍 {{ slot.room }}</span>
@@ -206,7 +207,7 @@ function slotTimeDesc(slot) {
 
 <style scoped>
 /* ── 模态尺寸与防溢出限制 ── */
-.course-center-modal {
+.course-list-modal {
   width: min(440px, 92vw);
   max-height: min(76vh, 580px);
   margin: auto;
@@ -299,25 +300,36 @@ function slotTimeDesc(slot) {
   align-items: center;
   padding: 4px 14px 6px;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .cc-search-icon {
   position: absolute;
-  left: 24px;
+  left: 26px;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--minimal-text-secondary, #8A8F99);
   pointer-events: none;
+  z-index: 2;
 }
 
 .cc-search-input {
   width: 100%;
-  padding: 6px 26px 6px 28px;
+  box-sizing: border-box;
+  padding: 7px 32px 7px 38px;
   border-radius: 9999px;
   border: 1px solid var(--minimal-border, #E5E7EB);
   background: var(--minimal-bg-surface, #F3F4F6);
   color: var(--minimal-text-primary, #111827);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+  line-height: normal;
   outline: none;
   transition: all 0.2s;
+}
+
+.cc-search-input::placeholder {
+  color: var(--minimal-text-secondary, #9ca3af);
+  line-height: normal;
 }
 
 .cc-search-input:focus {
@@ -328,13 +340,19 @@ function slotTimeDesc(slot) {
 .cc-clear-btn {
   position: absolute;
   right: 22px;
+  top: 50%;
+  transform: translateY(-50%);
   background: transparent;
   border: none;
   color: var(--minimal-text-secondary, #8A8F99);
-  font-size: 1rem;
+  font-size: 1.1rem;
   cursor: pointer;
   padding: 2px 4px;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
 }
 
 /* ── 滚动内容区域 ── */
@@ -388,6 +406,10 @@ function slotTimeDesc(slot) {
   color: #111827;
   line-height: 1.35;
   word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .tile-slots {
@@ -493,9 +515,11 @@ function slotTimeDesc(slot) {
   font-weight: 600;
   color: var(--minimal-text-primary, #111827);
   flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.35;
 }
 
 .slot-adjust-btn {

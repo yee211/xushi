@@ -143,7 +143,7 @@ def _is_classroom_like(text: str) -> bool:
     return False
 
 
-def merge_section_courses(courses: list[dict]) -> list[dict]:
+def merge_section_courses(courses: list[dict], *, expand_single_sections: bool = True) -> list[dict]:
     """Merge identical courses sitting in consecutive section slots (e.g. 1-2 + 3-4, or 1 + 2).
     Also auto-expand isolated odd single sections to 2-period lecture blocks (1-2, 3-4, 5-6, 7-8, 9-10)."""
     merged = []
@@ -168,7 +168,7 @@ def merge_section_courses(courses: list[dict]) -> list[dict]:
 
     # Auto-expand isolated odd single sections (1, 3, 5, 7, 9) into standard 2-period university blocks (1-2, 3-4, 5-6, 7-8, 9-10)
     for course in merged:
-        if course["start_section"] == course["end_section"] and course["start_section"] in (1, 3, 5, 7, 9):
+        if expand_single_sections and course["start_section"] == course["end_section"] and course["start_section"] in (1, 3, 5, 7, 9):
             target_end = course["start_section"] + 1
             has_conflict = False
             for other in merged:
@@ -186,7 +186,7 @@ def merge_section_courses(courses: list[dict]) -> list[dict]:
     return merged
 
 
-def normalize_courses(raw_courses: list) -> list[dict]:
+def normalize_courses(raw_courses: list, *, exact: bool = False) -> list[dict]:
     """对课表课程进行确定性规范化与校验：
     - 课程名非空且不超过 80 字，过滤校区与教务元数据干扰
     - 教师与教室不超过 40 字
@@ -229,6 +229,8 @@ def normalize_courses(raw_courses: list) -> list[dict]:
         weeks = sorted(set(weeks))
 
         key = (name, weekday, start_section, end_section, tuple(weeks))
+        if exact:
+            key += (str(raw.get("teacher") or "").strip(), str(raw.get("room") or "").strip())
         if key in seen:
             continue
         seen.add(key)
@@ -250,7 +252,7 @@ def normalize_courses(raw_courses: list) -> list[dict]:
             "color": color,
         })
 
-    return merge_section_courses(normalized)
+    return merge_section_courses(normalized, expand_single_sections=not exact)
 
 
 GRID_HEADER_PATTERN = re.compile(r"^(?:星期|周)([一二三四五六日天])$")

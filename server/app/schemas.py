@@ -144,3 +144,5 @@ class BindingCodeIn(BaseModel):
 class AccountLinkIn(BaseModel):
     """小程序提交的账号互通绑定码。"""
     code: str = Field(min_length=6, max_length=6)
+    school_choice: str | None = Field(default=None, pattern=r"^(app|wechat)$")
+    conflict_version: str | None = Field(default=None, min_length=64, max_length=64)

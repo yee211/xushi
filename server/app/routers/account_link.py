@@ -16,12 +16,13 @@ from ..rate_limit import link_limiter
 from ..schemas import AccountLinkIn
 from ..services import account_link as service
 from ..services.account_link import AccountLinkError
+from ..services.user_cache import invalidate_user
 
 router = APIRouter(prefix="/api/account/link", tags=["account-link"])
 
 
 def _status(error: AccountLinkError) -> int:
-    return 409 if error.code in ("ALREADY_BOUND", "TARGET_BOUND", "WX_HAS_EMAIL") else 400
+    return 409 if error.code in ("ALREADY_BOUND", "TARGET_BOUND", "WX_HAS_EMAIL", "SCHOOL_BINDING_CONFLICT") else 400
 
 
 @router.get("")
@@ -42,7 +43,7 @@ def new_link_code(user=Depends(get_current_user)):
         try:
             code, expires = service.create_link_code(db, user["id"], ttl)
         except AccountLinkError as error:
-            raise HTTPException(_status(error), error.message) from error
+            raise HTTPException(_status(error), error.details or error.message) from error
     return {"code": code, "expires_at": expires.isoformat(), "provider": service.PROVIDER}
 
 
@@ -55,9 +56,10 @@ def link_account(payload: AccountLinkIn, user=Depends(get_current_user)):
                             status_code=429, headers={"Retry-After": str(retry_after)})
     with connect() as db:
         try:
-            summary = service.link_wechat_account(db, payload.code, user)
+            summary = service.link_wechat_account(db, payload.code, user, payload.school_choice, payload.conflict_version)
         except AccountLinkError as error:
-            raise HTTPException(_status(error), error.message) from error
+            raise HTTPException(_status(error), error.details or error.message) from error
+    invalidate_user(summary["user_id"])
     return {"linked": True, **summary}
 
 
@@ -67,5 +69,5 @@ def unlink_account(user=Depends(get_current_user)):
         try:
             service.unlink_wechat(db, user["id"])
         except AccountLinkError as error:
-            raise HTTPException(_status(error), error.message) from error
+            raise HTTPException(_status(error), error.details or error.message) from error
     return Response(status_code=204)

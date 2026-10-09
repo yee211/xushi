@@ -9,6 +9,7 @@ import {
 
 const props = defineProps({
   open: { type: Boolean, default: false },
+  readOnly: { type: Boolean, default: false },
   course: { type: Object, default: null },
   colorMap: { type: Map, default: () => new Map() },
   records: { type: Array, default: () => [] },
@@ -138,7 +139,7 @@ function handleRevoke(rec) {
               </div>
 
               <!-- Dual Actions: 撤销修改 & 删除记录 -->
-              <div class="history-card-actions">
+              <div v-if="!readOnly" class="history-card-actions">
                 <button
                   v-if="canRevokeRecord(rec)"
                   type="button"
@@ -164,7 +165,7 @@ function handleRevoke(rec) {
 
       <div class="modal-actions">
         <button
-          v-if="course?.adjusted_week"
+          v-if="!readOnly && course?.adjusted_week"
           class="danger-outline uiverse-button"
           type="button"
           title="取消当前周的调课，恢复至原课表排课"
@@ -174,10 +175,10 @@ function handleRevoke(rec) {
         </button>
         <span></span>
         <button class="uiverse-button" type="button" @click="emit('close')">关闭</button>
-        <button class="uiverse-button" type="button" @click="emit('adjust', course)">
+        <button v-if="!readOnly" class="uiverse-button" type="button" @click="emit('adjust', course)">
           {{ course?.adjusted_week ? '修改调课' : '调课' }}
         </button>
-        <button class="primary uiverse-button" type="button" @click="emit('edit', course)">编辑</button>
+        <button v-if="!readOnly" class="primary uiverse-button" type="button" @click="emit('edit', course)">编辑</button>
       </div>
     </section>
   </div>

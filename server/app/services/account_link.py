@@ -4,18 +4,22 @@ users 表同一行可同时持有 email 与 openid，绑定即把 openid 写到�
 并把小程序侧空壳账号的会话、课表、渠道身份等数据并入后删除——此后三端
 （App/网页/小程序/微信助手）共享同一 user_id，课表天然一致，无需同步。
 """
+import hashlib
+import json
+import uuid
 from datetime import datetime
 
 from ..auth.deps import invalidate_session_cache
+from .academic_binding import lock_user
 from .binding import create_binding_code, find_active_code
 
 PROVIDER = "wechat_miniprogram"
 
 
 class AccountLinkError(RuntimeError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, details=None):
         super().__init__(message)
-        self.code, self.message = code, message
+        self.code, self.message, self.details = code, message, details
 
 
 def create_link_code(db, user_id: int, ttl_seconds: int = 300) -> tuple[str, datetime]:
@@ -39,7 +43,7 @@ def _overlaps(a: dict, b: dict) -> bool:
     return True
 
 
-def link_wechat_account(db, code: str, wx_user: dict) -> dict:
+def link_wechat_account(db, code: str, wx_user: dict, school_choice=None, conflict_version=None) -> dict:
     """校验绑定码，把小程序账号（wx_user，须含 openid）并入邮箱账号。
 
     会话改指向目标账号（小程序令牌保持登录态）、渠道身份与反馈随迁、
@@ -67,6 +71,54 @@ def link_wechat_account(db, code: str, wx_user: dict) -> dict:
     if target["openid"]:
         raise AccountLinkError("TARGET_BOUND", "该账号已绑定其他微信，请先在 App 端解除绑定")
 
+    # School associations belong to the unified account, not to a login channel.
+    for account_id in sorted((wx_id, target_id)):
+        lock_user(db, account_id)
+    wx_school = db.execute("SELECT student FROM academic_bindings WHERE user_id=%s FOR UPDATE", (wx_id,)).fetchone()
+    target_school = db.execute("SELECT student FROM academic_bindings WHERE user_id=%s FOR UPDATE", (target_id,)).fetchone()
+    conflict = bool(wx_school and target_school and wx_school["student"]["id"] != target_school["student"]["id"])
+    kept_schedule_id = None
+    conflict_discarded = 0
+    if conflict:
+        versions = db.execute("SELECT user_id,revision,updated_at FROM academic_bindings WHERE user_id=ANY(%s) ORDER BY user_id", ([wx_id, target_id],)).fetchall()
+        version = hashlib.sha256(json.dumps([wx_id, target_id, wx_school, target_school, versions],
+                                            sort_keys=True, default=str).encode()).hexdigest()
+        def display(record):
+            student = record['student']
+            return {key: student.get(key, '') for key in ('name','grade','major_name','class_name')}
+        details = {"code": "SCHOOL_BINDING_CONFLICT", "message": "学校身份不同，请选择保留哪一端；另一端学校绑定和课表将被覆盖。",
+                   "app": display(target_school), "wechat": display(wx_school), "conflict_version": version}
+        if school_choice not in ('app', 'wechat') or conflict_version != version:
+            raise AccountLinkError("SCHOOL_BINDING_CONFLICT", details['message'], details)
+        retained = target_school if school_choice == 'app' else wx_school
+        retained_user = target_id if school_choice == 'app' else wx_id
+        kept = db.execute("""SELECT id FROM schedules WHERE user_id=%s AND academic_student_id=%s
+            AND variant_type IN ('original','draft') ORDER BY academic_synced_at DESC NULLS LAST,id DESC LIMIT 1 FOR UPDATE""",
+            (retained_user, retained['student']['id'])).fetchone()
+        kept_schedule_id = kept['id'] if kept else None
+        # Delete every unselected schedule before moving the selected one.
+        deleted = db.execute("DELETE FROM schedules WHERE user_id=ANY(%s) AND (%s::bigint IS NULL OR id<>%s)",
+                             ([wx_id, target_id], kept_schedule_id, kept_schedule_id))
+        conflict_discarded = deleted.rowcount
+        if school_choice == 'wechat':
+            db.execute("DELETE FROM academic_bindings WHERE user_id=%s", (target_id,))
+            db.execute("UPDATE academic_bindings SET user_id=%s,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE user_id=%s", (target_id, wx_id))
+            if kept_schedule_id:
+                db.execute("UPDATE schedules SET user_id=%s WHERE id=%s", (target_id, kept_schedule_id))
+        else:
+            db.execute("DELETE FROM academic_bindings WHERE user_id=%s", (wx_id,))
+            db.execute("UPDATE academic_bindings SET revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE user_id=%s", (target_id,))
+        # Prevent queued/running writes from restoring the discarded identity.
+        db.execute("UPDATE academic_sync_jobs SET state='failed',error=%s,updated_at=CURRENT_TIMESTAMP WHERE user_id=ANY(%s) AND state IN ('queued','running')",
+                   ('账号关联后学校身份已变更，请重新同步', [wx_id, target_id]))
+        db.execute("""INSERT INTO academic_sync_jobs(id,user_id,student_id,binding_revision,binding_updated_at,term,refresh,source)
+            SELECT %s,user_id,student->>'id',revision,updated_at,COALESCE(last_synced_term,student->>'default_term'),TRUE,'manual'
+            FROM academic_bindings WHERE user_id=%s AND COALESCE(last_synced_term,student->>'default_term') ~ '^[0-9]{4}-[0-9]{4}-[12]$'
+            ON CONFLICT(user_id) WHERE state IN ('queued','running') DO NOTHING""", (uuid.uuid4(), target_id))
+    elif wx_school and not target_school:
+        db.execute("UPDATE academic_bindings SET user_id=%s,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE user_id=%s",
+                   (target_id, wx_id))
+
     # 会话随迁：小程序当前令牌在合并后继续有效，无需重新登录
     moved_sessions = db.execute("SELECT token_hash FROM sessions WHERE user_id=%s", (wx_id,)).fetchall()
     sessions_moved = db.execute("UPDATE sessions SET user_id=%s WHERE user_id=%s",
@@ -91,10 +143,10 @@ def link_wechat_account(db, code: str, wx_user: dict) -> dict:
     # 课表合并：与目标账号或已搬迁课表学期重叠的丢弃，其余搬迁——
     # 参照集随搬迁递增，小程序侧互相重叠的课表也只保留一张，
     # 避免合并后同一日期命中多张课表使查询产生歧义
-    schedules_moved, schedules_discarded = 0, 0
+    schedules_moved, schedules_discarded = (int(bool(kept_schedule_id) and school_choice == "wechat"), conflict_discarded)
     wx_schedules = db.execute("SELECT id, start_date, end_date FROM schedules WHERE user_id=%s",
                               (wx_id,)).fetchall()
-    if wx_schedules:
+    if wx_schedules and not conflict:
         occupied = db.execute("SELECT start_date, end_date FROM schedules WHERE user_id=%s",
                               (target_id,)).fetchall()
         for schedule in wx_schedules:
@@ -121,10 +173,12 @@ def link_wechat_account(db, code: str, wx_user: dict) -> dict:
     for s in moved_sessions:
         invalidate_session_cache(token_digest=s["token_hash"])
 
-    return {"username": target["username"] or "", "email": target["email"] or "",
+    return {"user_id": target_id, "username": target["username"] or "", "email": target["email"] or "",
             "sessions_moved": sessions_moved, "schedules_moved": schedules_moved,
             "schedules_discarded": schedules_discarded,
-            "agent_bindings_moved": agent_bindings_moved}
+            "agent_bindings_moved": agent_bindings_moved,
+            "school_conflict_resolved": conflict, "school_choice": school_choice if conflict else None,
+            "schedule_id": kept_schedule_id}
 
 
 def unlink_wechat(db, user_id: int) -> dict:

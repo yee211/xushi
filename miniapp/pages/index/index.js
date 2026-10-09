@@ -3,9 +3,6 @@ const days = ['周一','周二','周三','周四','周五','周六','周日']
 const dayShortNames = ['一','二','三','四','五','六','日']
 const ROW_HEIGHT = 112
 const DEFAULT_COLOR = '#5B8DEF'
-function operationKey(prefix) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
-}
 const sections = [
   { number: 1, start: '08:20', end: '09:05' },
   { number: 2, start: '09:15', end: '10:00' },
@@ -133,16 +130,6 @@ function formatWeeksInput(weeks) {
   ranges.push(start === last ? `${start}` : `${start}-${last}`)
   return ranges.join(',')
 }
-function parseWeeks(text) {
-  const result = []
-  String(text || '').split(/[,，]/).forEach(part => {
-    const [a, b] = part.trim().split('-').map(Number)
-    if (a && b) for (let i = a; i <= b; i++) result.push(i)
-    else if (a) result.push(a)
-  })
-  return [...new Set(result)].filter(n => n >= 1 && n <= 30).sort((a, b) => a - b)
-}
-const sectionPickerOptions = Array.from({ length: 12 }, (_, index) => `第 ${index + 1} 节`)
 function courseKey(name) {
   return String(name || '未命名课程').trim().replace(/\s+/g, ' ').toLowerCase()
 }
@@ -175,21 +162,6 @@ function datesForWeek(schedule, week) {
     monthLabel: `${first.month}月`,
     range: `${first.month}.${first.date}-${last.month}.${last.date}`,
   }
-}
-function importEngineText(engine) {
-  if (engine === 'ai') return '在线解析'
-  const fallback = /^excel-fallback\((.+)\)$/.exec(String(engine || ''))
-  if (fallback) {
-    const reasons = {
-      'ai-not-configured': '在线解析未配置',
-      'ai-timeout': '在线解析超时',
-      'ai-invalid-schema': '在线解析结果无效',
-      'ai-unavailable': '在线解析服务异常',
-    }
-    const reason = reasons[fallback[1]] || (fallback[1].startsWith('ai-http-') ? `在线解析 ${fallback[1].slice(8)}` : '在线解析不可用')
-    return `本地解析 · ${reason}`
-  }
-  return '本地解析'
 }
 function buildWeekOptions(schedule, count, selectedWeek) {
   return Array.from({ length: count }, (_, index) => {
@@ -270,35 +242,46 @@ function displayCourses(schedule, week, count, colorMap, rowHeight = ROW_HEIGHT)
 }
 
 Page({
+  openAcademicQuery() { this.setData({ scheduleCenterOpen: false, termSheetOpen: false }); wx.navigateTo({ url: '/pages/academic/academic' }) },
+  openImportModal() { this.setData({ scheduleCenterOpen: true }) },
+  closeScheduleCenter() { this.setData({ scheduleCenterOpen: false }) },
+  chooseCenterImport() { this.setData({ scheduleCenterOpen: false }); this.openFileImportModal() },
+
+  switchTab(e) {
+    const tab = (e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.tab) || 'home'
+    if (this.data.currentTab === tab) return
+    this.setData({ currentTab: tab })
+    wx.setNavigationBarTitle({
+      title: tab === 'mine' ? '个人中心' : '序时课表'
+    })
+  },
+  clearBackground() {
+    if (!this.data.backgroundPath) {
+      this.toast('当前已是默认背景')
+      return
+    }
+    wx.removeStorageSync('schedule_background')
+    this.setData({ backgroundPath: '' })
+    this.toast('已恢复默认背景')
+  },
   data: {
+    currentTab: 'home', // 'home' | 'mine'
     refreshing: false,
     syncing: false,
-    // 功能开关：仅隐藏入口，相关逻辑全部保留；恢复入口改回 true 即可
-    showAddCourse: false,
-    showAdjustCenter: false,
     loading: true, schedules: [], schedule: null, scheduleNames: [], scheduleIndex: 0,
     week: 1, weekCount: 20, currentWeekRange: '', weekOpen: false, weekOptions: [],
     weekDays: [], monthLabel: '', gridCourses: [], sections, days, shownSections: sections.slice(0, 10),
     sectionCount: 10, sectionOptions: Array.from({ length: 10 }, (_, index) => `第 ${index + 1} 节`),
     gridHeight: 10 * ROW_HEIGHT, backgroundPath: '', scheduleActive: false, statusText: '',
-    detailOpen: false, selectedCourse: null, courseRecords: [], courseRecordsLoading: false,
-    importOpen: false, importTab: 'excel', importStage: 'setup', importFile: null, semesterName: '', startDate: '', endDate: '', uploading: false,
+    detailOpen: false, selectedCourse: null,
+    scheduleCenterOpen: false, importOpen: false, importTab: 'excel', importStage: 'setup', importFile: null, semesterName: '', startDate: '', endDate: '', uploading: false,
     importElapsed: 0, importProgressText: '',
     semesterOpen: false, semesterForm: {}, semesterWeeks: 20, semesterSaving: false,
-    adjustmentOpen: false, adjustmentForm: {}, adjustmentSaving: false,
-    recordsOpen: false, records: [], recordsLoading: false, recordsError: '', expandedRecordId: null, recordsHint: '',
     semesterStatusText: '', semesterStatusClass: 'unset', semesterOriginal: '', semesterChanged: false, calculatedNotice: '',
-    moveMode: false, movingCourse: null, moveOpen: false, moveForm: null, moveSaving: false,
-    parseStage: 'idle', parseItems: [], parseFile: '', parsePath: '', parseApplying: false,
     termSheetOpen: false, scheduleList: [],
-    shareModalOpen: false, shareCode: '', shareGenerating: false,
-    shareImportModalOpen: false, inputShareCode: '', sharePreview: null,
-    checkingShareCode: false, importingShare: false,
-    courseEditorOpen: false, courseSaving: false, courseForm: null,
-    editorColors: [DEFAULT_COLOR, ...courseColors],
-    sectionPickerOptions,
     nightMode: false, privacyOpen: false,
     confirmModal: { visible: false, title: '', content: '', confirmText: '确定', cancelText: '取消', danger: false },
+    boundStudent: null,
     actionSheet: { visible: false, itemList: [] },
   },
   onLoad() {
@@ -310,10 +293,28 @@ Page({
     }
   },
   onShow() {
-    this.setData({ backgroundPath: wx.getStorageSync('schedule_background') || '', nightMode: wx.getStorageSync('night_mode') === true })
+    // 账号关联/解除会清除缓存；回到课表页时同步清除旧账号画面。
+    if (!Array.isArray(wx.getStorageSync('schedules_cache'))) {
+      this.setData({ schedule: null, schedules: [], scheduleList: [] })
+    }
+    this.setData({
+      backgroundPath: wx.getStorageSync('schedule_background') || '',
+      nightMode: wx.getStorageSync('night_mode') === true,
+      boundStudent: wx.getStorageSync('bound_student') || null,
+    })
     this.applyNavigationBarColor(this.data.nightMode)
     this.hookPrivacyAuthorization()
     this.load()
+    this.fetchBoundStudent()
+  },
+  async fetchBoundStudent() {
+    try {
+      const binding = await app.request('/api/academic/binding')
+      const student = binding && binding.student ? binding.student : null
+      this.setData({ boundStudent: student })
+      if (student) wx.setStorageSync('bound_student', student)
+      else wx.removeStorageSync('bound_student')
+    } catch (e) {}
   },
   openAgent() {
     const scheduleId = this.data.schedule && this.data.schedule.id
@@ -394,13 +395,15 @@ Page({
       return false
     }
   },
-  // 选中优先级：指定 id > 本地记忆 > 包含今天的进行中学期 > 第一个
+  // 导入成功指定的课表优先，并在重新打开或离线时保持。旧切换记录不再生效。
   applySchedules(schedules, preferredId) {
-    const saved = wx.getStorageSync('active_schedule_id')
-    let index = schedules.findIndex(item => item.id === (preferredId || saved))
-    if (index < 0) {
-      // 优先定位包含今天的进行中学期，与源项目 findCurrentSchedule 对齐
-      index = schedules.findIndex(item => isScheduleActiveToday(item))
+    schedules = schedules.filter(item => item.variant_type !== 'adjusted')
+    let index = schedules.findIndex(item => item.id === Number(preferredId))
+    if (index >= 0) wx.setStorageSync('latest_import_schedule_id', schedules[index].id)
+    if (index < 0) index = schedules.findIndex(item => item.id === Number(wx.getStorageSync('latest_import_schedule_id')))
+    if (index < 0 && schedules.length) {
+      const latest = schedules.reduce((result, item) => item.id > result.id ? item : result, schedules[0])
+      index = schedules.indexOf(latest)
     }
     if (index < 0) index = 0
     const schedule = schedules[index] || null
@@ -484,7 +487,7 @@ Page({
   onSwipeEnd(event) {
     const start = this._swipe
     this._swipe = null
-    if (!start || this.data.moveMode || this.data.weekOpen) return
+    if (!start || this.data.weekOpen) return
     const touch = event.changedTouches && event.changedTouches[0]
     if (!touch) return
     const dx = touch.clientX - start.x
@@ -557,7 +560,7 @@ Page({
         if (prevWeek > 0 && prevWeek <= this.data.weekCount) {
           this.applyWeek(prevWeek)
         }
-        wx.showToast({ title: '课表已同步到最新', icon: 'success', duration: 1800 })
+        wx.showToast({ title: '课表已刷新', icon: 'success', duration: 1800 })
       }
     } catch (error) {
       wx.showToast({ title: error.message || '同步失败，请稍后重试', icon: 'none', duration: 2000 })
@@ -565,111 +568,7 @@ Page({
       this.setData({ syncing: false })
     }
   },
-  async openShareModal() {
-    const schedule = this.data.schedule
-    if (!schedule || !schedule.id) {
-      this.toast('当前没有可分享的课表')
-      return
-    }
-    this.closeTermSheet()
-    this.setData({ shareModalOpen: true, shareCode: '', shareGenerating: true })
-    try {
-      const res = await app.request(`/api/schedules/${schedule.id}/share`, { method: 'POST' })
-      this.setData({
-        shareCode: res.code,
-        shareGenerating: false,
-      })
-    } catch (err) {
-      this.setData({ shareModalOpen: false, shareGenerating: false })
-      this.toast(err.message || '生成分享码失败')
-    }
-  },
-  closeShareModal() {
-    this.setData({ shareModalOpen: false })
-  },
-  copyShareCode() {
-    const code = this.data.shareCode
-    if (!code) return
-    const schedule = this.data.schedule
-    const name = schedule ? (schedule.name || schedule.term) : '课表'
-    const text = `【序时课表】你的好友向你分享了课表“${name}”，在小程序内点击「口令导入」输入口令【${code}】即可一键导入！`
-    wx.setClipboardData({
-      data: text,
-      success: () => {
-        this.toast('口令已复制到剪贴板')
-      }
-    })
-  },
-  openShareImportModal() {
-    this.closeTermSheet()
-    this.setData({
-      shareImportModalOpen: true,
-      inputShareCode: '',
-      sharePreview: null,
-      checkingShareCode: false,
-      importingShare: false,
-    })
-  },
-  closeShareImportModal() {
-    this.setData({ shareImportModalOpen: false })
-  },
-  async pasteShareCode() {
-    try {
-      const clip = await wx.getClipboardData()
-      if (clip && clip.data) {
-        const match = String(clip.data).match(/\b([A-HJ-NP-Z2-9]{6})\b/i) || String(clip.data).match(/【([A-HJ-NP-Z2-9]{6})】/i)
-        const code = (match ? match[1] : clip.data.trim().slice(0, 6)).toUpperCase()
-        this.setData({ inputShareCode: code })
-        if (code.length === 6) {
-          this.previewShareCode(code)
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-  },
-  onShareCodeInput(e) {
-    const val = (e.detail.value || '').trim().toUpperCase()
-    this.setData({ inputShareCode: val })
-    if (val.length === 6) {
-      this.previewShareCode(val)
-    } else {
-      this.setData({ sharePreview: null, checkingShareCode: false })
-    }
-  },
-  async previewShareCode(code) {
-    if (!code || code.length !== 6) return
-    this.setData({ checkingShareCode: true, sharePreview: null })
-    try {
-      const info = await app.request(`/api/schedules/share/${code}`, { method: 'GET' })
-      this.setData({ sharePreview: info, checkingShareCode: false })
-    } catch (err) {
-      this.setData({ checkingShareCode: false, sharePreview: null })
-      this.toast(err.message || '查询分享码失败')
-    }
-  },
-  async confirmImportShare() {
-    const code = this.data.inputShareCode
-    if (!code || code.length !== 6) {
-      this.toast('请输入完整的 6 位分享码')
-      return
-    }
-    this.setData({ importingShare: true })
-    try {
-      const res = await app.request(`/api/schedules/share/${code}/import`, { method: 'POST' })
-      this.toast(`导入成功！共导入 ${res.courses_imported} 门课程`)
-      this.setData({ shareImportModalOpen: false, importingShare: false })
-      if (res.schedule_id) {
-        wx.setStorageSync('active_schedule_id', res.schedule_id)
-        await this.load(res.schedule_id)
-      } else {
-        await this.load()
-      }
-    } catch (err) {
-      this.setData({ importingShare: false })
-      this.toast(err.message || '导入课表失败')
-    }
-  },
+
   decorateScheduleItem(item, activeId) {
     const meta = scheduleMeta(item)
     const active = isScheduleActiveToday(item)
@@ -696,41 +595,7 @@ Page({
       isAdjusted: item.variant_type === 'adjusted',
     }
   },
-  async ensureEditable(courseId) {
-    const schedule = this.data.schedule
-    return {
-      scheduleId: schedule ? schedule.id : null,
-      courseId: courseId || null,
-      course_map: {},
-      fromOriginal: false,
-    }
-  },
-  closeCourseEditor() {
-    if (this.data.courseSaving) return
-    this.setData({ courseEditorOpen: false })
-  },
-  async addCourse() {
-    if (!this.data.schedule) return this.toast('请先上传一张课表')
-    // 新增课程是对当前课表的补充，不属于调课，不应为原表自动创建调课版。
-    const totalWeeks = this.data.weekCount || 16
-    this.setData({
-      courseEditorOpen: true,
-      courseSaving: false,
-      courseForm: {
-        id: null,
-        scheduleId: this.data.schedule.id,
-        name: '',
-        teacher: '',
-        room: '',
-        weekday: 1,
-        startSection: 1,
-        endSection: 2,
-        weeks: `1-${totalWeeks}`,
-        color: DEFAULT_COLOR,
-        adjustedWeek: null,
-      },
-    })
-  },
+
   buildDetailCourse(course) {
     const start = sections[(course.start_section || 1) - 1]
     const end = sections[(course.end_section || 1) - 1]
@@ -742,229 +607,18 @@ Page({
       weeksText: formatWeeks(course.weeks),
     }
   },
-  async openCourseDetail(event) {
+  openCourseDetail(event) {
     const course = event.currentTarget.dataset.course
     if (!course) return
-    if (this.data.moveMode) {
-      // 移动模式下点按已选课程即取消
-      if (this.data.movingCourse && this.data.movingCourse.id === course.id) this.cancelMoveMode()
-      return
-    }
     this.setData({
       detailOpen: true,
       selectedCourse: this.buildDetailCourse(course),
-      courseRecords: [], courseRecordsLoading: true,
     })
-    try {
-      const records = await app.request(`/api/adjustments/records?schedule_id=${this.data.schedule.id}`)
-      const courseRecords = this.filterCourseRecords(records, course.id)
-      this.setData({ courseRecords, courseRecordsLoading: false })
-    } catch (error) { this.setData({ courseRecordsLoading: false }) }
   },
-  // 回滚/撤销后用网格中的最新状态替换详情弹窗内容，避免按钮停留在旧状态
-  refreshSelectedCourse(courseId) {
-    const latest = this.data.gridCourses.find(item => item.id === courseId)
-    if (latest && this.data.detailOpen) this.setData({ selectedCourse: this.buildDetailCourse(latest) })
-  },
-  filterCourseRecords(records, courseId) {
-    return (records || [])
-      .filter(record => record.course_id === courseId
-        || (record.details || []).some(detail => detail && detail.course_id === courseId))
-      .map(record => ({
-        ...record,
-        timeText: String(record.created_at || '').replace('T', ' ').slice(0, 16),
-        diffs: this.recordDiffs(record, courseId).map((text, index) => ({ text, _idx: index })),
-        canRevoke: (record.details || []).some(detail => detail && detail.course_id === courseId && detail.can_revoke),
-        revokeDetail: (record.details || []).find(detail => detail && detail.course_id === courseId && detail.can_revoke)
-          || (record.details || [])[0] || null,
-      }))
-  },
-  recordDiffs(record, courseId) {
-    return (record.details || [])
-      .filter(detail => !detail || !detail.course_id || detail.course_id === courseId)
-      .map(detail => {
-        if (detail.label && (detail.old !== undefined || detail.new !== undefined) && !detail.old_weekday) {
-          return `${detail.label}：${detail.old} → ${detail.new}`
-        }
-        const oldPlace = detail.old_weekday ? `${days[detail.old_weekday - 1]} 第${detail.old_start_section}-${detail.old_end_section}节` : ''
-        const newPlace = detail.new_weekday ? `${days[detail.new_weekday - 1]} 第${detail.new_start_section}-${detail.new_end_section}节` : ''
-        const lines = [`${oldPlace} → ${newPlace}`]
-        if ((detail.old_room || '') !== (detail.new_room || '')) lines.push(`教室：${detail.old_room || '未设置'} → ${detail.new_room || '未设置'}`)
-        return lines.join('，')
-      })
-  },
-  closeCourseDetail() { this.setData({ detailOpen: false, selectedCourse: null, courseRecords: [] }) },
-  async editSelectedCourse() {
-    const course = this.data.selectedCourse
-    if (!course) return
-    try {
-      const editable = await this.ensureEditable(course.id)
-      const totalWeeks = this.data.weekCount || 16
-      this.setData({
-        detailOpen: false,
-        courseEditorOpen: true,
-        courseSaving: false,
-        courseForm: {
-          id: editable.courseId,
-          scheduleId: editable.scheduleId,
-          name: course.name || '',
-          teacher: course.teacher || '',
-          room: course.room || '',
-          weekday: course.weekday || 1,
-          startSection: course.start_section || 1,
-          endSection: course.end_section || 2,
-          weeks: formatWeeksInput(course.weeks) || `1-${totalWeeks}`,
-          color: course.color || DEFAULT_COLOR,
-          adjustedWeek: course.adjusted ? this.data.week : null,
-          linkAdjustments: editable.fromOriginal,
-        },
-      })
-    } catch (error) { this.toast(error.message) }
-  },
-  courseField(event) {
-    const key = event.currentTarget.dataset.key
-    this.setData({ [`courseForm.${key}`]: event.detail.value })
-  },
-  courseWeekday(event) {
-    this.setData({ 'courseForm.weekday': Number(event.detail.value) + 1 })
-  },
-  courseStartSection(event) {
-    this.setData({ 'courseForm.startSection': Number(event.detail.value) + 1 })
-  },
-  courseEndSection(event) {
-    this.setData({ 'courseForm.endSection': Number(event.detail.value) + 1 })
-  },
-  pickCourseColor(event) {
-    this.setData({ 'courseForm.color': event.currentTarget.dataset.color })
-  },
-  async saveCourse() {
-    const form = this.data.courseForm
-    if (!form) return
-    if (!form.name || !form.name.trim()) return this.toast('请填写课程名称')
-    if (form.endSection < form.startSection) return this.toast('结束节次不能早于开始节次')
-    const weeks = parseWeeks(form.weeks)
-    if (!weeks.length) return this.toast('请填写有效上课周次，如 1-16')
-    const payload = {
-      schedule_id: form.scheduleId,
-      name: form.name.trim(),
-      teacher: (form.teacher || '').trim(),
-      room: (form.room || '').trim(),
-      weekday: form.weekday,
-      start_section: form.startSection,
-      end_section: form.endSection,
-      weeks,
-      color: form.color || DEFAULT_COLOR,
-    }
-    this.setData({ courseSaving: true })
-    try {
-      const courseUrl = form.id
-        ? `/api/courses/${form.id}${form.linkAdjustments ? '?link_adjustments=true' : ''}`
-        : '/api/courses'
-      await app.request(courseUrl, {
-        method: form.id ? 'PUT' : 'POST',
-        data: payload,
-      })
-      if (form.id && form.adjustedWeek) {
-        try {
-          await app.request(`/api/courses/${form.id}/adjustments/${form.adjustedWeek}`, { method: 'DELETE' })
-        } catch (_) {}
-      }
-      const keepWeek = this.data.week
-      this.setData({ courseEditorOpen: false })
-      await this.load(form.scheduleId, true)
-      if (keepWeek) this.applyWeek(keepWeek)
-      this.toast(form.id ? '课程已保存' : '课程已添加')
-    } catch (error) {
-      this.toast(error.message)
-    } finally {
-      this.setData({ courseSaving: false })
-    }
-  },
-  async removeCourse() {
-    const form = this.data.courseForm
-    if (!form || !form.id) return
-    const result = await this.modal({
-      title: '删除课程',
-      content: `确认删除“${form.name}”？`,
-      confirmText: '删除',
-      danger: true,
-    })
-    if (!result.confirm) return
-    this.setData({ courseSaving: true })
-    try {
-      await app.request(`/api/courses/${form.id}`, { method: 'DELETE' })
-      const keepWeek = this.data.week
-      this.setData({ courseEditorOpen: false })
-      await this.load(form.scheduleId, true)
-      if (keepWeek) this.applyWeek(keepWeek)
-      this.toast('课程已删除')
-    } catch (error) {
-      this.toast(error.message)
-    } finally {
-      this.setData({ courseSaving: false })
-    }
-  },
+  closeCourseDetail() { this.setData({ detailOpen: false, selectedCourse: null }) },
+
   // ===== 课程移动（长按进入移动模式，点按目标格确认） =====
-  startMoveMode(event) {
-    const course = event.currentTarget.dataset.course
-    if (!course || this.data.moveMode) return
-    this.setData({ moveMode: true, movingCourse: course, weekOpen: false })
-    this.toast('已进入移动模式：点按目标位置')
-  },
-  cancelMoveMode() { this.setData({ moveMode: false, movingCourse: null }) },
-  cellTap(event) {
-    if (!this.data.moveMode) return
-    const course = this.data.movingCourse
-    if (!course) return
-    const targetDay = Number(event.currentTarget.dataset.day)
-    const targetSection = Number(event.currentTarget.dataset.section)
-    if (!targetDay || !targetSection) return
-    const rawDuration = course.end_section - course.start_section + 1
-    const duration = rawDuration <= 2 ? 2 : rawDuration
-    const blockIndex = Math.floor((targetSection - 1) / 2)
-    const maxStart = 2 * Math.floor((this.data.sectionCount - duration) / 2) + 1
-    const start = Math.max(1, Math.min(maxStart, blockIndex * 2 + 1))
-    const end = start + duration - 1
-    const conflict = this.data.gridCourses.some(item => item.id !== course.id
-      && item.weekday === targetDay && start <= item.end_section && end >= item.start_section)
-    if (conflict) return this.toast('目标时段与现有课程冲突')
-    const changed = targetDay !== course.weekday || start !== course.start_section || end !== course.end_section
-    if (!changed) return this.toast('请选择与原位置不同的位置')
-    this.setData({
-      moveMode: false, movingCourse: null, moveOpen: true,
-      moveForm: { course, weekday: targetDay, start_section: start, end_section: end },
-    })
-  },
-  closeMove() { if (!this.data.moveSaving) this.setData({ moveOpen: false }) },
-  async saveMove() {
-    const move = this.data.moveForm
-    const week = this.data.week
-    if (!move) return
-    this.setData({ moveSaving: true })
-    try {
-      const editable = await this.ensureEditable(move.course.id)
-      const adjusted = this.data.schedules.find(item => item.id === editable.scheduleId)
-      const base = (adjusted && adjusted.courses || []).find(item => item.id === editable.courseId)
-        || (adjusted && adjusted.courses || []).find(item => item.id === move.course.id) || move.course
-      // 移回原时间但本周调课改过教室时，保留教室变更（与母版判定一致）
-      const backToOrigin = base.weekday === move.weekday && base.start_section === move.start_section
-        && base.end_section === move.end_section && (base.room || '') === (move.course.room || '')
-      if (backToOrigin && move.course.adjusted_week) {
-        await app.request(`/api/courses/${editable.courseId}/adjustments/${week}`, { method: 'DELETE' })
-        this.toast('已移回原位置，调课已取消')
-      } else {
-        await app.request(`/api/courses/${editable.courseId}/adjustments/${week}?source=drag`, { method: 'PUT',
-          header: { 'Idempotency-Key': operationKey('move') }, data: {
-          week, weekday: move.weekday, start_section: move.start_section,
-          end_section: move.end_section, room: move.course.room || '',
-        } })
-        this.toast(`第 ${week} 周课程已调整`)
-      }
-      this.setData({ moveOpen: false, moveForm: null })
-      await this.load(editable.scheduleId); this.applyWeek(week)
-    } catch (error) { this.toast(error.message) }
-    finally { this.setData({ moveSaving: false }) }
-  },
+
   // ===== 学期设置 =====
   openSemester() {
     const schedule = this.data.schedule
@@ -1026,277 +680,13 @@ Page({
     finally { this.setData({ semesterSaving: false }) }
   },
   // ===== 单周调课弹窗 =====
-  openAdjustment() {
-    const course = this.data.selectedCourse
-    if (!course) return
-    this.setData({ detailOpen: false, adjustmentOpen: true, adjustmentForm: {
-      course, weekday: course.weekday, start_section: course.start_section,
-      end_section: course.end_section, room: course.room || '',
-    } })
-  },
-  closeAdjustment() { if (!this.data.adjustmentSaving) this.setData({ adjustmentOpen: false }) },
-  adjustmentField(event) { this.setData({ [`adjustmentForm.${event.currentTarget.dataset.key}`]: event.detail.value }) },
-  adjustmentPicker(event) { this.setData({ [`adjustmentForm.${event.currentTarget.dataset.key}`]: Number(event.detail.value) + 1 }) },
-  async saveAdjustment() {
-    const form = this.data.adjustmentForm
-    const week = this.data.week
-    if (Number(form.end_section) < Number(form.start_section)) return this.toast('结束节次不能早于开始节次')
-    this.setData({ adjustmentSaving: true })
-    try {
-      const editable = await this.ensureEditable(form.course.id)
-      const result = await app.request(`/api/courses/${editable.courseId}/adjustments/${week}?source=manual`, { method: 'PUT',
-        header: { 'Idempotency-Key': operationKey('adjust') }, data: {
-        week, weekday: Number(form.weekday), start_section: Number(form.start_section),
-        end_section: Number(form.end_section), room: String(form.room || '').trim(),
-      } })
-      this.setData({ adjustmentOpen: false }); await this.load(editable.scheduleId); this.applyWeek(week)
-      this.toast(result.unchanged ? '调课内容没有变化' : '本周调课已保存')
-    } catch (error) { this.toast(error.message) }
-    finally { this.setData({ adjustmentSaving: false }) }
-  },
-  async cancelAdjustmentFromModal() {
-    const course = this.data.adjustmentForm.course
-    const week = this.data.week
-    if (!course || !course.adjusted) return
-    try {
-      await app.request(`/api/courses/${course.id}/adjustments/${week}`, { method: 'DELETE' })
-      this.setData({ adjustmentOpen: false }); await this.load(this.data.schedule.id); this.applyWeek(week); this.toast('已恢复原上课时间')
-    } catch (error) { this.toast(error.message) }
-  },
+
   // ===== 调课中心 =====
-  async openRecords() {
-    if (!this.data.schedule) return
-    this.setData({ recordsOpen: true, records: [], recordsLoading: true, recordsError: '', parseStage: 'idle', parseItems: [], recordsHint: '' })
-    try {
-      const records = await app.request(`/api/adjustments/records?schedule_id=${this.data.schedule.id}`)
-      const decorated = this.decorateRecords(records)
-      const counterpart = this.counterpartSchedule()
-      this.setData({
-        records: decorated,
-        recordsLoading: false,
-        expandedRecordId: null,
-        recordsHint: !decorated.length && counterpart ? (counterpart.term || counterpart.name) : '',
-      })
-    }
-    catch (error) { this.setData({ recordsLoading: false, records: [], recordsHint: '', recordsError: error.message || '读取失败' }) }
-  },
-  retryRecords() { this.openRecords() },
+
   // 调课记录挂在可编辑副本上；原始课表的调课中心为空时指向它的（调）版本
-  counterpartSchedule() {
-    const current = this.data.schedule
-    if (!current) return null
-    return (this.data.schedules || []).find(item => item.variant_type === 'adjusted'
-      ? item.source_schedule_id === current.id : item.id === current.source_schedule_id) || null
-  },
-  async jumpCounterpartRecords() {
-    const counterpart = this.counterpartSchedule()
-    if (!counterpart) return
-    const index = this.data.schedules.findIndex(item => item.id === counterpart.id)
-    wx.setStorageSync('active_schedule_id', counterpart.id)
-    this.setData({ schedule: counterpart, scheduleIndex: index,
-      scheduleActive: isScheduleActiveToday(counterpart), statusText: scheduleStatus(counterpart) })
-    this.applyWeek(termWeek(counterpart))
-    await this.openRecords()
-  },
-  decorateRecords(records) {
-    return (records || []).map(record => ({
-      ...record,
-      timeText: String(record.created_at || '').replace('T', ' ').slice(0, 16),
-      details: (record.details || []).map((detail, index) => ({
-        ...detail,
-        _idx: index,
-        diffText: this.recordDiffs({ details: [detail] }, detail.course_id)[0] || record.description,
-      })),
-    }))
-  },
-  closeRecords() { this.setData({ recordsOpen: false, parseStage: 'idle', parseItems: [] }) },
-  toggleRecord(event) {
-    const id = Number(event.currentTarget.dataset.id)
-    this.setData({ expandedRecordId: this.data.expandedRecordId === id ? null : id })
-  },
-  async revokeBatchRecord(event) {
-    const record = event.currentTarget.dataset.record
-    const week = this.data.week
-    if (!record || !record.id) return
-    const activeDetails = (record.details || []).filter(detail => detail && detail.can_revoke)
-    const count = activeDetails.length || (record.details || []).length
-    const result = await this.modal({
-      title: '一键撤销',
-      content: `确认一键撤销本次调课的全部改动（共 ${count} 条）？课表将恢复至调课前的原始状态。`,
-      confirmText: '撤销',
-      danger: true,
-    })
-    if (!result.confirm) return
-    try {
-      let revokedCount = 0
-      try {
-        const res = await app.request(`/api/adjustments/records/${record.id}/revoke`, { method: 'POST' })
-        revokedCount = res.revoked
-      } catch (_) {
-        for (const detail of activeDetails) {
-          if (detail.course_id && detail.week) {
-            try {
-              await app.request(`/api/courses/${detail.course_id}/adjustments/${detail.week}`, { method: 'DELETE' })
-              revokedCount++
-            } catch (_) {}
-          }
-        }
-      }
-      await this.load(this.data.schedule.id)
-      this.applyWeek(week)
-      await this.openRecords()
-      this.toast(revokedCount ? `已一键撤销 ${revokedCount} 条调课` : '该记录调课已撤销')
-    } catch (error) {
-      this.toast(error.message)
-    }
-  },
-  async revokeAdjustment(event) {
-    const detail = event.currentTarget.dataset.detail
-    const week = this.data.week
-    if (!detail || !detail.course_id || !detail.week) return
-    try {
-      await app.request(`/api/courses/${detail.course_id}/adjustments/${detail.week}`, { method: 'DELETE' })
-      await this.load(this.data.schedule.id); this.applyWeek(week); await this.openRecords(); this.toast('已撤销调课')
-    } catch (error) { this.toast(error.message) }
-  },
-  async removeCurrentAdjustment() {
-    const course = this.data.selectedCourse
-    const week = this.data.week
-    if (!course || !course.adjusted) return
-    try {
-      await app.request(`/api/courses/${course.id}/adjustments/${week}`, { method: 'DELETE' })
-      await this.load(this.data.schedule.id); this.applyWeek(week)
-      this.refreshSelectedCourse(course.id)
-      this.toast('已恢复原上课时间')
-    } catch (error) { this.toast(error.message) }
-  },
-  async restoreCourseRecord(event) {
-    const record = event.currentTarget.dataset.record
-    const courseId = record.course_id || ((record.details || []).find(detail => detail && detail.course_id) || {}).course_id
-    const course = (this.data.schedule.courses || []).find(item => item.id === courseId)
-    if (!course) return this.toast('原课程已不存在')
-    const details = record.details || []
-    const timeDiff = details.find(diff => diff.field === 'time')
-    const roomDiff = details.find(diff => diff.field === 'room')
-    if (!timeDiff && !roomDiff) return this.toast('未找到可恢复的变更项')
-    const targetWeekday = timeDiff && timeDiff.old_weekday ? timeDiff.old_weekday : course.weekday
-    const targetStart = timeDiff && timeDiff.old_start_section ? timeDiff.old_start_section : course.start_section
-    const targetEnd = timeDiff && timeDiff.old_end_section ? timeDiff.old_end_section : course.end_section
-    const targetRoom = roomDiff && roomDiff.old !== '未设置' ? roomDiff.old : (course.room || '')
-    // drag_move 日志同时承载单周调课与整学期移动；仅当记录带周次时按单周恢复
-    const recordWeek = record.week || (details[0] && details[0].week) || null
-    // 链式回滚需要本课程完整记录池（详情弹窗已过滤，调课中心未过滤则现查）
-    const pool = this.data.courseRecords.length ? this.data.courseRecords
-      : this.data.records.filter(item => (item.course_id || ((item.details || [])[0] || {}).course_id) === course.id)
-    const result = await this.modal({
-      title: '回滚改动',
-      content: `确认将“${course.name}”回滚至该次修改前的状态？`,
-      confirmText: '回滚',
-      danger: true,
-    })
-    if (!result.confirm) return
-    try {
-      if (recordWeek) {
-        const backToOrigin = targetWeekday === course.weekday && targetStart === course.start_section
-          && targetEnd === course.end_section && targetRoom === (course.room || '')
-        if (backToOrigin) {
-          await app.request(`/api/courses/${course.id}/adjustments/${recordWeek}`, { method: 'DELETE' })
-        } else {
-          await app.request(`/api/courses/${course.id}/adjustments/${recordWeek}?source=manual`, { method: 'PUT', data: {
-            week: recordWeek, weekday: targetWeekday, start_section: targetStart,
-            end_section: targetEnd, room: targetRoom } })
-        }
-      } else {
-        await app.request(`/api/courses/${course.id}`, { method: 'PUT', data: {
-          schedule_id: this.data.schedule.id, name: course.name, teacher: course.teacher || '',
-          room: targetRoom, weekday: targetWeekday, start_section: targetStart, end_section: targetEnd,
-          weeks: course.weeks || [], color: course.color || DEFAULT_COLOR } })
-      }
-      // 删除本条及其后该课程的全部记录，避免残留与现状相反的旧 diff
-      const subsequent = pool.filter(item => item.id >= record.id)
-      for (const sub of subsequent) {
-        try { await app.request(`/api/adjustments/records/${sub.id}`, { method: 'DELETE' }) } catch (_) {}
-      }
-      await this.load(this.data.schedule.id)
-      if (this.data.recordsOpen) await this.openRecords()
-      if (this.data.detailOpen) {
-        const records = await app.request(`/api/adjustments/records?schedule_id=${this.data.schedule.id}`)
-        this.setData({ courseRecords: this.filterCourseRecords(records, course.id) })
-        this.refreshSelectedCourse(course.id)
-      }
-      this.toast('已回滚至该次修改前的状态')
-    } catch (error) { this.toast(error.message) }
-  },
-  async deleteRecord(event) {
-    const record = event.currentTarget.dataset.record
-    const result = await this.modal({
-      title: '删除记录',
-      content: '仅删除历史记录，不改变当前课表。',
-      confirmText: '删除',
-      danger: true,
-    })
-    if (!result.confirm) return
-    try {
-      await app.request(`/api/adjustments/records/${record.id}`, { method: 'DELETE' })
-      await this.openRecords()
-      this.toast('记录已删除')
-    } catch (error) { this.toast(error.message) }
-  },
+
   // ===== 调课通知图片识别 =====
-  chooseNoticeImage() {
-    const choose = picker => picker({
-      count: 1, mediaType: ['image'], sourceType: ['album', 'camera'],
-      success: ({ tempFiles }) => this.parseNotice(tempFiles[0]),
-      fail: error => this.pickerFail(error),
-    })
-    if (wx.chooseMedia) choose(wx.chooseMedia.bind(wx))
-    else choose(options => wx.chooseImage({ ...options,
-      success: ({ tempFilePaths }) => this.parseNotice({ tempFilePath: tempFilePaths[0] }),
-      fail: error => this.pickerFail(error) }))
-  },
-  async parseNotice(file) {
-    const path = file && (file.tempFilePath || file.path)
-    if (!path) return this.toast('无法读取所选图片')
-    this.setData({ parseStage: 'parsing', parseItems: [], parseFile: String(path).split(/[\\/]/).pop() || '调课通知图片', parsePath: path })
-    try {
-      const result = await app.upload('/api/adjustments/parse', path, { schedule_id: this.data.schedule.id })
-      if (!result.items || !result.items.length) throw new Error('没有从通知中识别到有效调课记录')
-      const items = result.items.map((item, index) => ({ ...item, _idx: index,
-        statusText: item.status === 'matched' ? '已匹配' : item.status === 'ambiguous' ? '多个候选' : '未匹配',
-        oldText: `${days[item.old_weekday - 1]} 第${item.old_start_section}-${item.old_end_section}节${item.old_room ? ` · ${item.old_room}` : ''}`,
-        newText: `${days[item.new_weekday - 1]} 第${item.new_start_section}-${item.new_end_section}节${item.new_room ? ` · ${item.new_room}` : ''}`,
-        weekText: `第 ${item.week} 周` }))
-      this.setData({ parseStage: 'result', parseItems: items })
-      this.toast(`识别到 ${result.matched}/${result.total} 条可应用调课`)
-    } catch (error) { this.setData({ parseStage: 'idle' }); this.toast(error.message) }
-  },
-  toggleParseItem(event) {
-    const index = Number(event.currentTarget.dataset.index)
-    const item = this.data.parseItems[index]
-    if (!item || item.status !== 'matched') return
-    this.setData({ [`parseItems[${index}].selected`]: !item.selected })
-  },
-  async applyParse() {
-    const selected = this.data.parseItems.filter(item => item.status === 'matched' && item.selected)
-    if (!selected.length) return this.toast('请先勾选要应用的调课')
-    this.setData({ parseApplying: true })
-    try {
-      const editable = await this.ensureEditable()
-      // 图片识别匹配的是当前课表课程；生成（调）副本后需把课程 id 映射到副本
-      const items = selected.map(item => ({
-        course_id: editable.course_map[String(item.course_id)] || item.course_id,
-        week: item.week, weekday: item.new_weekday,
-        start_section: item.new_start_section, end_section: item.new_end_section, room: item.new_room || '',
-      }))
-      const result = await app.request('/api/adjustments/apply', { method: 'POST',
-        header: { 'Idempotency-Key': operationKey('batch') }, data: { schedule_id: editable.scheduleId, items } })
-      this.setData({ parseStage: 'idle', parseItems: [] })
-      await this.load(editable.scheduleId)
-      await this.openRecords()
-      this.toast(result.applied ? `已应用 ${result.applied} 条调课` : '所选调课均已存在')
-    } catch (error) { this.toast(error.message) }
-    finally { this.setData({ parseApplying: false }) }
-  },
+
   toggleNightMode() {
     const nightMode = !this.data.nightMode
     wx.setStorageSync('night_mode', nightMode)
@@ -1401,6 +791,7 @@ Page({
   async deleteSchedule() {
     const schedule = this.data.schedule
     if (!schedule) return
+    if (schedule.academic_student_id) { this.openAcademicQuery(); return }
     const result = await this.modal({
       title: '删除课表',
       content: `确认删除“${schedule.term || schedule.name}”？其中全部课程也会删除。`,
@@ -1416,7 +807,7 @@ Page({
     } catch (error) { this.toast(error.message) }
   },
   // ===== 导入（Excel 课表导入）=====
-  openImportModal() {
+  openFileImportModal() {
     this.setData({ importOpen: true, importTab: 'excel' })
   },
   onImportTap() {
@@ -1518,11 +909,10 @@ Page({
       }
       if (result.imported) {
         this.setData({ importOpen: false, importStage: 'setup', importFile: null }); await this.load(result.schedule_id)
-        const engineText = importEngineText(result.engine)
         // 与“切换课表”口径一致：同名的多时段/单双周记录只计 1 门课。
         const importedCount = scheduleMeta(this.data.schedule).unique
-        this.toast(result.replaced ? `已覆盖当前学期，共 ${importedCount} 门课程（${engineText}）`
-          : `已导入 ${importedCount} 门课程（${engineText}）`)
+        this.toast(result.replaced ? `已覆盖当前学期，共 ${importedCount} 门课程`
+          : `已导入 ${importedCount} 门课程`)
       } else {
         throw new Error('未识别出完整课表，请检查 Excel 内容或换一份整学期课表')
       }

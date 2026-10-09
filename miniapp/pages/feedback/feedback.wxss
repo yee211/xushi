@@ -1,5 +1,27 @@
 page { width:100%; height:100%; overflow:hidden; background:#f3f6fb; color:#172033; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","HarmonyOS Sans","PingFang SC","Segoe UI","Microsoft YaHei",sans-serif; }
-.page { width:100%; height:100%; -webkit-overflow-scrolling:touch; }
+.feedback-page { position:relative; width:100%; height:100%; overflow:hidden; }
+.feedback-page.has-wallpaper,
+.feedback-page.has-wallpaper .page,
+.feedback-page.has-wallpaper .page-content { background:transparent !important; }
+.feedback-page.night {
+  background:
+    radial-gradient(circle at 18% 10%, rgba(56, 189, 248, 0.18), transparent 40%),
+    radial-gradient(circle at 84% 18%, rgba(99, 102, 241, 0.14), transparent 36%),
+    linear-gradient(180deg, #070d19 0%, #0d1527 50%, #131d31 100%) !important;
+  color:#cbd5e1;
+}
+.feedback-page.night.has-wallpaper { background:#070d19 !important; }
+.night .hero-title { color:#f8fafc; }
+.night .hero-desc { color:#94a3b8; }
+.night .field-label { color:#cbd5e1; }
+.night .input,
+.night .textarea {
+  background: rgba(30, 41, 59, 0.35);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 1.5rpx 0.5rpx rgba(255, 255, 255, 0.15);
+  color: #f8fafc;
+}
+.page { position:relative; z-index:1; width:100%; height:100%; -webkit-overflow-scrolling:touch; }
 .page-content {
   position:relative;
   min-height:100%;
@@ -36,7 +58,7 @@ page { width:100%; height:100%; overflow:hidden; background:#f3f6fb; color:#1720
 .field-label { display:block; margin:0 0 12rpx 4rpx; color:#334155; font-size:25rpx; font-weight:700; }
 .required { color:#ef4444; margin-left:4rpx; }
 
-.picker-value,.input {
+.input {
   display:flex;
   width:100%;
   height:88rpx;
@@ -51,7 +73,6 @@ page { width:100%; height:100%; overflow:hidden; background:#f3f6fb; color:#1720
   font-size:27rpx;
   box-sizing:border-box;
 }
-.picker-arrow { color:#0284c7; font-size:36rpx; line-height:1; font-weight:600; }
 .textarea {
   width:100%;
   height:280rpx;

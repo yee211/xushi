@@ -48,6 +48,7 @@ App({
     return new Promise((resolve, reject) => {
       wx.request({
         url: `${apiBaseUrl}${path}`, method: options.method || 'GET', data: options.data,
+        timeout: options.timeout || 15000,
         header: { 'content-type': 'application/json', Authorization: `Bearer ${token}`, ...(options.header || {}) },
         success: async ({ statusCode, data }) => {
           if (statusCode === 401 && !retried) {

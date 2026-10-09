@@ -44,6 +44,13 @@ function onUpload(event) {
           <b class="profile-username">{{ user?.username || '未登录用户' }}</b>
           <small class="profile-email">{{ user?.email || '暂无绑定邮箱' }}</small>
         </div>
+        <button
+          type="button"
+          class="profile-card-logout-btn"
+          @click="emit('logout'); emit('close')"
+        >
+          退出登录
+        </button>
       </div>
 
       <!-- 操作列表 -->
@@ -114,16 +121,7 @@ function onUpload(event) {
         </button>
       </div>
 
-      <!-- 退出登录按钮 -->
-      <div class="profile-footer">
-        <button
-          type="button"
-          class="profile-logout-btn"
-          @click="emit('logout'); emit('close')"
-        >
-          退出登录
-        </button>
-      </div>
+
     </section>
   </div>
 </template>
