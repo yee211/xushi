@@ -9,7 +9,7 @@ const defaultVersion = {
   versionName: CURRENT_VERSION_NAME,
   title: `发现新版本 v${CURRENT_VERSION_NAME}`,
   changelog: [
-    '学期课表手动同步，多端修改秒级拉取最新数据',
+    '学校身份绑定与课表同步',
     '优化单课表下拉交互与周次浏览状态保持',
     '提升课表助手连接稳定性'
   ],
@@ -127,7 +127,7 @@ onMounted(() => {
 
         <p class="m3-hero-subhead">
           序时，让一周课程清晰可见。微信小程序即开即用，Android 随身查看，网页打开就能管理。
-          从学校课表同步、Excel 导入到调课记录，在同一个地方安排你的校园日常。
+          绑定学校身份，同步学期课表，随时查看每天的课程安排。
         </p>
 
         <p class="platform-label">微信小程序 · Android · Web</p>
@@ -155,7 +155,7 @@ onMounted(() => {
           <img src="/miniapp-code.jpg" width="160" height="160" alt="序时微信小程序码，用微信扫一扫打开" />
           <div><span class="m3-chip m3-chip-wx">微信扫一扫</span><h2>课表，就在微信里。</h2><p>电脑上用微信扫码；手机上保存图片后，在微信扫一扫中从相册选择。</p><a href="/miniapp-code.jpg" download="序时小程序码.jpg" class="m3-btn m3-btn-wx-tonal">保存小程序码</a></div>
         </div>
-        <div class="quick-access-web"><span class="m3-chip">浏览器直接使用</span><h2>大屏整理，更从容。</h2><p>登录邮箱账号，管理课表、导入 Excel、查看调课记录。绑定微信后，与小程序共用课表。</p><a href="/?mode=app" class="m3-btn m3-btn-filled">进入网页版 →</a></div>
+        <div class="quick-access-web"><span class="m3-chip">浏览器直接使用</span><h2>大屏整理，更从容。</h2><p>登录邮箱账号，绑定学校身份、同步并查看课表。绑定微信后，与小程序共用课表。</p><a href="/?mode=app" class="m3-btn m3-btn-filled">进入网页版 →</a></div>
       </section>
       <!-- 双端核心入口 (M3 Elevated Cards) -->
       <section class="m3-platforms">
@@ -172,7 +172,7 @@ onMounted(() => {
               <div class="m3-header-meta">
                 <span class="m3-chip m3-chip-wx">微信生态 · 即开即用</span>
                 <h2 class="m3-card-title">微信小程序</h2>
-                <p class="m3-card-sub">免安装 · 扫码或微信直接搜索</p>
+                <p class="m3-card-sub">免安装 · 微信扫码打开</p>
               </div>
             </div>
 
@@ -204,7 +204,7 @@ onMounted(() => {
 
             <div class="m3-card-footer">
               <button class="m3-btn m3-btn-wx-tonal m3-btn-full" @click="openModal('wechat')">
-                <span>扫码或搜索使用</span>
+                <span>扫码使用小程序</span>
                 <span class="m3-arrow">→</span>
               </button>
             </div>
@@ -222,7 +222,7 @@ onMounted(() => {
               <div class="m3-header-meta">
                 <span class="m3-chip m3-chip-android">v{{ versionData.versionName }} · Android</span>
                 <h2 class="m3-card-title">Android 客户端</h2>
-                <p class="m3-card-sub">教务直连 · 沉浸式排版体验</p>
+                <p class="m3-card-sub">学校课表同步 · 随身查看</p>
               </div>
             </div>
 
@@ -231,8 +231,8 @@ onMounted(() => {
                 <li>
                   <div class="m3-list-icon m3-list-icon-android">✓</div>
                   <div class="m3-list-text">
-                    <strong>学校同步与教务导入</strong>
-                    <span>已接入学校支持身份绑定与同步，也可通过教务页面导入</span>
+                    <strong>绑定学校，同步课表</strong>
+                    <span>选择自己的学校身份，更新学期课程与上课地点</span>
                   </div>
                 </li>
                 <li>
@@ -245,8 +245,8 @@ onMounted(() => {
                 <li>
                   <div class="m3-list-icon m3-list-icon-android">✓</div>
                   <div class="m3-list-text">
-                    <strong>视频动态壁纸与离线缓存</strong>
-                    <span>沉浸视觉体验，无网状态课表依然清晰可见</span>
+                    <strong>已缓存课表离线查看</strong>
+                    <span>网络暂不可用时，仍可查看最近一次已加载的课表</span>
                   </div>
                 </li>
               </ul>
@@ -270,7 +270,7 @@ onMounted(() => {
         <div class="m3-section-header">
           <span class="m3-chip m3-chip-neutral">使用教程</span>
           <h2 class="m3-section-title">三步上手，让课表跟着你</h2>
-          <p class="m3-section-sub">先准备课表，再绑定账号，最后分享给同学</p>
+          <p class="m3-section-sub">绑定学校身份，同步账号，在微信中查询课程</p>
         </div>
 
         <div class="m3-tutorial-grid">
@@ -278,10 +278,10 @@ onMounted(() => {
           <div class="m3-step-card">
             <div class="m3-step-badge-wrap">
               <span class="m3-step-num">01</span>
-              <span class="m3-chip m3-chip-android">准备课表 · 多种方式</span>
+              <span class="m3-chip m3-chip-android">学校身份 · 课表同步</span>
             </div>
-            <h3 class="m3-step-title">同步或导入你的课表</h3>
-            <p class="m3-step-desc">在「学校身份绑定」中选择自己的姓名和班级，同步已接入学校的课表；也可以导入教务导出的 Excel，或在 Android 中通过教务页面导入。</p>
+            <h3 class="m3-step-title">绑定学校，获取课表</h3>
+            <p class="m3-step-desc">在「我的 → 学校身份绑定」中选择自己的姓名和班级，再选择学期同步课表。学校连接暂不可用时，可使用 Excel 备用导入。</p>
             <div class="m3-step-path">
               <span class="m3-path-node">选择学校身份</span>
               <span class="m3-path-arrow">→</span>
@@ -318,19 +318,19 @@ onMounted(() => {
           <div class="m3-step-card">
             <div class="m3-step-badge-wrap">
               <span class="m3-step-num">03</span>
-              <span class="m3-chip m3-chip-amber">好友共享 · 口令导入</span>
+              <span class="m3-chip m3-chip-amber">微信助手 · 聊天查课</span>
             </div>
-            <h3 class="m3-step-title">用分享口令传递课表</h3>
-            <p class="m3-step-desc">在小程序点击「分享课表」生成口令。同学进入「口令导入」，输入或粘贴口令，确认后导入课表。</p>
+            <h3 class="m3-step-title">连接微信课表助手</h3>
+            <p class="m3-step-desc">进入小程序「我的 → 课表助手」，生成微信 ClawBot 连接二维码，识别并确认后，就能在微信聊天中查询课程。</p>
             <div class="m3-step-path">
-              <span class="m3-path-node">分享课表</span>
+              <span class="m3-path-node">课表助手</span>
               <span class="m3-path-arrow">→</span>
-              <span class="m3-path-node">复制口令</span>
+              <span class="m3-path-node">扫码连接</span>
               <span class="m3-path-arrow">→</span>
-              <span class="m3-path-node highlight-amber">确认导入</span>
+              <span class="m3-path-node highlight-amber">聊天查课</span>
             </div>
             <div class="m3-step-tip">
-              <strong>💡 便捷：</strong>分享口令用于导入课表，账号绑定码用于关联自己的账号，两者用途不同。
+              <strong>💡 便捷：</strong>连接后试着问“今天下午有什么课？”或“下一节课是什么？”。
             </div>
           </div>
         </div>
@@ -364,8 +364,8 @@ onMounted(() => {
                 <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
               </svg>
             </div>
-            <h3>AI 调课中心</h3>
-            <p>上传调课通知截图，大模型视觉智能提取调整前后时段与教室，支持批量应用与变更追溯。</p>
+            <h3>按周查看课程</h3>
+            <p>切换周次、回到本周，查看课程时间与教室。连续节次合并显示，一周安排清晰呈现。</p>
           </div>
 
           <div class="m3-feature-card">
@@ -377,7 +377,7 @@ onMounted(() => {
                 <circle cx="15" cy="10" r="1"/>
               </svg>
             </div>
-            <h3>微信 Agent 问课</h3>
+            <h3>微信课表助手</h3>
             <p>在小程序中扫码连接微信课表助手，用自然语言查询今天、明天或本周的课程安排。</p>
           </div>
 
@@ -390,8 +390,8 @@ onMounted(() => {
                 <line x1="8" y1="17" x2="13" y2="17"/>
               </svg>
             </div>
-            <h3>Excel 智能解析</h3>
-            <p>支持多种高校导出的 xlsx/xls/xlsm 表格，确定性规则结合大模型语义兜底，非标表轻松导入。</p>
+            <h3>Excel 备用导入</h3>
+            <p>支持教务导出的 .xlsx、.xlsm、.xls 课表文件。学校连接暂不可用时，也能通过文件准备课表。</p>
           </div>
         </div>
       </section>
@@ -474,12 +474,7 @@ onMounted(() => {
               </button>
             </div>
 
-            <div v-if="versionData.changelog?.length" class="m3-changelog-box">
-              <span class="m3-changelog-title">最近更新</span>
-              <ul>
-                <li v-for="(log, idx) in versionData.changelog.slice(0, 3)" :key="idx">{{ log }}</li>
-              </ul>
-            </div>
+
           </div>
         </div>
       </div>
