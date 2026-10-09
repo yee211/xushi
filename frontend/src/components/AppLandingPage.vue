@@ -88,7 +88,8 @@ onMounted(() => {
           </div>
         </div>
 
-        <nav class="app-bar-actions">
+        <nav class="app-bar-actions" aria-label="主要导航">
+          <a class="m3-btn m3-btn-text" href="/?mode=app">打开网页版</a>
           <button class="m3-btn m3-btn-text" @click="scrollToTutorial">
             <svg class="m3-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
@@ -120,15 +121,16 @@ onMounted(() => {
       <section class="m3-hero">
 
         <h1 class="m3-hero-headline">
-          课表装进微信，<br />
-          <span class="m3-hero-accent">也装进每一台 Android。</span>
+          把课表安排好，<br />
+          <span class="m3-hero-accent">把时间留给生活。</span>
         </h1>
 
         <p class="m3-hero-subhead">
-          为大学生打造的纯粹智能课表工具。微信小程序免安装即开即用，Android 原生端教务一键直连。
-          全周日程清爽呈现，告别冗余与繁杂。
+          序时，让一周课程清晰可见。微信小程序即开即用，Android 随身查看，网页打开就能管理。
+          从学校课表同步、Excel 导入到调课记录，在同一个地方安排你的校园日常。
         </p>
 
+        <p class="platform-label">微信小程序 · Android · Web</p>
         <div class="m3-hero-cta">
           <button class="m3-btn m3-btn-large m3-btn-wx-filled" @click="openModal('wechat')">
             <svg class="m3-icon m3-icon-lg" viewBox="0 0 24 24" fill="currentColor">
@@ -148,6 +150,13 @@ onMounted(() => {
         </div>
       </section>
 
+      <section class="quick-access" aria-label="小程序与网页入口">
+        <div class="quick-access-code">
+          <img src="/miniapp-code.jpg" width="160" height="160" alt="序时微信小程序码，用微信扫一扫打开" />
+          <div><span class="m3-chip m3-chip-wx">微信扫一扫</span><h2>课表，就在微信里。</h2><p>电脑上用微信扫码；手机上保存图片后，在微信扫一扫中从相册选择。</p><a href="/miniapp-code.jpg" download="序时小程序码.jpg" class="m3-btn m3-btn-wx-tonal">保存小程序码</a></div>
+        </div>
+        <div class="quick-access-web"><span class="m3-chip">浏览器直接使用</span><h2>大屏整理，更从容。</h2><p>登录邮箱账号，管理课表、导入 Excel、查看调课记录。绑定微信后，与小程序共用课表。</p><a href="/?mode=app" class="m3-btn m3-btn-filled">进入网页版 →</a></div>
+      </section>
       <!-- 双端核心入口 (M3 Elevated Cards) -->
       <section class="m3-platforms">
         <div class="m3-platform-grid">
@@ -179,15 +188,15 @@ onMounted(() => {
                 <li>
                   <div class="m3-list-icon m3-list-icon-wx">✓</div>
                   <div class="m3-list-text">
-                    <strong>智能 Agent 聊天查课</strong>
-                    <span>微信聊天窗口随口问“明天有什么课”，秒级响应</span>
+                    <strong>连接微信课表助手</strong>
+                    <span>在小程序连接助手后，在微信里问“明天有什么课”</span>
                   </div>
                 </li>
                 <li>
                   <div class="m3-list-icon m3-list-icon-wx">✓</div>
                   <div class="m3-list-text">
-                    <strong>同域云端同步</strong>
-                    <span>与 Android 端共用同一套后端，换设备不丢数据</span>
+                    <strong>绑定账号，多端共用</strong>
+                    <span>绑定网页或 Android 账号后，共用同一份云端课表</span>
                   </div>
                 </li>
               </ul>
@@ -201,7 +210,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Android 原生客户端卡片 -->
+          <!-- Android 客户端卡片 -->
           <div class="m3-card m3-card-android">
             <div class="m3-card-header">
               <div class="m3-icon-avatar m3-avatar-android">
@@ -211,8 +220,8 @@ onMounted(() => {
                 </svg>
               </div>
               <div class="m3-header-meta">
-                <span class="m3-chip m3-chip-android">v{{ versionData.versionName }} · 约 12MB</span>
-                <h2 class="m3-card-title">Android 原生客户端</h2>
+                <span class="m3-chip m3-chip-android">v{{ versionData.versionName }} · Android</span>
+                <h2 class="m3-card-title">Android 客户端</h2>
                 <p class="m3-card-sub">教务直连 · 沉浸式排版体验</p>
               </div>
             </div>
@@ -222,8 +231,8 @@ onMounted(() => {
                 <li>
                   <div class="m3-list-icon m3-list-icon-android">✓</div>
                   <div class="m3-list-text">
-                    <strong>高校教务一键直连</strong>
-                    <span>内置原生 WebView 毫秒级抓取强智等教务</span>
+                    <strong>学校同步与教务导入</strong>
+                    <span>已接入学校支持身份绑定与同步，也可通过教务页面导入</span>
                   </div>
                 </li>
                 <li>
@@ -260,8 +269,8 @@ onMounted(() => {
       <section id="tutorial-section" class="m3-tutorial">
         <div class="m3-section-header">
           <span class="m3-chip m3-chip-neutral">使用教程</span>
-          <h2 class="m3-section-title">三步上手 · 双端协同与共享</h2>
-          <p class="m3-section-sub">从教务一键直连，到微信双端互通，再到全班口令秒级共享</p>
+          <h2 class="m3-section-title">三步上手，让课表跟着你</h2>
+          <p class="m3-section-sub">先准备课表，再绑定账号，最后分享给同学</p>
         </div>
 
         <div class="m3-tutorial-grid">
@@ -269,19 +278,19 @@ onMounted(() => {
           <div class="m3-step-card">
             <div class="m3-step-badge-wrap">
               <span class="m3-step-num">01</span>
-              <span class="m3-chip m3-chip-android">安卓端 · 教务抓取</span>
+              <span class="m3-chip m3-chip-android">准备课表 · 多种方式</span>
             </div>
-            <h3 class="m3-step-title">教务一键直连导入</h3>
-            <p class="m3-step-desc">打开 Android 原生 App，通过内置教务系统登录后点击「我的课表」，轻触「一键导入」。</p>
+            <h3 class="m3-step-title">同步或导入你的课表</h3>
+            <p class="m3-step-desc">在「学校身份绑定」中选择自己的姓名和班级，同步已接入学校的课表；也可以导入教务导出的 Excel，或在 Android 中通过教务页面导入。</p>
             <div class="m3-step-path">
-              <span class="m3-path-node">登录教务</span>
+              <span class="m3-path-node">选择学校身份</span>
               <span class="m3-path-arrow">→</span>
-              <span class="m3-path-node">我的课表</span>
+              <span class="m3-path-node">选择学期</span>
               <span class="m3-path-arrow">→</span>
-              <span class="m3-path-node highlight-blue">一键导入</span>
+              <span class="m3-path-node highlight-blue">同步课表</span>
             </div>
             <div class="m3-step-tip">
-              <strong>💡 优势：</strong>原生 WebView 毫秒级抓取强智等教务，免导出 Excel，免复杂抓包。
+              <strong>💡 优势：</strong>学校同步会替换现有课表及个人调课，覆盖前保留最近 5 次恢复记录；同步失败时保留原课表。
             </div>
           </div>
 
@@ -291,17 +300,17 @@ onMounted(() => {
               <span class="m3-step-num">02</span>
               <span class="m3-chip m3-chip-wx">跨端打通 · 微信绑定</span>
             </div>
-            <h3 class="m3-step-title">绑定微信双端同步</h3>
-            <p class="m3-step-desc">安卓端「我的」点击「微信小程序绑定」获取 6 位绑定码；进入微信小程序「课表助手」粘贴绑定即可同步。</p>
+            <h3 class="m3-step-title">绑定微信，三端共用</h3>
+            <p class="m3-step-desc">在网页或 Android 的个人中心生成 6 位微信绑定码，再到小程序「课表助手」输入绑定，三端即可使用同一份课表。</p>
             <div class="m3-step-path">
               <span class="m3-path-node">获取绑定码</span>
               <span class="m3-path-arrow">→</span>
               <span class="m3-path-node">课表助手</span>
               <span class="m3-path-arrow">→</span>
-              <span class="m3-path-node highlight-green">两端云同步</span>
+              <span class="m3-path-node highlight-green">三端共用课表</span>
             </div>
             <div class="m3-step-tip">
-              <strong>💡 贴士：</strong>同一套云端数据库自动打通；若修改课表未即时显示，可随时点击「手动同步」强制刷新。
+              <strong>💡 贴士：</strong>微信登录和邮箱登录需先绑定才能共用课表；修改后若未显示，可手动同步刷新。
             </div>
           </div>
 
@@ -311,17 +320,17 @@ onMounted(() => {
               <span class="m3-step-num">03</span>
               <span class="m3-chip m3-chip-amber">好友共享 · 口令导入</span>
             </div>
-            <h3 class="m3-step-title">极速口令全班共享</h3>
-            <p class="m3-step-desc">小程序内点击「分享课表」生成 6 位口令。好友复制后打开小程序进入「口令导入」，系统智能识别剪贴板直接填充确认！</p>
+            <h3 class="m3-step-title">用分享口令传递课表</h3>
+            <p class="m3-step-desc">在小程序点击「分享课表」生成口令。同学进入「口令导入」，输入或粘贴口令，确认后导入课表。</p>
             <div class="m3-step-path">
               <span class="m3-path-node">分享课表</span>
               <span class="m3-path-arrow">→</span>
               <span class="m3-path-node">复制口令</span>
               <span class="m3-path-arrow">→</span>
-              <span class="m3-path-node highlight-amber">剪贴板自动导入</span>
+              <span class="m3-path-node highlight-amber">确认导入</span>
             </div>
             <div class="m3-step-tip">
-              <strong>💡 便捷：</strong>小程序已集成剪贴板监听，对方打开即自动读取分享码，告别逐字手动输入。
+              <strong>💡 便捷：</strong>分享口令用于导入课表，账号绑定码用于关联自己的账号，两者用途不同。
             </div>
           </div>
         </div>
@@ -342,8 +351,8 @@ onMounted(() => {
                 <path d="M6 12v5c3 3 9 3 12 0v-5"/>
               </svg>
             </div>
-            <h3>教务系统直连</h3>
-            <p>内置原生 WebView 登录强智等主流教务，请求拦截毫秒级捕获课表，无需导出或繁琐抓包。</p>
+            <h3>学校身份绑定与同步</h3>
+            <p>已接入学校支持按姓名、班级选择自己的身份，同步学期课表并查看同步状态与恢复记录。可用范围取决于学校接入情况。</p>
           </div>
 
           <div class="m3-feature-card">
@@ -369,7 +378,7 @@ onMounted(() => {
               </svg>
             </div>
             <h3>微信 Agent 问课</h3>
-            <p>与微信智能 Agent 绑定，在聊天对话框里直接问“明天有什么课”，意图调度秒级回复。</p>
+            <p>在小程序中扫码连接微信课表助手，用自然语言查询今天、明天或本周的课程安排。</p>
           </div>
 
           <div class="m3-feature-card">
@@ -396,7 +405,7 @@ onMounted(() => {
           <span>序时 (XuShi) · 极简智能大学课表</span>
         </div>
         <div class="m3-footer-links">
-          <a :href="versionData.downloadUrl" target="_blank">APK 镜像下载</a>
+          <a :href="versionData.downloadUrl" target="_blank">Android 下载</a>
           <span class="m3-sep">•</span>
           <span>纯粹无广告</span>
         </div>
@@ -432,16 +441,16 @@ onMounted(() => {
         <div v-if="modalTab === 'wechat'" class="m3-dialog-content">
           <div class="m3-dialog-center">
             <div class="m3-qr-card-wx">
-              <img src="/app-icon.png" alt="序时小程序" class="m3-qr-avatar" />
+              <img src="/miniapp-code.jpg" width="240" height="240" alt="序时微信小程序码" class="miniapp-code" />
               <h3 class="m3-dialog-title">序时课表</h3>
               <p class="m3-dialog-sub">微信小程序 · 免安装即开即用</p>
             </div>
 
             <div class="m3-search-guide">
-              <span class="m3-guide-label">使用方式</span>
+              <a href="/miniapp-code.jpg" download="序时小程序码.jpg" class="m3-btn m3-btn-wx-tonal">保存小程序码</a><span class="m3-guide-label">使用方式</span>
               <div class="m3-search-input-sim">
                 <span class="m3-sim-icon">🔍</span>
-                <span>微信搜索 <strong>序时课表</strong> 即可使用</span>
+                <span>用微信扫一扫；同一手机可保存图片后从相册识别</span>
               </div>
             </div>
           </div>
@@ -479,6 +488,17 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.platform-label { color: #0b57d0; font-size: .85rem; letter-spacing: .08em; margin: 24px 0 0; }
+.quick-access { display: grid; grid-template-columns: 1.25fr 1fr; gap: 24px; margin-bottom: 32px; }
+.quick-access-code, .quick-access-web { background: white; border: 1px solid #e0e3e7; border-radius: 24px; padding: 28px; }
+.quick-access-code { display: flex; align-items: center; gap: 24px; }
+.quick-access-code img { flex: 0 0 auto; width: 160px; height: 160px; object-fit: contain; }
+.quick-access h2 { font-size: 1.35rem; margin: 14px 0 10px; }
+.quick-access p { color: #5e6368; line-height: 1.8; font-size: .9rem; margin: 0 0 18px; }
+.miniapp-code { display: block; width: 240px; max-width: 100%; height: auto; margin: 0 auto 16px; }
+.m3-btn:focus-visible, .m3-segment-btn:focus-visible { outline: 3px solid #0b57d0; outline-offset: 4px; }
+@media (max-width: 860px) { .quick-access { grid-template-columns: 1fr; } .app-bar-inner { flex-wrap: wrap; gap: 12px; } .app-bar-actions { display: flex; flex-wrap: wrap; gap: 8px; } }
+@media (max-width: 520px) { .quick-access-code { flex-direction: column; text-align: center; } .quick-access-code, .quick-access-web { padding: 24px 20px; } .app-bar-actions .m3-btn { padding: 8px 12px; font-size: .78rem; } .brand-text .m3-chip { display: none; } }
 /* ==========================================================================
    Google Material 3 (Material Design 3 / M3) 设计系统
    配色契约：
