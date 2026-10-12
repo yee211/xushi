@@ -138,3 +138,18 @@ def test_transport_child_logger_redacts_at_handler():
         assert "REDACTED" in output.getvalue()
     finally:
         parent.handlers, parent.propagate, parent.level = old
+
+
+def test_redaction_preserves_uvicorn_access_formatter_arguments():
+    import logging
+
+    from uvicorn.logging import AccessFormatter
+
+    from app.observability import RedactHttpSecrets
+    record = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1,
+                               '%s - "%s %s HTTP/%s" %d',
+                               ("127.0.0.1:1234", "GET", "/api/live", "1.1", 200), None)
+    assert RedactHttpSecrets().filter(record)
+    formatted = AccessFormatter('%(request_line)s %(status_code)s').format(record)
+    assert "GET /api/live HTTP/1.1" in formatted
+    assert "200" in formatted
