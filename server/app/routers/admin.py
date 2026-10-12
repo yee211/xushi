@@ -442,7 +442,7 @@ def user_detail(user_id: int, _: str = Depends(current_admin)):
             raise HTTPException(404, "用户不存在")
 
         schedules = db.execute("""
-            SELECT s.id, s.name, s.term, s.start_date, s.end_date, s.created_at,
+            SELECT s.id, s.name, s.term, s.start_date, s.end_date, s.created_at, s.variant_type,
                    (SELECT COUNT(*) FROM courses c WHERE c.schedule_id = s.id) AS course_count
             FROM schedules s
             WHERE s.user_id = %s

@@ -48,9 +48,11 @@ def test_success_does_not_count_an_attempt():
     assert not any("attempt_count" in sql for sql, _ in db.updates)
 
 
-def test_code_locks_after_too_many_attempts():
-    db = RecordingDb(binding_row=binding_row(attempt_count=5))
-    with pytest.raises(BindingError) as error:
+def test_sender_locks_after_too_many_attempts():
+    db = RecordingDb()
+    for _ in range(5):
+        with pytest.raises(BindingError, match="绑定码无效"):
+            consume_binding_code(db, "ABC123", "wecom", "sender-1")
+    with pytest.raises(BindingError, match="尝试次数过多"):
         consume_binding_code(db, "ABC123", "wecom", "sender-1")
-    assert "尝试次数过多" in str(error.value)
     assert db.updates == []

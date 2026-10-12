@@ -22,3 +22,16 @@ cd server
 $env:TEST_ACADEMIC_QUEUE_DB = '1'
 venv/Scripts/python -m pytest tests/test_schedule_backups.py tests/test_academic_jobs.py -q
 ```
+
+
+## 同步执行预算与恢复
+
+每次执行预算 90 秒，学校查询总预算最多 60 秒，单个 HTTP 操作最多 20 秒；
+学校响应即使持续小量传输也受剩余总时限约束。数据库连接等待按剩余预算限制，
+写入事务的锁等待最多 15 秒；预算耗尽会取消活动 SQL，并在提交前检查及回滚。
+预算不包含队列等待，解析等同步计算仍在阶段边界检查，不能将 90 秒视为进程强杀时间。
+
+任务公开 querying、writing、retrying、completed 等阶段和 started_at，方便查看进度。
+临时超时仍最多执行三次，重试间隔 20、40 秒；重启恢复也遵守三次尝试上限。
+恢复 running 任务前必须先取得 PostgreSQL 执行器锁，避免与仍在执行的任务同时写入。
+新增字段由迁移 0017_sync_progress 和幂等初始化创建。

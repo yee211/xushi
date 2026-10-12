@@ -58,7 +58,7 @@ class FakeClient:
     def send_text(self, to_user_id, text, context_token="", *, client_id, run_id=""):
         if self.should_fail:
             from app.channels.weixin.client import ILinkError
-            raise ILinkError("network timeout")
+            raise ILinkError("expired context", code="-2")
         self.sent_messages.append({
             "to_user_id": to_user_id,
             "text": text,
@@ -196,7 +196,7 @@ def test_send_morning_push_to_user_ilink_rejection_is_terminal(monkeypatch):
 
     params = [item[1] for item in db.executed if "INSERT INTO daily_push_logs" in item[0]]
     assert params and params[0][2] == "skipped"
-    assert "network timeout" in params[0][3]
+    assert "expired context" in params[0][3]
 
 
 def test_send_morning_push_to_user_transport_error_propagates(monkeypatch):

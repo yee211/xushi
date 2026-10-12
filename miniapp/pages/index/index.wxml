@@ -44,6 +44,7 @@
       </view>
     </view>
 
+    <view wx:if="{{cacheNotice}}" class="loading-card card" bindtap="onRefresh"><text>{{cacheNotice}} · 点击重试</text></view>
     <view class="loading-card card" wx:if="{{loading}}"><text>正在读取课表…</text></view>
     <view class="empty card glass-card" wx:elif="{{!schedule}}">
       <view class="empty-hero">
@@ -125,7 +126,7 @@
                 <text class="grid-course-meta" style="{{item.metaStyle}}">{{item.teacher || ''}}</text>
               </view>
             </view>
-            <view class="no-course" wx:if="{{!gridCourses.length && !moveMode}}"><text>本周没有课程</text></view>
+            <view class="no-course" wx:if="{{!gridCourses.length}}"><text>本周没有课程</text></view>
 
           </view>
         </view>
@@ -375,7 +376,7 @@
 
 
 <!-- 底部悬浮双 Tab 导航条：首页（课表）与我的 -->
-<view class="action-dock tab-dock {{nightMode ? 'night' : ''}} {{moveMode ? 'dock-hidden' : ''}}" aria-label="底部导航">
+<view class="action-dock tab-dock {{nightMode ? 'night' : ''}}" aria-label="底部导航">
   <view class="dock-sheen" aria-hidden="true"></view>
   <view class="dock-item tab-dock-item {{currentTab === 'home' ? 'active' : ''}}" hover-class="dock-item-hover" hover-stay-time="80" data-tab="home" bindtap="switchTab">
     <view class="tab-icon-wrap">

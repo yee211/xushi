@@ -3,6 +3,7 @@
 网页母版与小程序版使用同一套 psycopg_pool 方案；连接池规模支持通过
 环境变量调整（小程序版的能力），默认值取两者折中。
 """
+import math
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -48,11 +49,14 @@ def is_pool_ready() -> bool:
 @contextmanager
 def connect():
     """获取数据库连接上下文。优先从连接池借用，未初始化时降级为独立连接（脚本/测试）。"""
+    from ..services import academic_runtime
+
+    timeout = academic_runtime.remaining(max(1.0, float(os.getenv("DB_POOL_TIMEOUT", "15.0"))))
     if _pool is not None:
-        with _pool.connection() as db:
+        with _pool.connection(timeout=timeout) as db:
             yield db
     else:
-        with pg_connect(DATABASE_URL, row_factory=dict_row) as db:
+        with pg_connect(DATABASE_URL, row_factory=dict_row, connect_timeout=max(1, math.ceil(timeout))) as db:
             yield db
 
 

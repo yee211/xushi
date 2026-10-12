@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from ..db import connect
-from . import academic, academic_binding
+from . import academic, academic_binding, academic_runtime
 
 logger = logging.getLogger(__name__)
 SHANGHAI = timezone(timedelta(hours=8))
@@ -25,6 +25,8 @@ SCHEMA = (
         available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""",
+    "ALTER TABLE academic_sync_jobs ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'queued'",
+    "ALTER TABLE academic_sync_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
     """CREATE UNIQUE INDEX IF NOT EXISTS idx_academic_jobs_active_user ON academic_sync_jobs(user_id)
         WHERE state IN ('queued','running')""",
     "CREATE INDEX IF NOT EXISTS idx_academic_jobs_pending ON academic_sync_jobs(state,available_at,created_at)",
@@ -46,7 +48,7 @@ def init_schema():
 def public_job(row):
     if not row:
         return None
-    return {key: row[key] for key in ('id','term','state','attempts','result','error','created_at','updated_at')}
+    return {key: row[key] for key in ('id','term','state','attempts','result','error','created_at','updated_at','phase','started_at')}
 
 
 def read(user_id, job_id=None):
@@ -112,34 +114,54 @@ def process_one(db):
         return False
     db.commit()
     try:
-        db.execute("UPDATE academic_sync_jobs SET state='queued',updated_at=CURRENT_TIMESTAMP WHERE state='running'")
+        # The advisory lock proves there is no other live executor.
+        db.execute("""UPDATE academic_sync_jobs SET
+            state=CASE WHEN attempts>=3 THEN 'failed' ELSE 'queued' END,
+            phase=CASE WHEN attempts>=3 THEN 'failed' ELSE 'queued' END,
+            error=CASE WHEN attempts>=3 THEN '同步多次中断，请重新发起同步' ELSE error END,
+            updated_at=CURRENT_TIMESTAMP WHERE state='running'""")
         paused = db.execute("SELECT 1 FROM academic_sync_control WHERE pause_until>CURRENT_TIMESTAMP").fetchone()
         if paused:
             db.commit()
             return False
-        job = db.execute("""UPDATE academic_sync_jobs SET state='running',attempts=attempts+1,updated_at=CURRENT_TIMESTAMP
+        job = db.execute("""UPDATE academic_sync_jobs SET state='running',phase='querying',started_at=CURRENT_TIMESTAMP,attempts=attempts+1,updated_at=CURRENT_TIMESTAMP
             WHERE id=(SELECT id FROM academic_sync_jobs WHERE state='queued' AND available_at<=CURRENT_TIMESTAMP
                 ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *""").fetchone()
         db.commit()
         if not job:
             return False
+        def progress(phase):
+            db.execute("UPDATE academic_sync_jobs SET phase=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'",
+                       (phase, job['id']))
+            db.commit()
+            logger.info("School sync phase: %s %s", job['id'], phase)
+
         try:
-            result = execute_job(job)
-        except (academic.AcademicError, HTTPException) as error:
-            status = error.status if isinstance(error, academic.AcademicError) else error.status_code
-            message = error.message if isinstance(error, academic.AcademicError) else str(error.detail)
+            with academic_runtime.execution(90, progress):
+                result = execute_job(job)
+        except (academic.AcademicError, HTTPException, academic_runtime.SyncTimeout) as error:
+            status = 504 if isinstance(error, academic_runtime.SyncTimeout) else (
+                error.status if isinstance(error, academic.AcademicError) else error.status_code)
+            message = str(error) if isinstance(error, academic_runtime.SyncTimeout) else (
+                error.message if isinstance(error, academic.AcademicError) else str(error.detail))
             retry = status in (429,502,503,504) and job['attempts'] < 3
+            if isinstance(error, academic.AcademicError) and error.code == 'connection_expired':
+                try:
+                    from . import academic_mail
+                    academic_mail.connection_event("query_unavailable")
+                except Exception:
+                    logger.warning("School query failure notification unavailable")
             if (isinstance(error, academic.AcademicError) and error.code == 'connection_expired') or '学校连接暂不可用' in message:
                 db.execute("UPDATE academic_sync_control SET pause_until=CURRENT_TIMESTAMP + INTERVAL '60 seconds' WHERE id=1")
-            db.execute("""UPDATE academic_sync_jobs SET state=%s,error=%s,
+            db.execute("""UPDATE academic_sync_jobs SET state=%s,phase=%s,error=%s,
                 available_at=CURRENT_TIMESTAMP + (%s * INTERVAL '1 second'),updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'""",
-                ('queued' if retry else 'failed', message, 10 * 2 ** job['attempts'], job['id']))
+                ('queued' if retry else 'failed', 'retrying' if retry else 'failed', message, 10 * 2 ** job['attempts'], job['id']))
         except Exception:
             logger.exception("School sync job failed: %s", job['id'])
-            db.execute("UPDATE academic_sync_jobs SET state='failed',error=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'",
+            db.execute("UPDATE academic_sync_jobs SET state='failed',phase='failed',error=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'",
                 ("同步失败，请稍后重试；原课表已保留", job['id']))
         else:
-            db.execute("""UPDATE academic_sync_jobs SET state='succeeded',result=%s::jsonb,error=NULL,
+            db.execute("""UPDATE academic_sync_jobs SET state='succeeded',phase='completed',result=%s::jsonb,error=NULL,
                 updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'""", (json.dumps(jsonable_encoder({key: value for key, value in result.items() if key in (
                     'schedule_id','name','term','imported','replaced','unchanged','last_synced_at','warnings',
                     'overwrite_policy','binding_revision','fetched_at','completed_weeks','expected_weeks','cached','completeness')}), ensure_ascii=False), job['id']))

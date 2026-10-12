@@ -1,29 +1,103 @@
 """Administrator-controlled normal school login in a dedicated browser thread."""
 import importlib.util
 import json
+import logging
 import os
 import queue
 import re
 import secrets
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 from Crypto.Cipher import AES
 
+from . import academic_mail
 from .academic import ROOT, AcademicError, _key
 
 DIRECTORY = ROOT / "data" / "academic"
 CREDENTIALS = DIRECTORY / "credentials.enc"
 PROFILE = DIRECTORY / "managed-browser-profile"
 BROWSER_SESSION = DIRECTORY / "browser-session.enc"
+MAINTENANCE = DIRECTORY / "maintenance.json"
 SCHOOL_LOGIN = "https://tls.ccsut.cn/admin/login"
 SCHOOL_HOME = "https://tls.ccsut.cn/admin/?loginType=1"
+GATEWAY_RECOVERY_SECONDS = 20
+GATEWAY_TIMEOUT_SECONDS = 60
 _lock = threading.RLock()
 _commands = queue.Queue(maxsize=8)
 _thread = None
+_stop_event = threading.Event()
 _state = {"state": "not_started", "message": "尚未启动学校登录"}
+
+
+def maintenance_settings():
+    try:
+        data = json.loads(MAINTENANCE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_maintenance(**changes):
+    with _lock:
+        data = maintenance_settings()
+        data.update(changes)
+        DIRECTORY.mkdir(parents=True, exist_ok=True)
+        temporary = MAINTENANCE.with_name("maintenance-" + secrets.token_hex(8) + ".tmp")
+        temporary.write_text(json.dumps(data), encoding="utf-8")
+        if os.name != "nt":
+            temporary.chmod(0o600)
+        temporary.replace(MAINTENANCE)
+
+
+def retry_delay(attempt):
+    return min(300, 30 * 2 ** min(max(attempt - 1, 0), 4))
+
+
+def supervise(job, visible=False):
+    attempt = 0
+    while not _stop_event.is_set():
+        outcome = run(job, visible=visible)
+        if _stop_event.is_set():
+            break
+        if outcome == "handoff":
+            visible = False
+            update("recovering", "人工登录已验证，正在交接后台维护", visible=False)
+            continue
+        if status()["state"] != "error":
+            break
+        with _lock:
+            if _state.pop("verified_this_attempt", False):
+                attempt = 0
+        attempt += 1
+        delay = retry_delay(attempt)
+        update("retrying", f"会话维护异常，{delay} 秒后自动重试", retry_attempt=attempt,
+               next_retry_at=(datetime.now(UTC) + timedelta(seconds=delay)).isoformat(), visible=False)
+        if _stop_event.wait(delay):
+            break
+        visible = False
+        update("recovering", "正在恢复学校浏览器会话", next_retry_at=None, diagnostic=False)
+    if _stop_event.is_set():
+        update("stopped", "已停止学校登录维护", next_retry_at=None, visible=False)
+
+
+def resume():
+    if maintenance_settings().get("enabled") is not True:
+        return
+    try:
+        start()
+    except AcademicError as error:
+        update("needs_login", "无法自动恢复，请检查浏览器依赖和学校手机号后重新发起维护",
+               error_type=error.code)
+
+
+def shutdown():
+    stop(preserve_enabled=True)
+    thread = _thread
+    if thread and thread.is_alive():
+        thread.join(timeout=60)
 
 
 def save_credentials(account):
@@ -80,7 +154,21 @@ def restore_browser_session(context):
 
 def update(state, message, **details):
     with _lock:
+        previous = _state.get("state")
         _state.update(state=state, message=message, checked_at=datetime.now(UTC).isoformat(), **details)
+    if previous != state:
+        logging.getLogger(__name__).info("School maintenance state: %s -> %s (%s)", previous, state, details.get("error_type", ""))
+    try:
+        settings = maintenance_settings()
+        if state == "connected":
+            academic_mail.connection_event("connected")
+        elif state == "stopped" and not settings.get("enabled"):
+            academic_mail.connection_event("stopped")
+        elif settings.get("enabled") and (state == "needs_login" or
+                state in {"ready_for_code", "waiting_code"} and settings.get("last_verified_at")):
+            academic_mail.connection_event("needs_login")
+    except Exception as error:
+        logging.getLogger(__name__).warning("School mail event unavailable: %s", type(error).__name__)
 
 
 def status():
@@ -88,6 +176,9 @@ def status():
         result = dict(_state)
         result["saved"] = CREDENTIALS.exists()
         result["running"] = bool(_thread and _thread.is_alive())
+        settings = maintenance_settings()
+        result["maintenance_enabled"] = settings.get("enabled") is True
+        result["last_verified_at"] = _state.get("last_verified_at") or settings.get("last_verified_at")
     if result["saved"]:
         try:
             result["account"] = credentials()["account"]
@@ -98,7 +189,7 @@ def status():
 
 
 def start(visible: bool = False):
-    global _thread, _commands
+    global _thread, _commands, _stop_event
     if not visible:
         credentials()
     with _lock:
@@ -107,11 +198,13 @@ def start(visible: bool = False):
         if importlib.util.find_spec("playwright") is None:
             raise AcademicError("browser_unavailable", "请安装学校浏览器依赖和 Chromium", 503)
         _commands = queue.Queue(maxsize=8)
+        _stop_event = threading.Event()
+        save_maintenance(enabled=True)
         job = secrets.token_urlsafe(18)
         _state.clear()
         msg = "已打开可视浏览器，请在弹出的窗口中登录…" if visible else "正在打开学校登录页面"
         _state.update(state="starting", message=msg, job_id=job, visible=visible)
-        _thread = threading.Thread(target=run, args=(job, visible), daemon=True, name="academic-login")
+        _thread = threading.Thread(target=supervise, args=(job, visible), daemon=True, name="academic-login")
         _thread.start()
     return status()
 
@@ -129,6 +222,9 @@ def command(action, job_id, code=""):
             raise AcademicError("code_rate_limited", "验证码发送间隔为 60 秒，请稍后重试", 429)
         if action != "stop":
             _state.update(state="processing", message="正在处理登录操作")
+        else:
+            save_maintenance(enabled=False)
+            _stop_event.set()
         try:
             _commands.put_nowait((action, code.strip()))
         except queue.Full as error:
@@ -136,10 +232,18 @@ def command(action, job_id, code=""):
     return status()
 
 
-def stop():
+def stop(preserve_enabled=False):
+    if not preserve_enabled:
+        save_maintenance(enabled=False)
+    _stop_event.set()
     current = status()
     if current["running"]:
-        command("stop", current["job_id"])
+        try:
+            _commands.put_nowait(("stop", ""))
+        except queue.Full:
+            pass
+    else:
+        update("stopped", "已停止学校登录维护", next_retry_at=None, visible=False)
 
 
 def delete_credentials():
@@ -147,6 +251,7 @@ def delete_credentials():
         raise AcademicError("login_running", "请先停止登录维护，再删除凭据", 409)
     CREDENTIALS.unlink(missing_ok=True)
     BROWSER_SESSION.unlink(missing_ok=True)
+    save_maintenance(enabled=False, last_verified_at=None)
     update("not_started", "学校手机号已删除")
 
 
@@ -259,15 +364,20 @@ def run(job, visible=False):
                 submit_deadline, continued = 0, 0
                 submitted = False
                 portal_attempts = 0
+                gateway_since, gateway_recovered = None, False
                 if visible:
                     update("manual_waiting", "已在桌面弹出浏览器窗口，请在窗口中登录（支持密码/验证码/微信扫码）", visible=True)
                 while True:
+                    if _stop_event.is_set():
+                        update("stopped", "已停止学校登录维护")
+                        break
                     school_pages = [candidate for candidate in context.pages if not candidate.is_closed()
                                     and urlsplit(candidate.url).hostname in {"auth.ccsut.cn", "zts.ccsut.cn", "tls.ccsut.cn"}]
                     if school_pages:
                         page = school_pages[-1]
                     if page.is_closed():
-                        update("stopped", "可视浏览器窗口已关闭", visible=False)
+                        update("needs_login" if visible else "error",
+                               "登录窗口已关闭，请重新登录" if visible else "维护浏览器已关闭，等待自动恢复", visible=False)
                         break
                     page.wait_for_timeout(200 if visible else 100)
                     if ready and time.monotonic() >= next_check:
@@ -276,6 +386,8 @@ def run(job, visible=False):
                         deadline = time.monotonic() + 600
                         page.goto(SCHOOL_HOME, wait_until="domcontentloaded", timeout=45000)
                     location = urlsplit(page.url)
+                    if location.hostname != "tls.ccsut.cn" or ready:
+                        gateway_since, gateway_recovered = None, False
                     with _lock:
                         _state.update(page_host=location.hostname)
                     if (location.hostname == "tls.ccsut.cn" and page.locator("#xm").count()
@@ -283,12 +395,16 @@ def run(job, visible=False):
                         if not ready or time.monotonic() >= next_check:
                             worker.export_verified(context, page, saved.get("account", ""))
                             save_browser_session(context)
+                            verified_at = datetime.now(UTC).isoformat()
+                            save_maintenance(last_verified_at=verified_at)
                             portal_attempts = 0
-                            update("connected", "学校已连接，自动维护运行中", visible=False)
+                            update("connected", "学校已连接，自动维护运行中", visible=False,
+                                   last_verified_at=verified_at, next_retry_at=None, retry_attempt=0,
+                                   error_type=None, diagnostic=False, verified_this_attempt=True)
                             ready, next_check = True, time.monotonic() + 600
                             if visible:
                                 page.wait_for_timeout(2000)
-                                break
+                                return "handoff"
                     elif location.hostname == "zts.ccsut.cn" and location.path == "/portal/shortcut.html":
                         # This entry finalizes/reuses the school session; the timetable
                         # and ordinary login URLs can both bounce back to the campus portal.
@@ -298,17 +414,30 @@ def run(job, visible=False):
                             continue
                         portal_attempts += 1
                         if portal_attempts > 3:
-                            update("needs_login", "学校门户与教务系统跳转未完成，请重新登录或使用可视浏览器")
+                            update("needs_login", "学校门户与教务系统跳转未完成，请重新启动维护并完成验证码登录")
                             break
                         update("continuing", "正在恢复教务系统会话")
                         page.goto(SCHOOL_HOME, wait_until="domcontentloaded", timeout=45000)
                     elif location.hostname == "tls.ccsut.cn":
+                        now = time.monotonic()
+                        if gateway_since is None:
+                            gateway_since = now
+                        if not visible and now - gateway_since >= GATEWAY_TIMEOUT_SECONDS:
+                            capture_login_page(page)
+                            update("needs_login", "教务系统页面超过60秒未完成加载，尚未确认登录成功。请查看学校页面提示后重新启动维护", diagnostic=True, error_type="gateway_timeout")
+                            break
+                        if (not visible and not gateway_recovered and location.path.rstrip("/") == "/admin"
+                                and now - gateway_since >= GATEWAY_RECOVERY_SECONDS):
+                            gateway_recovered = True
+                            update("continuing", "教务系统首页加载较慢，正在尝试直接验证课表连接")
+                            page.goto(worker.ENTRY, wait_until="domcontentloaded", timeout=30000)
+                            continue
                         # Handle the school gateway in every phase, including profile recovery.
                         if location.path.rstrip("/") == "/admin":
                             # The gateway initially renders a loading document. Wait for the
-                            # authenticated dashboard frame before navigating away from it.
-                            if page.locator("iframe").count():
-                                save_browser_session(context)
+                            # authenticated dashboard marker before navigating away from it.
+                            if (page.locator("iframe").count()
+                                    or page.locator('a[href*="/admin/caslogout"]').count()):
                                 update("checking", "已进入教务系统，正在验证课表连接")
                                 page.goto(worker.ENTRY, wait_until="domcontentloaded", timeout=45000)
                                 continued = 0
@@ -338,15 +467,16 @@ def run(job, visible=False):
                             else:
                                 update("needs_login", "登录停留在中间页面，请反馈当前页面域名")
                                 break
-                    elif status()["state"] in ("starting", "checking"):
+                    elif status()["state"] in ("starting", "checking", "recovering"):
                         if saved.get("account") and prepare(page, saved["account"]):
                             if not visible:
                                 update("ready_for_code", "手机号已填入，请点击获取验证码")
                         elif time.monotonic() > deadline:
                             update("needs_login", "学校登录页面未能自动处理，请使用高级连接或稍后重试")
                             break
-                    if not ready and time.monotonic() > deadline:
-                        update("expired", "本次登录等待已超时，请重新发起登录")
+                    if (not ready and status()["state"] not in ("submitting", "continuing")
+                            and time.monotonic() > deadline):
+                        update("needs_login", "需要人工完成学校登录，请重新发起登录", visible=False)
                         break
                     try:
                         action, code = _commands.get(timeout=0.5)
@@ -355,6 +485,9 @@ def run(job, visible=False):
                     if action == "stop":
                         update("stopped", "已停止学校登录维护")
                         break
+                    # Commands queued before successful verification are now obsolete.
+                    if ready or status()["state"] in ("submitting", "continuing"):
+                        continue
                     if not visible and urlsplit(page.url).hostname != "auth.ccsut.cn":
                         update("needs_login", "学校登录步骤已变化，请重新发起登录")
                         break
@@ -378,8 +511,21 @@ def run(job, visible=False):
                         code = ""
             finally:
                 context.close()
+    except AcademicError as error:
+        if error.code in {"connection_expired", "connection_missing", "permission_denied"}:
+            update("needs_login", "学校要求重新登录或无查询权限，请管理员完成登录", error_type=error.code)
+        else:
+            update("error", "学校连接验证失败，等待自动重试", error_type=type(error).__name__)
+    except ValueError as error:
+        if str(error) == "account_mismatch":
+            update("needs_login", "学校登录账号不匹配，请管理员重新登录", error_type="account_mismatch")
+        else:
+            update("error", "会话验证失败，等待自动重试", error_type=type(error).__name__)
     except Exception as error:
-        update("error", "登录维护失败，请检查浏览器依赖或重新发起登录", error_type=type(error).__name__)
+        if visible and type(error).__name__ == "TargetClosedError":
+            update("needs_login", "登录窗口已关闭，请重新发起登录", visible=False)
+        else:
+            update("error", "登录维护异常，等待自动恢复", error_type=type(error).__name__)
     finally:
         while True:
             try:

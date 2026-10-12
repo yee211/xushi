@@ -219,7 +219,11 @@ def poll_account(credentials: Credentials, cursor: str, stop_event: threading.Ev
                 result = client.get_updates(cursor)
                 inbound_msgs = []
                 for raw in result.get("msgs") or []:
-                    message = extract_text_items(raw, credentials.account_id, _received_at(raw))
+                    try:
+                        message = extract_text_items(raw, credentials.account_id, _received_at(raw))
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        logger.exception("Malformed inbound message skipped account=%s", credentials.account_id)
+                        continue
                     if message:
                         inbound_msgs.append(message)
                 if inbound_msgs:
@@ -233,7 +237,7 @@ def poll_account(credentials: Credentials, cursor: str, stop_event: threading.Ev
                     with connect() as db:
                         save_cursor(db, credentials.account_id, cursor)
             except ILinkError as error:
-                delay = 3600 if "-14" in str(error) else 10
+                delay = 3600 if error.code == "-14" else 10
                 logger.warning("poll failed account=%s retry=%ss: %s", credentials.account_id, delay, error)
                 stop_event.wait(delay)
             except Exception:
@@ -292,10 +296,13 @@ def run() -> None:
         logger.info("reset %s stale processing message(s) left by previous run", reset)
     threads: dict[str, tuple[threading.Thread, threading.Event, str]] = {}
     while _running:
-        with connect() as db:
-            accounts = load_accounts(db)
-        reconcile_threads(threads, accounts)
-        check_morning_push()
+        try:
+            with connect() as db:
+                accounts = load_accounts(db)
+            reconcile_threads(threads, accounts)
+            check_morning_push()
+        except Exception:
+            logger.exception("Weixin supervisor cycle failed; retrying")
         _wait(SUPERVISOR_INTERVAL_SECONDS)
     for thread, stop_event, _ in threads.values():
         stop_event.set()

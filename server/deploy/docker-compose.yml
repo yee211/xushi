@@ -16,7 +16,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # 定时备份：启动时立即全量一次，之后每 24 小时一次；自动清理 14 天前的旧文件
+  # 数据库和持久配置备份：成功后每 24 小时，失败 5 分钟后重试；保留 14 天
   db-backup:
     image: postgres:17-alpine
     restart: unless-stopped
@@ -25,23 +25,13 @@ services:
         condition: service_healthy
     environment:
       PGPASSWORD: ${DB_PASSWORD:?请通过环境变量注入数据库密码}
+      PGCONNECT_TIMEOUT: "15"
     volumes:
       - ./backups:/backups
-    command:
-      - /bin/sh
-      - -c
-      - |
-        while :; do
-          file="/backups/xushi_$$(date +%F).dump"
-          if pg_dump -h db -U xushi -Fc xushi_schedule -f "$$file.tmp" && mv "$$file.tmp" "$$file"; then
-            echo "backup ok: $$file"
-            find /backups -name 'xushi_*.dump' -mtime +14 -delete
-          else
-            rm -f "$$file.tmp"
-            echo "backup failed, will retry next cycle"
-          fi
-          sleep 86400
-        done
+      - ../../data:/source-data:ro
+      - ./backup.sh:/scripts/backup.sh:ro
+      - ./verify-backup.sh:/scripts/verify-backup.sh:ro
+    command: ["/bin/sh", "/scripts/backup.sh"]
 
   redis:
     image: redis:7.4-alpine

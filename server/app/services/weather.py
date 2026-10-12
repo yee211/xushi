@@ -64,7 +64,7 @@ def fetch_hourly(target_date: date, now: datetime | None = None) -> list[dict] |
     if not settings:
         return None
     now = now or datetime.now(ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Shanghai")))
-    key = (settings, target_date)
+    key = (settings, target_date, os.getenv("APP_TIMEZONE", "Asia/Shanghai"))
     cached = _CACHE.get(key)
     if cached and now.timestamp() - cached[0] < _cache_ttl_seconds():
         return cached[1]
@@ -75,7 +75,7 @@ def fetch_hourly(target_date: date, now: datetime | None = None) -> list[dict] |
                                      "hourly": "precipitation_probability,weather_code",
                                      "start_date": target_date.isoformat(),
                                      "end_date": target_date.isoformat(),
-                                     "timezone": "Asia/Shanghai"})
+                                     "timezone": os.getenv("APP_TIMEZONE", "Asia/Shanghai")})
         response.raise_for_status()
         hourly = response.json()["hourly"]
         hours = [{"hour": int(text[11:13]), "precip": int(value or 0), "code": int(code)}
@@ -107,7 +107,7 @@ def rain_advisory(target_date: str, courses: list[dict], now: datetime | None = 
         return None
     worst = None
     for item in courses:
-        start, end = int(item["start_time"][:2]), int(item["end_time"][:2])
+        start, end = int(item["start_time"].split(":", 1)[0]), int(item["end_time"].split(":", 1)[0])
         in_class = [hour for hour in hours if start <= hour["hour"] <= end]
         if not in_class:
             continue
@@ -129,7 +129,7 @@ def fetch_daily_weather(target_date: date, now: datetime | None = None) -> dict 
     if not settings:
         return None
     now = now or datetime.now(ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Shanghai")))
-    key = (settings, target_date)
+    key = (settings, target_date, os.getenv("APP_TIMEZONE", "Asia/Shanghai"))
     cached = _DAILY_CACHE.get(key)
     if cached and now.timestamp() - cached[0] < _cache_ttl_seconds():
         return cached[1]
@@ -140,7 +140,7 @@ def fetch_daily_weather(target_date: date, now: datetime | None = None) -> dict 
                                      "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
                                      "start_date": target_date.isoformat(),
                                      "end_date": target_date.isoformat(),
-                                     "timezone": "Asia/Shanghai"})
+                                     "timezone": os.getenv("APP_TIMEZONE", "Asia/Shanghai")})
         response.raise_for_status()
         daily = response.json().get("daily") or {}
         code = int((daily.get("weather_code") or [0])[0])

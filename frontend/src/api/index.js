@@ -80,7 +80,7 @@ export async function api(url, options = {}) {
   }
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && !['/api/login', '/api/register'].includes(url)) {
       clearAuth();
       window.dispatchEvent(new CustomEvent('auth:expired'));
     }

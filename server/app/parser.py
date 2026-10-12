@@ -97,8 +97,9 @@ def parse_weeks(expression: str) -> list[int]:
     if str(expression or "").strip() in {"每周", "全周", "全部周"}:
         return list(range(1, 31))
     weeks: set[int] = set()
-    text = re.sub(r"[周第\s]", "", str(expression or ""))
-    for match in re.finditer(r"(\d+)(?:[-–~到](\d+))?([（(][单双][）)])?", text):
+    text = re.sub(r"[周第]", "", str(expression or ""))
+    text = re.sub(r"\s*([-–~到])\s*", r"\1", text)
+    for match in re.finditer(r"(\d+)(?:[-–~到](\d+))?\s*([（(][单双][）)])?", text):
         start = int(match.group(1))
         end = int(match.group(2)) if match.group(2) else start
         parity = match.group(3) or ""
@@ -282,7 +283,7 @@ def _grid_weekday_columns(rows: list[dict]) -> dict[int, int]:
 # 周次串核心形态：'1,7-9,11-12周' / '1-15(单)周' / '1-5(单)9-15(单)周' /
 # '1-5(单),9-15(单)周'（区间之间可有逗号/空格等分隔符）/ '4,7,10-16(双)周'
 # 关键点：(单)/(双) 括号后允许分隔符再接下一段区间，最终以“周”字收尾。
-WEEK_SPEC_CORE = r"\d[\d\-–~到,，、\s]*(?:[（(][单双][）)][\d\-–~到,，、\s]*)*周"
+WEEK_SPEC_CORE = r"(?<!\d)\d[\d\-–~到,，、\s]*+(?:[（(][单双][）)][\d\-–~到,，、\s]*+)*周"
 
 WEEK_RE = re.compile(
     r"(?:【[^】]*周[^】]*】|\[[^\]]*周[^\]]*\]|\([^)]*周[^)]*\)|（[^）]*周[^）]*）|"
@@ -422,6 +423,10 @@ def _parse_grid_course_block(block: str, weekday: int, start: int, end: int) -> 
         )
         if m_compound:
             t = m_compound.group(1).strip()
+            if not name and t:
+                parts = t.rsplit(None, 1)
+                name = parts[0]
+                t = parts[1] if len(parts) == 2 else ""
             w = (
                 m_compound.group(2)
                 or m_compound.group(3)
@@ -431,6 +436,11 @@ def _parse_grid_course_block(block: str, weekday: int, start: int, end: int) -> 
                 or ""
             ).strip()
             r = m_compound.group(7).strip()
+            attached_number = re.match(r"(\d+)\s+(?=\d)", w)
+            if attached_number and t and line.startswith(t + attached_number.group(1)):
+                # A numeric suffix directly attached to the teacher is not a week.
+                t += attached_number.group(1)
+                w = w[attached_number.end():]
             if t and not teacher:
                 teacher = _clean_cell_text(t, 40)
             if w:

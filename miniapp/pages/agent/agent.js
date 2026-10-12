@@ -134,7 +134,7 @@ Page({
       // 直接进全屏预览：微信预览态长按即可「识别图中二维码」，省掉「保存到相册→扫一扫→选图」三步
       this.previewQrcode()
     } catch (error) {
-      this.setData({ connecting: false, loginStatus: '' }); this.toast(error.message)
+      this.setData({ connecting: false, qrDataUrl: '', loginSession: '', loginStatus: '' }); this.toast(error.message)
     }
   },
   previewQrcode() {
@@ -146,8 +146,8 @@ Page({
     if (!this.data.qrDataUrl || this.saving) return
     this.saving = true
     try {
-      const { tempFilePath } = await wx.downloadFile({ url: this.data.qrDataUrl })
-      await wx.saveImageToPhotosAlbum({ filePath: tempFilePath })
+      const { tempFilePath } = await new Promise((resolve, reject) => wx.downloadFile({ url: this.data.qrDataUrl, success: resolve, fail: reject }))
+      await new Promise((resolve, reject) => wx.saveImageToPhotosAlbum({ filePath: tempFilePath, success: resolve, fail: reject }))
       this.toast('已存入相册，请用微信扫一扫从相册选择')
     } catch (error) {
       const denied = String((error && error.errMsg) || '').includes('auth')
@@ -182,7 +182,7 @@ Page({
       this.setData({ loginStatus: status === 'scaned' ? '已扫码，请在微信中确认连接…' : this.data.loginStatus })
       if (!this.pollCancelled && token === this.pollToken) setTimeout(() => this.pollLogin(''), 1200)
     } catch (error) {
-      this.setData({ connecting: false, loginStatus: '' }); this.toast(error.message)
+      this.setData({ connecting: false, qrDataUrl: '', loginSession: '', loginStatus: '' }); this.toast(error.message)
     }
   },
   onVerifyInput(event) { this.setData({ verifyCode: event.detail.value }) },

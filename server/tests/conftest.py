@@ -62,3 +62,41 @@ def isolate_school_worker(monkeypatch):
 def isolate_school_encryption_key(monkeypatch, tmp_path):
     monkeypatch.delenv('ACADEMIC_CREDENTIAL_SECRET', raising=False)
     monkeypatch.setattr('app.services.academic.KEY_FILE', tmp_path / 'credential.key')
+
+
+@pytest.fixture(autouse=True)
+def isolate_school_maintenance_and_mail(monkeypatch, tmp_path):
+    """Application lifespan tests must not resume real login or send real mail."""
+    from app.services import academic_login, academic_mail
+
+    monkeypatch.setattr(academic_login, "MAINTENANCE", tmp_path / "maintenance.json")
+    monkeypatch.setattr(academic_mail, "CONFIG", tmp_path / "mail-config.enc")
+    monkeypatch.setattr(academic_mail, "OUTBOX", tmp_path / "mail-outbox.json")
+
+
+@pytest.fixture(autouse=True)
+def isolate_redis_configuration(monkeypatch):
+    """Default tests must never consume the developer's real Redis rate limits."""
+    from dataclasses import replace
+
+    from app import redis as redis_module
+
+    monkeypatch.setattr(redis_module, "settings", replace(redis_module.settings, redis_url=""))
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("AGENT_REDIS_URL", raising=False)
+    redis_module.reset_redis_client()
+    yield
+    redis_module.reset_redis_client()
+
+
+@pytest.fixture(autouse=True)
+def isolate_in_memory_rate_limits():
+    from app import rate_limit
+    from app.routers import admin, feedback
+    from app.services import binding
+
+    for module in (rate_limit, admin, feedback, binding):
+        for value in vars(module).values():
+            if isinstance(value, rate_limit.SlidingWindowLimiter):
+                with value._lock:
+                    value._hits.clear()

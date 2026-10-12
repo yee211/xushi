@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from .agent.http_client import close_llm_client
+from .body_limit import BodyLimitMiddleware
 from .db import close_pool, connect, init_db, init_pool, is_pool_ready
 from .observability import configure_logging
 from .paths import DOWNLOADS_DIR, FRONTEND_DIST
@@ -48,7 +49,8 @@ from .routers import (
     schedules,
     wecom_callback,
 )
-from .services import academic_directory, academic_jobs, academic_login, user_cache
+from .services import academic_directory, academic_jobs, academic_login, academic_mail, user_cache
+from .services import request_metrics as metrics_writer
 from .settings import settings, validate_settings
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -65,12 +67,17 @@ async def lifespan(_: FastAPI):
     init_db()
     academic_jobs.start()
     academic_directory.start()
+    academic_login.resume()
+    academic_mail.start()
+    metrics_writer.start()
     try:
         yield
     finally:
         await run_in_threadpool(academic_directory.stop)
         await run_in_threadpool(academic_jobs.stop)
-        academic_login.stop()
+        await run_in_threadpool(academic_login.shutdown)
+        await run_in_threadpool(academic_mail.stop)
+        await run_in_threadpool(metrics_writer.stop)
         close_llm_client()
         close_pool()
         reset_redis_client()
@@ -120,7 +127,7 @@ def favicon():
 async def request_metrics(request, call_next):
     """结构化请求日志 + X-Request-ID 透传，记录请求指标至 api_request_logs。"""
     started = time.perf_counter()
-    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+    request_id = (request.headers.get("x-request-id") or "")[:64] or uuid.uuid4().hex[:16]
     status_code = 500
     try:
         response = await call_next(request)
@@ -144,7 +151,7 @@ async def request_metrics(request, call_next):
         if is_pool_ready() and not path.startswith("/admin/static") and not path.endswith((".ico", ".png", ".jpg", ".css", ".js")):
             try:
                 duration = round((time.perf_counter() - started) * 1000)
-                await run_in_threadpool(write_request_metric, request.method, path, status_code, duration)
+                metrics_writer.enqueue(request.method, path, status_code, duration)
             except Exception:
                 pass
 
@@ -204,6 +211,9 @@ if FRONTEND_DIST.exists():
             raise HTTPException(404, "Resource not found")
         return FileResponse(candidate if candidate.is_file() else root / "index.html")
 
+
+# Outermost body guard runs before request parsing and metrics middleware.
+app.add_middleware(BodyLimitMiddleware, max_upload_bytes=settings.max_upload_bytes)
 
 if __name__ == "__main__":
     import uvicorn

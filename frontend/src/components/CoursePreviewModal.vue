@@ -15,7 +15,7 @@ const props = defineProps({
   records: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['close', 'edit', 'adjust', 'restore', 'revoke', 'delete', 'remove-adjustment']);
+const emit = defineEmits(['close', 'edit', 'adjust', 'restore', 'delete', 'remove-adjustment']);
 
 const courseHexColor = computed(() => {
   if (!props.course) return '#5B8DEF';

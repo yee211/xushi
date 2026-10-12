@@ -249,6 +249,7 @@ function notify(text) {
 
 // 登出
 function logout() {
+  [previewOpen, editorOpen, adjustmentOpen, adjustmentImportOpen, moveModalOpen, adjustmentCenterOpen, courseListOpen, academicQueryOpen, importerOpen, importSourceOpen, semesterModalOpen].forEach(modal => { modal.value = false; });
   clearAuth();
   localStorage.removeItem('cache_user');
   localStorage.removeItem('cache_schedules');
@@ -339,6 +340,8 @@ async function handleAcademicSynced(result) {
 }
 
 async function load(preferredId = null) {
+  const previousScheduleId = schedule.value?.id;
+  const previousWeek = week.value;
   try {
     const list = (await schedulesApi.list()).filter(item => !isNative.value || item.variant_type !== 'adjusted');
     schedules.value = list;
@@ -389,7 +392,7 @@ async function load(preferredId = null) {
     }
     const totalWeeks = scheduleWeekCount(schedule.value);
     currentWeek.value = termWeek(schedule.value?.start_date, totalWeeks, schedule.value);
-    week.value = currentWeek.value;
+    week.value = schedule.value?.id === previousScheduleId ? Math.min(totalWeeks, Math.max(1, previousWeek)) : currentWeek.value;
   } catch (error) {
     // 断网 / 服务不可达：回退到本地缓存的课表，进入只读离线模式（仅 Android 原生端）
     if (isNative.value && error?.offline) {
@@ -742,8 +745,9 @@ const editingAdjustedWeek = ref(null);
 function openEditor(course) {
   if (isNative.value && course?.id) return;
   editingAdjustedWeek.value = course?.adjusted_week || null;
-  Object.assign(form, emptyCourse(), course || {});
-  form.weeks = formatWeeks(course?.weeks) || '1-16';
+  const base = course?.original_course || course;
+  Object.assign(form, emptyCourse(), base || {});
+  form.weeks = formatWeeks(base?.weeks) || '1-16';
   editorOpen.value = true;
 }
 
@@ -872,7 +876,7 @@ async function restoreCourseRecord(record) {
     const targetWeekday = timeDiff?.old_weekday ? timeDiff.old_weekday : orig.weekday;
     const targetStart = timeDiff?.old_start_section ? timeDiff.old_start_section : orig.start_section;
     const targetEnd = timeDiff?.old_end_section ? timeDiff.old_end_section : orig.end_section;
-    const targetRoom = roomDiff && roomDiff.old !== '未设置' ? roomDiff.old : (course.room || orig.room || '');
+    const targetRoom = roomDiff ? (roomDiff.old === '未设置' ? '' : roomDiff.old ?? '') : (orig.room || '');
 
     const recordWeek = record.week || (Array.isArray(record.details) ? record.details[0]?.week : null);
 
@@ -914,6 +918,10 @@ async function restoreCourseRecord(record) {
       return cid === course.id && l.id >= record.id;
     });
     for (const sub of subsequentLogs) {
+      const subWeek = sub.week || (Array.isArray(sub.details) ? sub.details.find(d => d.week)?.week : null);
+      if (!recordWeek && subWeek) {
+        await coursesApi.cancelAdjustment(course.id, subWeek);
+      }
       try {
         await adjustmentsApi.deleteRecord(sub.id);
       } catch (_) {}
@@ -1377,7 +1385,6 @@ onUnmounted(() => {
     @edit="editPreview"
     @adjust="openAdjustment"
     @restore="restoreCourseRecord"
-    @revoke="revokeAdjustmentRecord"
     @delete="deleteChangeLog"
     @remove-adjustment="removeCourseAdjustment"
   />

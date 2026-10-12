@@ -1,5 +1,6 @@
 """邮箱账号路由（网页端 / Android）：注册、登录、当前用户。"""
 from fastapi import APIRouter, Depends, HTTPException, Request
+from psycopg.errors import UniqueViolation
 
 from ..auth import create_token, get_current_user, hash_password, verify_password
 from ..db import connect
@@ -16,17 +17,20 @@ def register(payload: RegisterIn, request: Request):
     username = payload.username.strip()
     if len(username) < 2:
         raise HTTPException(400, "用户名至少需要 2 个字符")
-    with connect() as db:
-        if db.execute("SELECT 1 FROM users WHERE email=%s", (email,)).fetchone():
-            raise HTTPException(409, "该邮箱已注册")
-        if db.execute("SELECT 1 FROM users WHERE username=%s", (username,)).fetchone():
-            raise HTTPException(409, "用户名已被占用")
-        user = db.execute(
-            "INSERT INTO users(email,username,password_hash) VALUES(%s,%s,%s) RETURNING id,email,username",
-            (email, username, hash_password(payload.password)),
-        ).fetchone()
-        # 为新用户创建一个默认空课表，便于直接添加课程
-        db.execute("INSERT INTO schedules(user_id,name,term) VALUES(%s,%s,%s)", (user["id"], "我的课表", ""))
+    try:
+        with connect() as db:
+            if db.execute("SELECT 1 FROM users WHERE email=%s", (email,)).fetchone():
+                raise HTTPException(409, "该邮箱已注册")
+            if db.execute("SELECT 1 FROM users WHERE username=%s", (username,)).fetchone():
+                raise HTTPException(409, "用户名已被占用")
+            user = db.execute(
+                "INSERT INTO users(email,username,password_hash) VALUES(%s,%s,%s) RETURNING id,email,username",
+                (email, username, hash_password(payload.password)),
+            ).fetchone()
+            # 为新用户创建一个默认空课表，便于直接添加课程
+            db.execute("INSERT INTO schedules(user_id,name,term) VALUES(%s,%s,%s)", (user["id"], "我的课表", ""))
+    except UniqueViolation as error:
+        raise HTTPException(409, "邮箱或用户名已被占用") from error
     return {
         "token": create_token(user["id"], user["username"]),
         "user": {"id": user["id"], "email": user["email"], "username": user["username"]},

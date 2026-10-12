@@ -258,7 +258,7 @@ def parse_qiangzhi_json(raw_data, *, exact: bool = False) -> dict | None:
     if not normalized:
         return None
 
-    term = "2026-2027学年第1学期"
+    term = ""
     if term_candidates:
         first_term = term_candidates[0]
         m = re.match(r"(\d{4}-\d{4})-(\d)", first_term)
@@ -431,7 +431,7 @@ def parse_html_schedule(payload_str: str) -> dict | None:
     返回字典结构：
     {
         "name": "课表名称",
-        "term": "2026-2027学年第1学期",
+        "term": "",
         "courses": [...]
     }
     如果确定性规则未匹配到任何课程，返回 None。
@@ -470,7 +470,7 @@ def parse_html_schedule(payload_str: str) -> dict | None:
         if re.search(r'id=["\']report1(?:_totalpage_input)?["\']', raw_html):
             try:
                 return parse_ccsut_report(raw_html, _find_term(title + " " + text + " " + raw_html[:8000])
-                                          or "2026-2027学年第1学期")
+                                          or "")
             except ValueError:
                 return None
 
@@ -501,7 +501,7 @@ def parse_html_schedule(payload_str: str) -> dict | None:
 
     # 从所有标题与文本中推算学期标识
     combined_meta = " ".join(all_titles) + " " + payload_str[:2000]
-    term = _find_term(combined_meta) or "2026-2027学年第1学期"
+    term = _find_term(combined_meta) or ""
 
     return {
         "name": "长沙工业学院教务课表",

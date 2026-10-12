@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 from base64 import b64encode
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -39,7 +40,8 @@ def message_payload(content="绑定 ABC123", msg_id="CAIQ16HM==", msg_type="text
     return payload
 
 
-def encrypted_envelope(payload, timestamp="1757700000", nonce="nonce1", signature=None):
+def encrypted_envelope(payload, timestamp=None, nonce="nonce1", signature=None):
+    timestamp = timestamp or str(int(time.time()))
     encrypt = wecom.encrypt_message(json.dumps(payload, ensure_ascii=False), SECRET_KEY)
     sig = signature or wecom.message_signature(TOKEN, timestamp, nonce, encrypt)
     body = b'{"encrypt":"' + encrypt.encode() + b'"}'
@@ -88,8 +90,9 @@ def test_url_verification(channel):
     client, _ = channel
     echo = "echo-88001"
     encrypt = wecom.encrypt_message(echo, SECRET_KEY)
-    params = {"msg_signature": wecom.message_signature(TOKEN, "1", "n", encrypt),
-              "timestamp": "1", "nonce": "n", "echostr": encrypt}
+    timestamp = str(int(time.time()))
+    params = {"msg_signature": wecom.message_signature(TOKEN, timestamp, "n", encrypt),
+              "timestamp": timestamp, "nonce": "n", "echostr": encrypt}
     ok = client.get("/api/integrations/wecom/callback", params=params)
     assert ok.status_code == 200 and ok.text == echo
     params["msg_signature"] = "0" * 40

@@ -128,8 +128,8 @@ function onSave() {
   emit('save', {
     name: form.value.name.trim(),
     term: form.value.term.trim(),
-    start_date: form.value.start_date || null,
-    end_date: form.value.end_date || null,
+    start_date: form.value.start_date || '',
+    end_date: form.value.end_date || '',
   });
 }
 </script>

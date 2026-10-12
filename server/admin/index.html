@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>序时 · 管理后台</title>
-  <link rel="stylesheet" href="/admin/static/admin.css?v=20261008_02">
+  <link rel="stylesheet" href="/admin/static/admin.css?v=20261011_01">
 </head>
 <body>
   <div class="ambient"><i></i><i></i><i></i></div>
@@ -29,16 +29,13 @@
         <span class="logo small">序</span>
         <div><b>序时</b><small>管理后台</small></div>
       </div>
-      <nav>
-        <button class="nav active" data-page="overview">概览</button>
-        <button class="nav" data-page="users">用户与课表</button>
-        <button class="nav" data-page="feedback">用户反馈</button>
-        <button class="nav" data-page="traffic">流量监控</button>
-        <button class="nav" data-page="llm">大模型配置</button>
-        <button class="nav" data-page="academic">学校教务连接</button>
-        <button class="nav" data-page="academicSync">课表同步</button>
-        <button class="nav" data-page="system">系统运维</button>
-        <button class="nav" data-page="admins">管理员</button>
+      <nav aria-label="后台功能">
+        <p class="nav-label">管理模块</p>
+        <button class="nav active" data-module="workspace">工作台</button>
+        <button class="nav" data-module="users">用户管理</button>
+        <button class="nav" data-module="academic">教务管理</button>
+        <button class="nav" data-module="ai">AI 管理</button>
+        <button class="nav" data-module="system">系统管理</button>
       </nav>
       <button id="logout" class="logout">退出登录</button>
     </aside>
@@ -46,15 +43,21 @@
     <main class="content">
       <header>
         <div>
-          <p class="eyebrow">OPERATIONS</p>
+          <p class="eyebrow">序时 / 管理工作台</p>
           <h1 id="pageTitle">运行概览</h1>
+          <p id="pageDescription" class="meta"></p>
         </div>
-        <button id="refresh" class="ghost">刷新数据</button>
+        <div class="header-actions"><span id="refreshStatus" class="meta" role="status"></span><button id="refresh" class="ghost">刷新数据</button></div>
       </header>
+      <nav id="moduleTabs" class="module-tabs" aria-label="模块内页面"></nav>
 
+      <div id="pageError" class="page-error hidden" role="alert"><span id="pageErrorText"></span><button id="retryPage" class="ghost" type="button">重试</button></div>
       <section id="academicSyncPage" class="page hidden"></section>
       <section id="academicPage" class="page hidden"></section>
       <section id="overviewPage" class="page"></section>
+      <section id="tasksPage" class="page hidden"></section>
+      <section id="directoryPage" class="page hidden"></section>
+      <section id="schedulesPage" class="page hidden"></section>
 
       <section id="usersPage" class="page hidden">
         <form id="userSearchForm" class="glass toolbar users-toolbar" onsubmit="event.preventDefault()">
@@ -62,7 +65,7 @@
           <button id="btnSearchUser" type="submit" class="save">搜索</button>
           <button id="btnResetUser" type="button" class="ghost">重置</button>
         </form>
-        <div id="usersList" class="users-grid"></div>
+        <div id="usersList" class="table-shell"></div>
         <div id="usersPagination" class="pagination-bar"></div>
       </section>
 
@@ -85,7 +88,7 @@
             <option value="other">其他</option>
           </select>
         </div>
-        <div id="feedbackList" class="feedback-grid"></div>
+        <div id="feedbackList" class="table-shell"></div>
       </section>
 
       <section id="trafficPage" class="page hidden"></section>
@@ -153,7 +156,7 @@
   </dialog>
 
   <!-- 用户详情与课表透视弹窗 -->
-  <dialog id="userDetailDialog">
+  <dialog id="userDetailDialog" class="detail-drawer" aria-label="用户详情">
     <form method="dialog" class="dialog-card" style="max-width:820px;width:95%;">
       <button class="dialog-close" value="cancel">×</button>
       <div id="userDetailContent"></div>
@@ -187,7 +190,7 @@
     </form>
   </dialog>
 
-  <div id="toast" class="toast"></div>
-  <script src="/admin/static/admin.js?v=20261008_02" defer></script>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/admin/static/admin.js?v=20261011_01" defer></script>
 </body>
 </html>

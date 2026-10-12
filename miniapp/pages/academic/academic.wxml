@@ -51,7 +51,7 @@
             <text class="field-item-label">姓名、专业、班级或年级</text>
             <input class="field-input" value="{{keyword}}" maxlength="80" disabled="{{busy}}" placeholder="如：张三、计算机、24计科7班、25" placeholder-class="field-placeholder" bindinput="inputKeyword" confirm-type="search" bindconfirm="search"/>
           </view>
-          <text class="form-card-subtitle">支持部分文字，如“计科”或“24”。选择自己的信息后确认绑定。</text>
+          <text class="form-card-subtitle">支持部分文字，如“计科”或“24”。确认绑定后将自动同步默认学期课表，覆盖前会备份当前课表；失败时保留原课表。</text>
         </view>
         <button class="btn primary search-btn" disabled="{{busy || !keyword}}" loading="{{busy}}" bindtap="search">搜索学校身份</button>
 
@@ -90,6 +90,7 @@
         <text class="empty-desc">试试姓名、专业或班级的部分文字，例如“计科”或“24计科7班”。</text>
       </view>
 
+      <view wx:if="{{bound && notice}}" class="academic-notice">{{notice}}<button disabled="{{busy}}" bindtap="retryTerms">重新加载学期</button></view>
       <view class="academic-alert error-alert" wx:if="{{bound && error}}"><text class="alert-text">{{error}}</text></view>
       <!-- 已选档案或已绑定身份的操作管理面板 -->
       <view class="card manage-card" wx:if="{{bound}}">
@@ -129,6 +130,6 @@
       <text class="binding-action-name">已选择：{{selected.name}}</text>
       <text class="binding-action-class">{{selected.class_name}} · {{selected.major_name}}</text>
     </view>
-    <button class="btn primary binding-action-button" disabled="{{busy}}" loading="{{busy}}" bindtap="bindSchool">确认绑定</button>
+    <button class="btn primary binding-action-button" disabled="{{busy}}" loading="{{busy}}" bindtap="bindSchool">绑定并同步课表</button>
   </view>
 </view>

@@ -14,6 +14,7 @@ import httpx
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from .agent.http_client import post_llm
 from .services.llm_config import get_llm_config
 
 logger = logging.getLogger("classschedule")
@@ -87,7 +88,7 @@ def _request_adjustments(user_content) -> list[dict]:
     if not (base_url and api_key):
         raise RuntimeError("视觉模型尚未配置，请先在 .env 中填写 AI_API_KEY 或 VISION_API_KEY")
     try:
-        response = httpx.post(
+        response = post_llm(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=timeout,

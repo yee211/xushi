@@ -207,11 +207,12 @@ def init_db():
         # ---------- 管理后台 ----------
         db.execute("""CREATE TABLE IF NOT EXISTS admins (
             id BIGSERIAL PRIMARY KEY,
-            username VARCHAR(64) NOT NULL UNIQUE,
+            username VARCHAR(80) NOT NULL UNIQUE,
             password_hash VARCHAR(255) NOT NULL,
-            role VARCHAR(20) NOT NULL DEFAULT 'admin',
-            created_by VARCHAR(64) NOT NULL DEFAULT 'system',
-            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+            role VARCHAR(32) NOT NULL DEFAULT 'admin',
+            created_by VARCHAR(80) NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
         db.execute("""CREATE TABLE IF NOT EXISTS admin_audit_logs (
             id BIGSERIAL PRIMARY KEY,
             admin_name VARCHAR(64) NOT NULL,
@@ -220,6 +221,12 @@ def init_db():
             target_id VARCHAR(120) NOT NULL DEFAULT '',
             details JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        db.execute("ALTER TABLE admins ALTER COLUMN username TYPE VARCHAR(80)")
+        db.execute("ALTER TABLE admins ALTER COLUMN role TYPE VARCHAR(32)")
+        db.execute("ALTER TABLE admins ALTER COLUMN created_by TYPE VARCHAR(80)")
+        db.execute("ALTER TABLE admins ALTER COLUMN created_by SET DEFAULT ''")
+        db.execute("ALTER TABLE admins ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP")
+        db.execute("CREATE INDEX IF NOT EXISTS admins_username_idx ON admins(username)")
         db.execute("CREATE INDEX IF NOT EXISTS admin_audit_created_idx ON admin_audit_logs(created_at DESC)")
         db.execute("""CREATE TABLE IF NOT EXISTS api_request_logs (
             id BIGSERIAL PRIMARY KEY,
@@ -248,10 +255,11 @@ def init_db():
         db.execute("DELETE FROM api_request_logs WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'")
 
         db.execute("""CREATE TABLE IF NOT EXISTS academic_bindings (
-            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
             student JSONB NOT NULL,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
+        db.execute("ALTER TABLE academic_bindings ALTER COLUMN user_id TYPE BIGINT")
         db.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS academic_student_id TEXT")
         db.execute("ALTER TABLE academic_bindings ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 1")
         db.execute("ALTER TABLE academic_bindings ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ")

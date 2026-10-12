@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -59,6 +60,13 @@ def export_verified(context, page, expected_account):
             raise ValueError("account_mismatch")
     cookie = "; ".join(item["name"] + "=" + item["value"] for item in cookies)
     agent = page.evaluate("navigator.userAgent")
+    # Playwright's sync API runs its own asyncio loop in this thread.
+    # Pass only immutable values; browser objects stay in their owner thread.
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="school-http-check") as executor:
+        return executor.submit(verify_connection, cookie, agent).result()
+
+
+def verify_connection(cookie, agent):
     with CcsutClient({"Cookie": cookie, "User-Agent": agent, "X-Requested-With": "XMLHttpRequest"}) as client:
         grades = client.grades()
     try:

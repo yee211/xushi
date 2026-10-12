@@ -64,6 +64,7 @@ def test_report_url_cannot_send_school_cookie_elsewhere():
 
 
 def test_connection_encrypted_and_cache_invalidated(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.academic_directory.ensure_initial_refresh", lambda: None)
     monkeypatch.setenv("ADMIN_SESSION_SECRET", "s" * 32)
     monkeypatch.delenv("CCSUT_COOKIE", raising=False)
     monkeypatch.setattr(academic, "CONFIG_FILE", tmp_path / "connection.enc")

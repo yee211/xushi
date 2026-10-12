@@ -14,6 +14,7 @@ import logging
 import os
 import secrets
 import struct
+import threading
 import time
 from base64 import b64decode, b64encode
 from datetime import datetime
@@ -22,10 +23,12 @@ from zoneinfo import ZoneInfo
 import httpx
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
+from redis.exceptions import RedisError
 
 from ..agent.service import build_agent_reply
 from ..db import connect
 from ..rate_limit import wecom_limiter
+from ..redis import get_redis
 
 WECOM_PROVIDER = "wecom"
 CALLBACK_TIMEOUT = httpx.Timeout(10.0)
@@ -89,12 +92,15 @@ def decrypt_message(encrypt_b64: str, aes_key: bytes, corp_id: str = "") -> str:
             raise WeComCryptoError("解密后的内容过短")
         length = struct.unpack("!I", buffer[16:20])[0]
         plain, receive_id = buffer[20:20 + length], buffer[20 + length:]
-    except (IndexError, struct.error) as error:
+    except (IndexError, struct.error, ValueError) as error:
         raise WeComCryptoError("回调密文结构不合法") from error
     receive = receive_id.decode("utf-8", "replace")
     if receive and corp_id and receive != corp_id:
         raise WeComCryptoError("回调 receiveid 与 WECOM_CORP_ID 不匹配")
-    return plain.decode("utf-8")
+    try:
+        return plain.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise WeComCryptoError("回调明文编码不合法") from error
 
 
 def parse_encrypt_envelope(body: bytes) -> str:
@@ -119,10 +125,20 @@ def parse_message(plain: str) -> dict:
     return message
 
 
+def _verify_fresh_timestamp(timestamp):
+    try:
+        value = int(timestamp)
+    except (TypeError, ValueError) as error:
+        raise WeComCryptoError("回调时间戳不合法") from error
+    if abs(time.time() - value) > DEDUP_TTL_SECONDS:
+        raise WeComCryptoError("回调已过期")
+
+
 def verify_callback_url(settings: dict, msg_signature: str, timestamp: str, nonce: str, echostr: str) -> str:
     """企业微信后台「验证 URL 有效性」：验签后返回解密出的 echostr 明文（1 秒内原样响应）。"""
     if not verify_signature(settings["token"], timestamp, nonce, echostr, msg_signature):
         raise WeComCryptoError("URL 验证签名不通过")
+    _verify_fresh_timestamp(timestamp)
     return decrypt_message(echostr, settings["aes_key"], settings.get("corp_id", ""))
 
 
@@ -132,6 +148,7 @@ def handle_callback(settings: dict, body: bytes, msg_signature: str, timestamp: 
     encrypt = parse_encrypt_envelope(body)
     if not verify_signature(settings["token"], timestamp, nonce, encrypt, msg_signature):
         raise WeComCryptoError("回调签名校验失败")
+    _verify_fresh_timestamp(timestamp)
     message = parse_message(decrypt_message(encrypt, settings["aes_key"], settings.get("corp_id", "")))
     expected_bot = settings.get("aibot_id", "")
     if expected_bot and message.get("aibotid") not in ("", expected_bot):
@@ -141,31 +158,44 @@ def handle_callback(settings: dict, body: bytes, msg_signature: str, timestamp: 
     msg_type, chat_type = message.get("msgtype", ""), message.get("chattype", "single")
     response_url = message.get("response_url", "")
     logger.info(json.dumps({"event": "wecom_message", "msg_type": msg_type, "chat_type": chat_type}))
-    key = message.get("msgid", "") or f"{sender}:{timestamp}:{msg_type}"
+    key = message.get("msgid", "") or hashlib.sha256(
+        (timestamp + ":" + nonce + ":" + json.dumps(message, sort_keys=True, ensure_ascii=False)).encode()).hexdigest()
     if not _first_time_seen(key):
         return
     if chat_type != "single":
         return  # MVP 只处理单聊，群聊不响应
     content = (message.get("text") or {}).get("content", "") if msg_type == "text" else ""
-    if msg_type != "text" and not response_url:
+    if not response_url:
         return  # 无 response_url 的事件（如进入会话以外的通知）无法回复，忽略
     received_at = datetime.now(ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Shanghai")))
     background_tasks.add_task(process_wecom_message, content, sender, response_url, key, received_at)
 
 
 _seen_messages: dict[str, float] = {}
+_seen_lock = threading.Lock()
 
 
 def _first_time_seen(msg_key: str) -> bool:
-    """企业微信可能重推同一消息，按 msgid（或事件键）做进程内幂等。"""
-    now = time.time()
-    for stale_key, seen_at in list(_seen_messages.items()):
-        if now - seen_at > DEDUP_TTL_SECONDS:
-            _seen_messages.pop(stale_key, None)
-    if not msg_key or msg_key in _seen_messages:
+    """Atomically claim message delivery across workers through Redis."""
+    if not msg_key:
         return False
-    _seen_messages[msg_key] = now
-    return True
+    client = get_redis()
+    if client is not None:
+        try:
+            digest = hashlib.sha256(msg_key.encode()).hexdigest()
+            return bool(client.set(f"xushi:wecom:seen:{digest}", "1", nx=True, ex=DEDUP_TTL_SECONDS))
+        except RedisError:
+            logger.exception("WeCom dedup unavailable; declining callback processing")
+            return False
+    now = time.time()
+    with _seen_lock:
+        for stale_key, seen_at in list(_seen_messages.items()):
+            if now - seen_at > DEDUP_TTL_SECONDS:
+                _seen_messages.pop(stale_key, None)
+        if msg_key in _seen_messages:
+            return False
+        _seen_messages[msg_key] = now
+        return True
 
 
 def build_reply(db, content: str, sender_id: str, received_at: datetime | None = None) -> str:
@@ -176,6 +206,8 @@ def build_reply(db, content: str, sender_id: str, received_at: datetime | None =
 def process_wecom_message(content: str, sender_id: str, response_url: str, msg_key: str = "",
                           received_at: datetime | None = None) -> None:
     """后台任务：生成回复并 POST 到 response_url；失败只记日志，不影响回调响应。"""
+    if not response_url:
+        return
     try:
         allowed, retry_after = wecom_limiter.hit(sender_id)
         if not allowed:

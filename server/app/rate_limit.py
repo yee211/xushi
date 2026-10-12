@@ -20,6 +20,19 @@ from .settings import settings
 logger = logging.getLogger("classschedule.ratelimit")
 
 
+_SLIDING_WINDOW_LUA = """
+local now, window, limit = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
+if redis.call('ZCARD', KEYS[1]) >= limit then
+    local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+    return {0, math.max(1, math.floor(window - (now - tonumber(oldest[2]))) + 1)}
+end
+redis.call('ZADD', KEYS[1], now, ARGV[4])
+redis.call('EXPIRE', KEYS[1], math.ceil(window) + 10)
+return {1, 0}
+"""
+
+
 class SlidingWindowLimiter:
     """滑动窗口限流器。
 
@@ -56,27 +69,9 @@ class SlidingWindowLimiter:
 
         redis_key = f"{self.prefix}:{key}"
         try:
-            pipe = client.pipeline()
-            # 1. 移除窗口时间以外的旧记录
-            pipe.zremrangebyscore(redis_key, 0, now - self.window)
-            # 2. 统计当前窗口内记录总数
-            pipe.zcard(redis_key)
-            # 3. 获取当前窗口内最早的一条时间戳
-            pipe.zrange(redis_key, 0, 0, withscores=True)
-            _, count, oldest_entries = pipe.execute()
-
-            if count >= self.limit:
-                oldest_score = oldest_entries[0][1] if oldest_entries else now - self.window
-                retry_after = max(1, int(self.window - (now - oldest_score)) + 1)
-                return False, retry_after
-
-            # 未达到限额，写入当前时间戳并延期
-            member = f"{now}:{uuid.uuid4().hex[:6]}"
-            pipe = client.pipeline()
-            pipe.zadd(redis_key, {member: now})
-            pipe.expire(redis_key, int(self.window) + 10)
-            pipe.execute()
-            return True, 0
+            allowed, retry_after = client.eval(_SLIDING_WINDOW_LUA, 1, redis_key,
+                                               now, self.window, self.limit, uuid.uuid4().hex)
+            return bool(allowed), int(retry_after)
         except RedisError as exc:
             logger.warning("Redis 限流检查异常，平滑降级为内存限流: %s", exc)
             return self._hit_memory(key, time.monotonic())

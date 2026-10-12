@@ -16,6 +16,14 @@ class FakeRedis:
     def setex(self, key, ttl, value):
         self.values[key], self.ttls[key] = value, ttl
 
+    def eval(self, script, numkeys, key, incoming, ttl):
+        assert numkeys == 1
+        payload = json.loads(incoming)
+        old = json.loads(self.values.get(key, '{}')).get('messages', [])
+        payload['messages'] = (old + payload['messages'])[-12:]
+        self.setex(key, ttl, json.dumps(payload))
+        return len(payload['messages'])
+
 
 def test_redis_history_is_versioned_user_scoped_and_trimmed(monkeypatch):
     redis = FakeRedis()

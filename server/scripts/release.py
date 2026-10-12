@@ -136,7 +136,7 @@ def android_sdk_dir() -> Path:
     if properties.is_file():
         for line in properties.read_text(encoding="utf-8").splitlines():
             if line.startswith("sdk.dir="):
-                value = line.split("=", 1)[1].replace(r"\:", ":").replace(r"\\", "\\")
+                value = line.split("=", 1)[1].replace(r"\:", ":").replace(r"\\", chr(92))
                 candidate = Path(value)
                 if candidate.is_dir():
                     return candidate
@@ -548,11 +548,15 @@ def main():
         sys.exit(1)
 
     version_name = args[0]
-    version_code = int(args[1])
+    try:
+        version_code = int(args[1])
+        validate_release(version_name, version_code)
+    except (ValueError, RuntimeError) as error:
+        print(f"发布参数错误：{error}", file=sys.stderr)
+        sys.exit(2)
     changelog = args[2:] if len(args) > 2 else ["常规优化与体验提升"]
     skip_github = "--no-github" in flags
 
-    validate_release(version_name, version_code)
     snapshots = {path: Path(path).read_bytes() for path in VERSION_FILES if os.path.exists(path)}
 
     print("==================================================")

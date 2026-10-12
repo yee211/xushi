@@ -13,7 +13,9 @@ DEFAULT_API_BASE = "https://ilinkai.weixin.qq.com"
 
 
 class ILinkError(RuntimeError):
-    pass
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 def trusted_tencent_url(value: str) -> str:
@@ -111,7 +113,7 @@ class ILinkClient:
             return {"msgs": [], "get_updates_buf": cursor, "ret": 0}
         ret = data.get("ret", data.get("errcode", 0))
         if ret:
-            raise ILinkError(f"微信收取消息失败：{ret} {data.get('errmsg', '')}".strip())
+            raise ILinkError(f"微信收取消息失败：{ret} {data.get('errmsg', '')}".strip(), code=str(ret))
         return data
 
     def send_text(self, to_user_id: str, text: str, context_token: str = "", *, client_id: str,
@@ -126,7 +128,7 @@ class ILinkClient:
             msg["run_id"] = run_id
         data = self._post("/ilink/bot/sendmessage", {"msg": msg})
         if data.get("ret", 0):
-            raise ILinkError(f"微信发送消息失败：{data.get('ret')} {data.get('errmsg', '')}".strip())
+            raise ILinkError(f"微信发送消息失败：{data.get('ret')} {data.get('errmsg', '')}".strip(), code=str(data.get("ret")))
 
     def notify(self, started: bool) -> None:
         path = "/ilink/bot/msg/notifystart" if started else "/ilink/bot/msg/notifystop"

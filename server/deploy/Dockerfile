@@ -27,6 +27,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN if [ -n "$APT_MIRROR" ]; then \
       sed -i "s|http://deb.debian.org/debian-security|${APT_MIRROR}/debian-security|g; s|http://deb.debian.org/debian|${APT_MIRROR}/debian|g" /etc/apt/sources.list.d/debian.sources; \
     fi
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 xushi \
+    && useradd --uid 10001 --gid xushi --no-create-home --home-dir /app/data xushi
 RUN if [ "$INSTALL_ACADEMIC_BROWSER" = "true" ]; then \
       pip install --no-cache-dir -r requirements-academic.txt && \
       python -m playwright install --with-deps chromium; \
@@ -41,6 +45,10 @@ COPY server/migrations ./migrations
 
 # 网页端构建产物（默认随镜像部署，热更挂载需启用 override）
 COPY --from=frontend-builder /build/dist ./frontend/dist
+
+COPY server/deploy/docker-entrypoint.sh /usr/local/bin/xushi-entrypoint
+RUN chmod 755 /usr/local/bin/xushi-entrypoint
+ENTRYPOINT ["xushi-entrypoint"]
 
 EXPOSE 8000
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..auth import get_current_user
-from ..services import academic, academic_binding, academic_jobs, academic_login, schedule_backups
+from ..services import academic, academic_binding, academic_jobs, academic_login, academic_mail, schedule_backups
 from .admin import require_superadmin
 
 router = APIRouter(tags=["academic"])
@@ -113,6 +113,23 @@ def school_login_status(admin=Depends(require_superadmin)):
     return academic_login.status()
 
 
+class SchoolMailIn(BaseModel):
+    enabled: bool = False
+    sender: str = Field(max_length=254)
+    recipient: str = Field(max_length=254)
+    authorization_code: str = Field(default="", max_length=128)
+
+
+@router.get("/api/admin/academic/mail")
+def school_mail_status(admin=Depends(require_superadmin)):
+    return academic_mail.public_status()
+
+
+@router.put("/api/admin/academic/mail")
+def school_mail_config(payload: SchoolMailIn, admin=Depends(require_superadmin)):
+    return invoke(academic_mail.save_config, **payload.model_dump())
+
+
 @router.put("/api/admin/academic/login/credentials")
 def school_credentials(payload: SchoolCredentialsIn, admin=Depends(require_superadmin)):
     if academic_login.status()["running"]:
@@ -127,19 +144,20 @@ def delete_school_credentials(admin=Depends(require_superadmin)):
     return academic_login.status()
 
 
-class StartLoginIn(BaseModel):
-    visible: bool = False
-
-
 @router.post("/api/admin/academic/login/start")
-def start_school_login(payload: StartLoginIn | None = None, visible: bool = Query(default=False), admin=Depends(require_superadmin)):
-    is_visible = (payload.visible if payload else False) or visible
-    return invoke(academic_login.start, visible=is_visible)
+def start_school_login(admin=Depends(require_superadmin)):
+    return invoke(academic_login.start)
 
 
 @router.post("/api/admin/academic/login/command")
 def school_login_command(payload: SchoolLoginCommandIn, admin=Depends(require_superadmin)):
     return invoke(academic_login.command, payload.action, payload.job_id, payload.code)
+
+
+@router.post("/api/admin/academic/login/stop")
+def stop_school_login(admin=Depends(require_superadmin)):
+    invoke(academic_login.stop)
+    return academic_login.status()
 
 
 @router.get("/api/admin/academic/login/diagnostic")

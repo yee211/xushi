@@ -93,3 +93,7 @@ def dispatch(skills: list[Skill], name: str, arguments_json: str) -> dict:
         return {"error": error.code, "message": error.message}
     except (ValueError, TypeError) as error:
         return {"error": f"参数不合法：{error}"}
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Agent skill failed: %s", name)
+        return {"error": "service_unavailable", "message": "查询服务暂不可用，请稍后重试"}

@@ -110,7 +110,7 @@ let dragElement = null;
 
 const maxSections = computed(() => {
   const courses = props.schedule?.courses || [];
-  const maxInCourses = courses.length ? Math.max(...courses.map(c => c.end_section || 0)) : 10;
+  const maxInCourses = courses.length ? Math.max(...courses.flatMap(c => [c.end_section || 0, ...(c.adjustments || []).filter(a => a.week === props.week).map(a => a.end_section || 0)])) : 10;
   return Math.min(12, Math.max(10, maxInCourses));
 });
 

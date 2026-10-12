@@ -1,0 +1,28 @@
+name: Agent evaluation offline
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      PYTHONDONTWRITEBYTECODE: "1"
+      AGENT_REDIS_URL: ""
+      REDIS_URL: ""
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - name: Agent, concurrency and evaluation regression
+        run: python -m pytest tests/test_agent_loop.py tests/test_agent_optimizations.py tests/test_agent_conversation.py tests/test_bot_concurrency_hardening.py tests/test_intent_corpus.py tests/test_evaluation_contracts.py tests/test_agent_provider_fixes.py -q -p no:cacheprovider
+      - name: Validate corpus without provider calls
+        run: python -m scripts.evaluate_agent

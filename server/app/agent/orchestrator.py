@@ -40,12 +40,12 @@ def _target_day(text: str, today: date) -> date | None:
         return today + timedelta(days=1)
     if "今天" in text or "今日" in text:
         return today
-    match = re.search(r"(?:(下|本|这)周|星期|周)([一二三四五六日天])", text)
+    match = re.search(r"(?:(下下|上|下|本|这)(?:周|星期)|星期|周)([一二三四五六日天])", text)
     if not match:
         return None
     weekday = 7 if match.group(2) == "天" else DAYS.index(match.group(2)) + 1
     monday = today - timedelta(days=today.isoweekday() - 1)
-    week_offset = 1 if match.group(1) == "下" else 0
+    week_offset = {"下下": 2, "下": 1, "上": -1}.get(match.group(1), 0)
     return monday + timedelta(days=week_offset * 7 + weekday - 1)
 
 def _clean_course_name(raw: str) -> str:

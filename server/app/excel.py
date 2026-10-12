@@ -110,14 +110,38 @@ def detect_format(path: Path) -> str:
 
 
 def _decode(path: Path) -> str:
-    """按常见中文编码依次尝试解码纯文本类"Excel"。"""
+    """Prefer explicit charset declarations, then score ambiguous Chinese encodings."""
     raw = path.read_bytes()
-    for encoding in ("utf-8-sig", "gb18030", "big5", "latin-1"):
+    declared = re.search(rb"(?:charset\s*=\s*[\"']?|encoding\s*=\s*[\"'])([a-zA-Z0-9_-]+)", raw[:4096], re.I)
+    encodings = ([declared.group(1).decode('ascii')] if declared else []) + ['utf-8-sig']
+    for encoding in encodings:
         try:
             return raw.decode(encoding)
-        except UnicodeDecodeError:
+        except (UnicodeDecodeError, LookupError):
             continue
-    return raw.decode("utf-8", errors="replace")
+    candidates = []
+    markers = ('星期', '课程', '課程', '教师', '教師', '教室', '学期', '學期', '周次', '節次', '节次')
+    for encoding in ('gb18030', 'big5'):
+        try:
+            text = raw.decode(encoding)
+            candidates.append((sum(text.count(marker) for marker in markers), text))
+        except UnicodeDecodeError:
+            pass
+    return max(candidates, key=lambda item: item[0])[1] if candidates else raw.decode('latin-1')
+
+
+def _expand_vertical_merges(sheet: Sheet) -> Sheet:
+    from openpyxl.utils.cell import range_boundaries
+    rows = {number: dict(cells) for number, cells in sheet.rows}
+    for merged in sheet.merged:
+        left, top, right, bottom = range_boundaries(merged)
+        value = rows.get(top, {}).get(left)
+        if not value or bottom <= top:
+            continue
+        for number in range(top + 1, min(bottom, MAX_ROWS_PER_SHEET) + 1):
+            rows.setdefault(number, {}).setdefault(left, value)
+    sheet.rows = sorted(rows.items())
+    return sheet
 
 
 def _read_ooxml(path: Path, data_only: bool) -> list[Sheet]:
@@ -143,7 +167,7 @@ def _read_ooxml(path: Path, data_only: bool) -> list[Sheet]:
             ))
     finally:
         workbook.close()
-    return sheets
+    return [_expand_vertical_merges(sheet) for sheet in sheets]
 
 
 def _biff_value(worksheet, row: int, column: int, datemode: int):
@@ -184,7 +208,7 @@ def _read_biff(path: Path) -> list[Sheet]:
             for rlo, rhi, clo, chi in worksheet.merged_cells
         ]
         sheets.append(Sheet(worksheet.name, rows, merged, worksheet.nrows, worksheet.ncols))
-    return sheets
+    return [_expand_vertical_merges(sheet) for sheet in sheets]
 
 
 def _span_of(attributes: dict, key: str) -> int:
@@ -282,7 +306,7 @@ def _read_html(path: Path) -> list[Sheet]:
                 for index, line in enumerate(lines, 1) if re.sub(r"<[^>]+>", "", line).strip()]
         if rows:
             sheets.append(Sheet(path.stem, rows[:MAX_ROWS_PER_SHEET], [], len(rows), 1))
-    return sheets
+    return [_expand_vertical_merges(sheet) for sheet in sheets]
 
 
 def _read_csv(path: Path) -> list[Sheet]:
@@ -316,7 +340,7 @@ def read_sheets(path: Path, kind: str | None = None) -> list[Sheet]:
         if content_chars(sheets) < 50:
             # 脚本生成、未经 Excel 保存的工作簿没有公式缓存值，退回读取公式本身
             sheets = _read_ooxml(path, data_only=False)
-        return sheets
+        return [_expand_vertical_merges(sheet) for sheet in sheets]
     if kind == "biff":
         return _read_biff(path)
     if kind == "html":

@@ -13,6 +13,24 @@ from redis.exceptions import RedisError
 CLEAN_METADATA_PATTERN = re.compile(r"\s*\[消息时间[:：].*?\]\s*$", re.DOTALL)
 
 
+_APPEND_TURN_LUA = """
+local incoming = cjson.decode(ARGV[1])
+local current = redis.call('GET', KEYS[1])
+local messages = {}
+if current then
+    local valid, decoded = pcall(cjson.decode, current)
+    if valid and type(decoded) == 'table' and type(decoded.messages) == 'table' then
+        messages = decoded.messages
+    end
+end
+for _, message in ipairs(incoming.messages) do table.insert(messages, message) end
+while #messages > 12 do table.remove(messages, 1) end
+incoming.messages = messages
+redis.call('SET', KEYS[1], cjson.encode(incoming), 'EX', tonumber(ARGV[2]))
+return #messages
+"""
+
+
 def clean_message_content(text: str) -> str:
     return CLEAN_METADATA_PATTERN.sub("", str(text or "")).strip()
 
@@ -63,21 +81,16 @@ def append_turn(user_id: int, provider: str, thread_key: str, user_text: str,
     if client is None:
         return
     key = _key(user_id, provider, thread_key)
-    try:
-        current = client.get(key)
-        messages = list((json.loads(current).get("messages") if current else []) or [])
-    except (RedisError, ValueError, TypeError):
-        messages = []
-    messages.extend([
+    messages = [
         {"role": "user", "content": clean_message_content(user_text), "created_at": received_at.isoformat(),
          "resolved_context": resolved_context},
         {"role": "assistant", "content": clean_message_content(answer), "created_at": datetime.now(received_at.tzinfo).isoformat(),
          "resolved_context": resolved_context},
-    ])
-    payload = {"messages": messages[-12:], "state": resolved_context,
+    ]
+    payload = {"messages": messages, "state": resolved_context,
                "updated_at": received_at.isoformat(),
                "expires_at": (received_at + timedelta(seconds=_ttl())).isoformat()}
     try:
-        client.setex(key, _ttl(), json.dumps(payload, ensure_ascii=False))
+        client.eval(_APPEND_TURN_LUA, 1, key, json.dumps(payload, ensure_ascii=False), _ttl())
     except RedisError:
         return

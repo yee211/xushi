@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..ai import parse_html_with_ai, parse_with_ai
 from ..auth import get_current_user
@@ -31,7 +31,7 @@ logger = logging.getLogger("classschedule")
 
 
 class ImportHtmlPayload(BaseModel):
-    data: str
+    data: str = Field(max_length=2_000_000)
     start_date: str = ""
     end_date: str = ""
 
@@ -95,7 +95,7 @@ def import_file(
     term_name: str = Form(""),
     start_date: str = Form(""),
     end_date: str = Form(""),
-    overwrite: bool = Form(False),
+    overwrite: bool = Form(True),
     user=Depends(get_current_user),
 ):
     """上传 Excel 课表文件（.xlsx / .xlsm / .xls），优先由 AI 提取，失败时自动回退本地解析。"""

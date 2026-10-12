@@ -1,19 +1,19 @@
 """Short-lived Redis state for QR login initiated by the mini program."""
 import json
-import os
 import uuid
 
-from redis import Redis
 from redis.exceptions import RedisError
+
+from ...redis import get_redis
 
 TTL_SECONDS = 600
 
 
-def _redis() -> Redis:
-    url = os.getenv("AGENT_REDIS_URL", os.getenv("REDIS_URL", "")).strip()
-    if not url:
+def _redis():
+    client = get_redis()
+    if client is None:
         raise RuntimeError("微信 ClawBot 扫码登录需要配置 Redis")
-    return Redis.from_url(url, decode_responses=True, socket_connect_timeout=2, socket_timeout=45)
+    return client
 
 
 def reserve_start(user_id: int) -> None:

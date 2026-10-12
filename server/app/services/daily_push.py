@@ -168,12 +168,11 @@ def send_morning_push_to_user(db, client: ILinkClient, user_id: int, provider_us
     try:
         client.send_text(provider_user_id, brief, context_token=context_token or "", client_id=client_id)
     except ILinkError as err:
-        # iLink 业务拒绝（典型是 -2 prepare failed：用户超过约 24 小时没跟 bot 说话，
-        # 会话已失效）当天重试也不会成功，记为 skipped 让重试查询跳过，
-        # 否则会每 10 秒轰炸腾讯接口一整天（实测单用户单日 5000+ 次）。
-        logger.warning("morning push skipped user_id=%s to=%s date=%s error=%s",
-                       user_id, provider_user_id, target_date, err)
-        _record_push_result(db, user_id, target_date, "skipped", err)
+        # Only known expired-context/token responses are terminal for this day.
+        terminal = str(err.code) in {"-2", "-14"}
+        status = "skipped" if terminal else "failed"
+        logger.warning("morning push %s user_id=%s date=%s error=%s", status, user_id, target_date, err)
+        _record_push_result(db, user_id, target_date, status, err)
         return False
     _record_push_result(db, user_id, target_date, "done")
     logger.info("morning push sent user_id=%s to=%s date=%s", user_id, provider_user_id, target_date)

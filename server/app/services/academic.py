@@ -1,4 +1,5 @@
 """Read-only CCSUT directory and semester timetable access."""
+import asyncio
 import hashlib
 import json
 import logging
@@ -19,6 +20,7 @@ from Crypto.Cipher import AES
 from ..html_parser import parse_ccsut_report, parse_qiangzhi_json
 from ..parser import parse_weeks
 from ..settings import ROOT
+from . import academic_runtime
 
 BASE = "https://tls.ccsut.cn"
 CONFIG_FILE = ROOT / "data" / "academic" / "connection.enc"
@@ -137,15 +139,19 @@ def parse_report(html, term):
 
 class CcsutClient:
     def __init__(self, headers=None, transport=None):
-        self.deadline = time.monotonic() + 60
-        self.client = httpx.Client(headers=headers or connection_headers(), timeout=20,
-                                   follow_redirects=False, transport=transport)
+        self.deadline = time.monotonic() + academic_runtime.remaining(60)
+        self.client = httpx.AsyncClient(headers=headers or connection_headers(), timeout=20,
+                                       follow_redirects=False, transport=transport)
+        self.runner = asyncio.Runner()
 
     def __enter__(self):
         return self
 
     def __exit__(self, *_):
-        self.client.close()
+        try:
+            self.runner.run(self.client.aclose())
+        finally:
+            self.runner.close()
 
     def request(self, method, path, **kwargs):
         url = urljoin(BASE, path)
@@ -158,20 +164,29 @@ class CcsutClient:
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
                 raise AcademicError("upstream_timeout", "教务查询耗时过长，请稍后重试", 504)
-            with self.client.stream(method, url, timeout=min(20, remaining), **kwargs) as response:
-                if response.status_code in (301, 302, 303, 307, 308) or response.status_code in (401, 403):
-                    raise AcademicError("connection_expired", "学校登录已过期或无查询权限，请管理员重新连接", 409)
-                if response.status_code != 200:
-                    raise AcademicError("upstream_failed", "学校教务系统暂时无法响应")
-                chunks, size = [], 0
-                for chunk in response.iter_bytes():
-                    size += len(chunk)
-                    if size > 3_000_000:
-                        raise AcademicError("upstream_too_large", "教务响应超过允许大小")
-                    chunks.append(chunk)
-                content = b"".join(chunks).decode("utf-8")
+            remaining = academic_runtime.remaining(remaining)
+
+            async def fetch():
+                # Total wall time includes connection, headers and the complete body.
+                async with asyncio.timeout(remaining):
+                    async with self.client.stream(method, url, timeout=min(20, remaining), **kwargs) as response:
+                        if response.status_code in (301, 302, 303, 307, 308, 401, 403):
+                            raise AcademicError("connection_expired", "学校登录已过期或无查询权限，请管理员重新连接", 409)
+                        if response.status_code != 200:
+                            raise AcademicError("upstream_failed", "学校教务系统暂时无法响应")
+                        chunks, size = [], 0
+                        async for chunk in response.aiter_bytes():
+                            size += len(chunk)
+                            if size > 3_000_000:
+                                raise AcademicError("upstream_too_large", "教务响应超过允许大小")
+                            chunks.append(chunk)
+                        return b"".join(chunks).decode("utf-8")
+
+            content = self.runner.run(fetch())
         except AcademicError:
             raise
+        except TimeoutError as error:
+            raise AcademicError('upstream_timeout', '教务查询耗时过长，请稍后重试', 504) from error
         except (httpx.HTTPError, UnicodeError) as error:
             raise AcademicError("upstream_failed", "学校教务连接失败，请稍后重试") from error
         if "统一身份认证" in content or "扫码登录" in content:
@@ -436,7 +451,8 @@ def search_students(grade, name, class_name, major_name=""):
     with _lock:
         for student in result["students"]:
             _put(_students, student["id"], student, 5000)
-            _persist("student", student["id"], student)
+    for student in result["students"]:
+        _persist("student", student["id"], student)
     return result
 
 
@@ -543,7 +559,8 @@ def search_keyword(query):
         with _lock:
             for student in students:
                 _put(_students, student["id"], student, 5000)
-                _persist("student", student["id"], student)
+        for student in students:
+            _persist("student", student["id"], student)
         return {"students": students, "truncated": truncated, "fetched_at": _now(), "stale": False}
     except AcademicError as error:
         with _database() as db:

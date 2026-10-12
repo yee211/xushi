@@ -3,7 +3,6 @@ import asyncio
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -76,23 +75,27 @@ def test_same_student_concurrent_forced_refresh_shares_result(monkeypatch):
     assert calls == ["student01"] and not academic._refresh_locks
 
 
-def test_metrics_write_runs_outside_event_loop(monkeypatch):
-    from app import main
+def test_metrics_are_queued_without_waiting_for_database(monkeypatch):
+    import queue
 
-    threads = {}
-    class Db:
-        def execute(self, sql, params):
-            threads["metric"] = threading.get_ident()
-    @contextmanager
-    def connect():
-        yield Db()
-    monkeypatch.setattr(main, "connect", connect)
+    from app import main
+    from app.services import request_metrics
+
+    pending = queue.Queue(maxsize=1)
+    monkeypatch.setattr(request_metrics, "_pending", pending)
     monkeypatch.setattr(main, "is_pool_ready", lambda: True)
-    # Call middleware directly to avoid changing the shared app's route table.
+
+    def forbidden_connect():
+        raise AssertionError("Request must not wait for a database connection")
+
+    monkeypatch.setattr(main, "connect", forbidden_connect)
+
     async def run():
         async def respond(request):
-            threads["loop"] = threading.get_ident()
             return Response(status_code=200)
-        await main.request_metrics(Request({"type": "http", "method": "GET", "path": "/api/test", "headers": []}), respond)
-    asyncio.run(run())
-    assert threads["metric"] != threads["loop"]
+        return await main.request_metrics(Request({"type": "http", "method": "GET", "path": "/api/test", "headers": []}), respond)
+
+    assert asyncio.run(run()).status_code == 200
+    method, path, status, duration = pending.get_nowait()
+    assert (method, path, status) == ("GET", "/api/test", 200)
+    assert duration >= 0

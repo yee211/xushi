@@ -16,9 +16,12 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(login, "DIRECTORY", tmp_path)
     monkeypatch.setattr(login, "CREDENTIALS", tmp_path / "credentials.enc")
     monkeypatch.setattr(login, "BROWSER_SESSION", tmp_path / "browser-session.enc")
+    monkeypatch.setattr(login, "MAINTENANCE", tmp_path / "maintenance.json")
+    monkeypatch.setattr(login, "_stop_event", threading.Event())
     monkeypatch.setattr(login, "_thread", None)
     monkeypatch.setattr(login, "_commands", queue.Queue(maxsize=8))
     monkeypatch.setattr(login, "_state", {"state": "not_started", "message": "test"})
+    monkeypatch.setattr(login.academic_mail, "connection_event", lambda state: None)
 
 
 def test_credentials_are_encrypted_and_never_return_password():
@@ -30,6 +33,31 @@ def test_credentials_are_encrypted_and_never_return_password():
     assert "password" not in result
     login.delete_credentials()
     assert not login.status()["saved"]
+
+
+def test_mail_events_only_when_relogin_is_required(monkeypatch):
+    events = []
+    monkeypatch.setattr(login.academic_mail, "connection_event", events.append)
+    login.save_maintenance(enabled=True)
+    login.update("waiting_code", "首次登录")
+    login.update("retrying", "网络重试")
+    assert events == []
+    login.save_maintenance(last_verified_at="2026-10-09T14:00:00+00:00")
+    login.update("waiting_code", "会话失效，需要验证码")
+    login.update("connected", "恢复成功")
+    login.update("stopped", "服务重启")
+    assert events == ["needs_login", "connected"]
+    login.save_maintenance(enabled=False)
+    login.update("stopped", "管理员停止")
+    assert events[-1] == "stopped"
+
+
+def test_mail_storage_error_does_not_break_login(monkeypatch):
+    def failed(state):
+        raise OSError("存储不可用")
+    monkeypatch.setattr(login.academic_mail, "connection_event", failed)
+    login.update("connected", "连接成功")
+    assert login.status()["state"] == "connected"
 
 
 def test_changed_key_fails_closed(monkeypatch):
@@ -290,7 +318,8 @@ def test_portal_redirect_loop_ends_without_reopening_timetable(school_page, monk
     assert requests.count(login.SCHOOL_HOME) == 4
 
 
-def test_home_session_is_validated_through_timetable(school_page, monkeypatch, tmp_path):
+@pytest.mark.parametrize("dashboard", ["iframe", "logout"])
+def test_home_session_is_validated_through_timetable(school_page, monkeypatch, tmp_path, dashboard):
     from types import SimpleNamespace
 
     from playwright import sync_api
@@ -300,7 +329,9 @@ def test_home_session_is_validated_through_timetable(school_page, monkeypatch, t
     entry = "https://tls.ccsut.cn/admin/jwxtgld/kbcx/xskblist"
     def route_school(route):
         requests.append(route.request.url)
-        body = '<input id="xm"><div class="list_sslct"></div>' if route.request.url == entry else '<script>setTimeout(() => { const frame=document.createElement("iframe"); document.body.appendChild(frame); }, 900)</script>'
+        home = ('<a href="/admin/caslogout">退出</a>' if dashboard == "logout" else
+                '<script>setTimeout(() => { const frame=document.createElement("iframe"); document.body.appendChild(frame); }, 900)</script>')
+        body = '<input id="xm"><div class="list_sslct"></div>' if route.request.url == entry else home
         route.fulfill(body=body, content_type="text/html")
     context.route("**/*", route_school)
     class Engine:
@@ -324,3 +355,121 @@ def test_home_session_is_validated_through_timetable(school_page, monkeypatch, t
         timeout.cancel()
     assert requests == [login.SCHOOL_HOME, entry]
     assert exported == [entry]
+
+
+def test_restart_restores_only_enabled_maintenance(monkeypatch):
+    starts = []
+    monkeypatch.setattr(login, "start", lambda: starts.append(True))
+    login.resume()
+    assert starts == []
+    login.save_maintenance(enabled=True)
+    login.resume()
+    assert starts == [True]
+    login.stop()
+    login.resume()
+    assert starts == [True]
+
+
+def test_service_shutdown_preserves_opt_in_but_manual_stop_disables_it():
+    login.save_maintenance(enabled=True, last_verified_at="2026-10-09T14:00:00+00:00")
+    login.shutdown()
+    assert login.status()["maintenance_enabled"]
+    assert login.status()["last_verified_at"] == "2026-10-09T14:00:00+00:00"
+    login.stop()
+    assert not login.status()["maintenance_enabled"]
+
+
+def test_transient_failures_back_off_and_stop_interrupts_retry(monkeypatch):
+    delays = []
+    states = []
+    class StopEvent:
+        stopped = False
+        def is_set(self):
+            return self.stopped
+        def wait(self, delay):
+            delays.append(delay)
+            states.append(login.status()["state"])
+            assert login.status()["next_retry_at"]
+            self.stopped = len(delays) == 6
+            return self.stopped
+    monkeypatch.setattr(login, "_stop_event", StopEvent())
+    monkeypatch.setattr(login, "run", lambda *a, **kw: login.update("error", "网络超时", error_type="TimeoutError"))
+    login.supervise("job")
+    assert delays == [30, 60, 120, 240, 300, 300]
+    assert states == ["retrying"] * 6
+    assert login.status()["state"] == "stopped"
+    assert login.status()["next_retry_at"] is None
+
+
+def test_human_login_is_not_automatically_retried(monkeypatch):
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(True)
+        login.update("needs_login", "需要验证码")
+    monkeypatch.setattr(login, "run", run)
+    login.supervise("job")
+    assert calls == [True]
+    assert login.status()["state"] == "needs_login"
+
+
+def test_visible_login_hands_off_to_headless_in_same_supervisor(monkeypatch):
+    modes = []
+    def run(job, visible=False):
+        modes.append(visible)
+        if visible:
+            return "handoff"
+        login.update("needs_login", "需要登录")
+    monkeypatch.setattr(login, "run", run)
+    login.supervise("job", visible=True)
+    assert modes == [True, False]
+
+
+def test_start_does_not_create_second_maintenance_thread(monkeypatch):
+    login.save_credentials("13800138000")
+    monkeypatch.setattr(login, "_thread", Running())
+    monkeypatch.setattr(threading, "Thread", lambda *a, **kw: pytest.fail("must not launch second worker"))
+    assert login.start()["running"]
+
+
+def test_resume_reports_missing_credentials_without_disabling_opt_in():
+    login.save_maintenance(enabled=True)
+    login.resume()
+    assert login.status()["state"] == "needs_login"
+    assert login.status()["maintenance_enabled"]
+
+
+def test_delete_credentials_cancels_restart_recovery():
+    login.save_credentials("13800138000")
+    login.save_maintenance(enabled=True)
+    login.delete_credentials()
+    assert not login.status()["maintenance_enabled"]
+
+
+def test_stalled_school_gateway_recovers_once_then_reports_timeout(school_page, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from playwright import sync_api
+    context = school_page.context
+    requests = []
+    entry = "https://tls.ccsut.cn/admin/jwxtgld/kbcx/xskblist"
+    def route_school(route):
+        requests.append(route.request.url)
+        route.fulfill(body="<html>Loading...</html>", content_type="text/html")
+    context.route("**/*", route_school)
+    class Engine:
+        chromium = SimpleNamespace(launch_persistent_context=lambda *args, **kwargs: context)
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            pass
+    monkeypatch.setattr(sync_api, "sync_playwright", Engine)
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "credentials", lambda: {})
+    monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry))
+    monkeypatch.setattr(login, "GATEWAY_RECOVERY_SECONDS", 0.1)
+    monkeypatch.setattr(login, "GATEWAY_TIMEOUT_SECONDS", 1.2)
+    monkeypatch.setattr(login, "capture_login_page", lambda page: None)
+    login.run("job")
+    assert requests == [login.SCHOOL_HOME, entry]
+    assert login.status()["state"] == "needs_login"
+    assert login.status()["error_type"] == "gateway_timeout"

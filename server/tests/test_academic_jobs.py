@@ -185,3 +185,31 @@ def test_admin_sync_all_skips_active_and_does_not_consume_daily_batch(queue):
         row = db.execute("SELECT source,refresh FROM academic_sync_jobs WHERE user_id=2").fetchone()
         assert row['source'] == 'admin' and row['refresh']
         assert db.execute('SELECT COUNT(*) AS count FROM academic_sync_days').fetchone()['count'] == 1
+
+
+def test_restart_does_not_retry_exhausted_job(queue, monkeypatch):
+    task = jobs.enqueue(1, '2026-2027-1')
+    with queue() as db:
+        db.execute("UPDATE academic_sync_jobs SET state='running',attempts=3 WHERE id=%s", (task['id'],))
+    monkeypatch.setattr(jobs, 'execute_job', lambda job: pytest.fail("exhausted job executed"))
+    with queue() as db:
+        assert not jobs.process_one(db)
+    assert jobs.read(1, task['id'])['state'] == 'failed'
+
+
+def test_timeout_retries_and_exposes_progress(queue, monkeypatch):
+    task = jobs.enqueue(1, '2026-2027-1')
+
+    def timeout(job):
+        from app.services import academic_runtime
+        academic_runtime.stage('writing')
+        raise academic_runtime.SyncTimeout("同步执行超时，原课表已保留")
+
+    monkeypatch.setattr(jobs, 'execute_job', timeout)
+    with queue() as db:
+        assert jobs.process_one(db)
+    result = jobs.read(1, task['id'])
+    assert result['state'] == 'queued'
+    assert result['phase'] == 'retrying'
+    assert result['started_at']
+    assert "超时" in result['error']

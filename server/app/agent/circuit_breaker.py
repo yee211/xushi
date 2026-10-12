@@ -70,6 +70,8 @@ class CircuitBreaker:
     def record_failure(self, error: Exception | str | None = None) -> None:
         """Record error (timeout/network/5xx) to trip circuit if threshold reached."""
         with self._lock:
+            if self._state == CircuitState.OPEN:
+                return
             self._failure_count += 1
             now = time.monotonic()
             if self._state == CircuitState.HALF_OPEN or self._failure_count >= self.failure_threshold:

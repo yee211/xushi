@@ -4,7 +4,9 @@ Page({
   onShow() {
     const nightMode = wx.getStorageSync('night_mode') === true
     const backgroundPath = wx.getStorageSync('schedule_background') || ''
+    this.hidden = false
     this.setData({ nightMode, backgroundPath })
+    if (this.pendingTask) this.followTask(this.pendingTask)
     if (wx.setNavigationBarColor) {
       wx.setNavigationBarColor({
         frontColor: (nightMode || backgroundPath) ? '#ffffff' : '#000000',
@@ -35,7 +37,8 @@ Page({
       } catch (e) { if (!this.closed) this.setData({ error: e.message }) }
     }
   },
-  onUnload() { this.closed = true; clearTimeout(this.pollTimer) },
+  onHide() { this.pollRevision = (this.pollRevision || 0) + 1; this.hidden = true; clearTimeout(this.pollTimer) },
+  onUnload() { this.pollRevision = (this.pollRevision || 0) + 1; this.closed = true; this.hidden = true; clearTimeout(this.pollTimer) },
   inputKeyword(e) { this.setData({ keyword: e.detail.value }) },
   changeTerm(e) { this.setData({ termIndex: Number(e.detail.value) }) },
   async search() {
@@ -58,11 +61,21 @@ Page({
     // Default term remains usable if the optional term-list request fails.
     const fallback = student.default_term ? [student.default_term] : []
     if (!this.closed) this.setData({ terms: fallback, termIndex: 0 })
-    const data = await app.request('/api/academic/students/' + encodeURIComponent(student.id) + '/terms', { timeout: 120000 })
-    if (!this.closed) {
-      const terms = data.terms || []
-      this.setData({ terms, termIndex: Math.max(0, terms.indexOf(student.default_term)) })
+    try {
+      const data = await app.request('/api/academic/students/' + encodeURIComponent(student.id) + '/terms', { timeout: 120000 })
+      if (!this.closed) {
+        const terms = data.terms && data.terms.length ? data.terms : fallback
+        this.setData({ terms, termIndex: Math.max(0, terms.indexOf(student.default_term)), notice: '' })
+      }
+    } catch (e) {
+      if (!this.closed) this.setData({ notice: '学校身份已绑定，学期加载失败。' + (fallback.length ? '仍可同步默认学期。' : '请点击重新加载学期。') })
     }
+  },
+  async retryTerms() {
+    if (this.data.busy || !this.data.bound) return
+    this.setData({ busy: true })
+    try { await this.loadTerms(this.data.bound) }
+    finally { if (!this.closed) this.setData({ busy: false }) }
   },
   async bindSchool() {
     if (this.data.busy || !this.data.selected) return
@@ -72,11 +85,20 @@ Page({
       if (!this.closed) {
         wx.setStorageSync('bound_student', data.student)
         this.setData({ bound: data.student, selected: data.student, lastSyncedText: '尚未同步' })
-        wx.showToast({ title: '学校信息已关联', icon: 'success' })
-        await this.loadTerms(data.student)
+        const defaultTerm = data.student.default_term
+        this.setData({ terms: defaultTerm ? [defaultTerm] : [], termIndex: 0 })
+        if (!defaultTerm) await this.loadTerms(data.student)
+        if (this.closed) return
+        const term = defaultTerm || this.data.terms[this.data.termIndex]
+        if (!term) {
+          this.setData({ error: '学校身份已绑定，但未找到可同步的学期，请稍后重新进入页面。' })
+          return
+        }
+        const task = await app.request('/api/academic/binding/sync/tasks', { method: 'POST', data: { term } })
+        await this.followTask(task)
       }
     } catch (e) { if (!this.closed) this.setData({ error: e.message }) }
-    finally { if (!this.closed) this.setData({ busy: false }) }
+    finally { if (!this.closed && !this.data.syncStatus) this.setData({ busy: false }) }
   },
   async syncSchool() {
     if (this.data.busy || !this.data.bound || !this.data.terms.length) return
@@ -95,7 +117,13 @@ Page({
   },
   async followTask(task) {
     if (this.closed) return
+    const revision = this.pollRevision = (this.pollRevision || 0) + 1
+    clearTimeout(this.pollTimer)
+    this.pendingTask = task
+    if (this.hidden) return
     if (task.state === 'succeeded') {
+      this.pendingTask = null
+      this.pollFailures = 0
       if (wx.getStorageSync('academic_pending_task_id') === task.id) wx.removeStorageSync('academic_pending_task_id')
       const result = task.result
       this.setData({ syncStatus: '', busy: false })
@@ -112,16 +140,33 @@ Page({
       return
     }
     if (task.state === 'failed') {
+      this.pendingTask = null
+      this.pollFailures = 0
       if (wx.getStorageSync('academic_pending_task_id') === task.id) wx.removeStorageSync('academic_pending_task_id')
       this.setData({ busy: false, syncStatus: '', error: task.error || '同步失败，原课表已保留' })
       return
     }
     wx.setStorageSync('academic_pending_task_id', task.id)
-    this.setData({ busy: true, syncStatus: task.state === 'running' ? '正在从学校同步课表…' : '已加入同步队列，等待处理…' })
+    this.setData({ busy: true, syncStatus: task.state === 'running' ? (task.phase === 'writing' ? '正在备份并保存课表…' : '正在从学校读取课表…') : (task.phase === 'retrying' ? '学校暂未响应，等待自动重试…' : '已加入同步队列，等待处理…') })
     this.pollTimer = setTimeout(async () => {
-      try { await this.followTask(await app.request('/api/academic/binding/sync/tasks/' + encodeURIComponent(task.id))) }
-      catch (e) { if (!this.closed) this.setData({ busy: false, syncStatus: '', error: '暂时无法查看同步进度。任务可能仍在进行，请稍后重新打开查看。' }) }
-    }, 1500)
+      if (this.closed || this.hidden || revision !== this.pollRevision) return
+      try {
+        const next = await app.request('/api/academic/binding/sync/tasks/' + encodeURIComponent(task.id))
+        if (this.closed || this.hidden || revision !== this.pollRevision) return
+        this.pollFailures = 0
+        await this.followTask(next)
+      } catch (e) {
+        if (this.closed || this.hidden || revision !== this.pollRevision) return
+        if ([403, 404].includes(e.statusCode)) {
+          this.pendingTask = null
+          this.setData({ busy: false, syncStatus: '', error: e.message })
+          return
+        }
+        this.pollFailures = (this.pollFailures || 0) + 1
+        this.setData({ syncStatus: '暂时无法查看进度，正在自动重连；同步任务可能仍在进行…' })
+        this.pollTimer = setTimeout(() => { if (revision === this.pollRevision) this.followTask(task) }, Math.min(30000, 3000 * this.pollFailures))
+      }
+    }, task.state === 'queued' ? 3000 : 1500)
   },
   async restoreSchoolBackup() {
     if (this.data.busy || this.closed) return

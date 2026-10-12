@@ -29,7 +29,7 @@ def create_feedback(payload: FeedbackIn, tasks: BackgroundTasks, user: dict = De
     schedule_id = payload.schedule_id
     with connect() as db:
         if schedule_id:
-            sch = db.execute("SELECT 1 FROM schedules WHERE id=%s", (schedule_id,)).fetchone()
+            sch = db.execute("SELECT 1 FROM schedules WHERE id=%s AND user_id=%s", (schedule_id, user["id"])).fetchone()
             if not sch:
                 schedule_id = None
         row = db.execute("""INSERT INTO feedbacks(user_id,schedule_id,category,description,contact,client_info,status)

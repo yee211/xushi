@@ -105,6 +105,17 @@ class ComprehensiveFakeRedis:
                 count += 1
         return count
 
+    def eval(self, script, numkeys, key, now, window, limit, member):
+        now, window, limit = float(now), float(window), int(limit)
+        hits = self.zsets.setdefault(key, {})
+        for value in list(hits):
+            if hits[value] <= now - window:
+                del hits[value]
+        if len(hits) >= limit:
+            return [0, max(1, int(window - (now - min(hits.values()))) + 1)]
+        hits[member] = now
+        return [1, 0]
+
     def pipeline(self):
         return FakePipeline(self)
 
@@ -120,6 +131,9 @@ class BrokenRedis(ComprehensiveFakeRedis):
 
     def delete(self, *keys):
         raise RedisError("Redis timeout")
+
+    def eval(self, *args):
+        raise RedisError("Script network break")
 
     def pipeline(self):
         raise RedisError("Pipeline network break")

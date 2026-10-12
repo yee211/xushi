@@ -72,7 +72,7 @@ function suggestSemesterDates(termStr) {
   const day = anchor.getDay()
   const mondayOffset = day === 0 ? 1 : (day === 1 ? 0 : 8 - day)
   const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + mondayOffset)
-  const end = new Date(start.getTime() + (20 * 7 - 1) * 86400000)
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 20 * 7 - 1)
   return { start: isoDate(start), end: isoDate(end) }
 }
 function weekCount(schedule) {
@@ -85,7 +85,7 @@ function isScheduleActiveToday(schedule) {
   const start = localDate(schedule && schedule.start_date)
   if (!start) return false
   const total = weekCount(schedule)
-  const end = localDate(schedule && schedule.end_date) || new Date(start.getTime() + (total * 7 - 1) * 86400000)
+  const end = localDate(schedule && schedule.end_date) || new Date(start.getFullYear(), start.getMonth(), start.getDate() + total * 7 - 1)
   const today = new Date(isoDate(new Date()))
   return today >= new Date(isoDate(start)) && today <= new Date(isoDate(end))
 }
@@ -269,7 +269,7 @@ Page({
     currentTab: 'home', // 'home' | 'mine'
     refreshing: false,
     syncing: false,
-    loading: true, schedules: [], schedule: null, scheduleNames: [], scheduleIndex: 0,
+    cacheNotice: '', loading: true, schedules: [], schedule: null, scheduleNames: [], scheduleIndex: 0,
     week: 1, weekCount: 20, currentWeekRange: '', weekOpen: false, weekOptions: [],
     weekDays: [], monthLabel: '', gridCourses: [], sections, days, shownSections: sections.slice(0, 10),
     sectionCount: 10, sectionOptions: Array.from({ length: 10 }, (_, index) => `第 ${index + 1} 节`),
@@ -294,6 +294,7 @@ Page({
     }
   },
   onShow() {
+    this.closed = false
     // 账号关联/解除会清除缓存；回到课表页时同步清除旧账号画面。
     if (!Array.isArray(wx.getStorageSync('schedules_cache'))) {
       this.setData({ schedule: null, schedules: [], scheduleList: [] })
@@ -349,6 +350,8 @@ Page({
     wx.onNeedPrivacyAuthorization(this._privacyHandler)
   },
   onUnload() {
+    this.closed = true
+    this.stopImportTimer()
     if (this._privacyResolve) this._privacyResolve({ event: 'disagree' })
     if (this._privacyHandler && wx.offNeedPrivacyAuthorization) wx.offNeedPrivacyAuthorization(this._privacyHandler)
     this._privacyResolve = null
@@ -376,19 +379,34 @@ Page({
     })
   },
   async load(preferredId, silent = false) {
+    if (this.loadPromise && (!preferredId || preferredId === this.loadPreferredId)) return this.loadPromise
+    const generation = (this.loadGeneration || 0) + 1
+    this.loadGeneration = generation
+    this.loadPreferredId = preferredId
+    const pending = this.fetchSchedules(preferredId, silent, generation)
+    this.loadPromise = pending
+    try { return await pending }
+    finally { if (this.loadPromise === pending) this.loadPromise = null }
+  },
+  async fetchSchedules(preferredId, silent, generation) {
     if (this._initialLoaded && silent === false) silent = true
     if (!silent) this.setData({ loading: true })
     try {
       const schedules = await app.request('/api/schedules')
+      if (this.closed || generation !== this.loadGeneration) return false
+      wx.setStorageSync('schedules_cache_at', new Date().toISOString())
+      this.setData({ cacheNotice: '' })
       // 缓存最近一次完整课表：刷新更快，断网时也能兜底展示
       wx.setStorageSync('schedules_cache', schedules)
       this.applySchedules(schedules, preferredId)
       return true
     } catch (error) {
+      if (this.closed || generation !== this.loadGeneration) return false
       const cached = wx.getStorageSync('schedules_cache')
       if (Array.isArray(cached) && cached.length) {
         this.applySchedules(cached, preferredId)
-        this.toast('网络异常，已展示最近缓存的课表')
+        const savedAt = wx.getStorageSync('schedules_cache_at')
+        this.setData({ cacheNotice: '离线课表 · ' + (savedAt ? '最近更新于 ' + new Date(savedAt).toLocaleString() : '缓存时间未知') })
       } else {
         if (!silent) this.setData({ loading: false })
         this.toast(error.message)
@@ -398,9 +416,13 @@ Page({
   },
   // 导入成功指定的课表优先，并在重新打开或离线时保持。旧切换记录不再生效。
   applySchedules(schedules, preferredId) {
+    const previous = this.data.schedule
+    const previousWeek = this.data.week
+    const sameDay = this.viewDate === isoDate(new Date())
     schedules = schedules.filter(item => item.variant_type !== 'adjusted')
     let index = schedules.findIndex(item => item.id === Number(preferredId))
     if (index >= 0) wx.setStorageSync('latest_import_schedule_id', schedules[index].id)
+    if (index < 0) index = schedules.findIndex(item => item.id === Number(wx.getStorageSync('active_schedule_id')))
     if (index < 0) index = schedules.findIndex(item => item.id === Number(wx.getStorageSync('latest_import_schedule_id')))
     if (index < 0 && schedules.length) {
       const latest = schedules.reduce((result, item) => item.id > result.id ? item : result, schedules[0])
@@ -420,7 +442,8 @@ Page({
       statusText: schedule ? scheduleStatus(schedule) : '',
       loading: false,
     })
-    this.applyWeek(termWeek(schedule))
+    const preserveWeek = previous && schedule && previous.id === schedule.id && previous.start_date === schedule.start_date && sameDay
+    this.applyWeek(preserveWeek ? previousWeek : termWeek(schedule))
   },
   // 页面主体是 scroll-view，页面级下拉刷新不会触发，这里用 scroll-view 自带 refresher
   async onRefresh() {
@@ -455,6 +478,7 @@ Page({
     }
   },
   applyWeek(week) {
+    this.viewDate = isoDate(new Date())
     const count = weekCount(this.data.schedule)
     const safeWeek = Math.max(1, Math.min(count, week))
     const dates = datesForWeek(this.data.schedule, safeWeek)
@@ -855,7 +879,7 @@ Page({
       const elapsed = (this.data.importElapsed || 0) + 1
       const text = elapsed < 5 ? '正在安全读取工作簿…'
         : elapsed < 45 ? `正在识别课程信息… ${elapsed} 秒`
-        : '在线解析较慢，正在准备本地解析兜底…'
+        : '服务器仍在解析，请稍候；若超时可下拉刷新确认结果。'
       this.setData({ importElapsed: elapsed, importProgressText: text })
     }, 1000)
   },
@@ -878,6 +902,7 @@ Page({
     return Boolean(result.confirm)
   },
   async upload() {
+    if (this.data.uploading) return
     if (!this.data.importFile || !this.data.importFile.path) return this.toast('请重新选择课表文件')
     const semesterName = this.data.semesterName.trim()
     if (!semesterName) return this.toast('请填写学期名称')

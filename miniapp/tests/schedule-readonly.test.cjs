@@ -4,12 +4,12 @@ const vm = require('node:vm')
 const fs = require('node:fs')
 const path = require('node:path')
 
-function harness() {
+function harness(request = async () => []) {
   let page
   const storage = new Map([['active_schedule_id', 2]])
   const navigations = []
   const sandbox = {
-    getApp: () => ({ request: async () => [] }),
+    getApp: () => ({ request }),
     Page: value => { page = value },
     wx: {
       getStorageSync: key => storage.get(key),
@@ -68,4 +68,62 @@ test('overwriting an older timetable remains selected after reopening and cache 
   assert.equal(page.data.schedule.id, 3)
   page.applySchedules([schedules[0]])
   assert.equal(page.data.schedule.id, 8)
+})
+
+
+test('refresh preserves the selected timetable and week', () => {
+  const { page, storage } = harness()
+  const schedules = [{ id: 2, courses: [], start_date: '2026-09-07' }, { id: 3, courses: [] }]
+  page.applySchedules(schedules, 2)
+  page.applyWeek(9)
+  page.applySchedules(schedules)
+  assert.equal(page.data.schedule.id, 2)
+  assert.equal(page.data.week, 9)
+  assert.equal(storage.get('active_schedule_id'), 2)
+})
+
+test('concurrent refreshes share a request and obsolete responses cannot overwrite new data', async () => {
+  const pending = []
+  const { page } = harness(() => new Promise(resolve => pending.push(resolve)))
+  const first = page.load()
+  const same = page.load()
+  assert.equal(pending.length, 1)
+  const newer = page.load(7)
+  pending[1]([{ id: 7, courses: [] }])
+  await newer
+  pending[0]([{ id: 1, courses: [] }])
+  await Promise.all([first, same])
+  assert.equal(page.data.schedule.id, 7)
+})
+
+test('failed refresh displays cache age and successful refresh clears it', async () => {
+  let offline = true
+  const { page, storage } = harness(async () => {
+    if (offline) throw new Error('断网')
+    return [{ id: 2, courses: [] }]
+  })
+  storage.set('schedules_cache', [{ id: 2, courses: [] }])
+  storage.set('schedules_cache_at', '2026-10-11T00:00:00Z')
+  await page.load()
+  assert.match(page.data.cacheNotice, /离线课表.*最近更新于/)
+  offline = false
+  await page.load()
+  assert.equal(page.data.cacheNotice, '')
+})
+
+
+test('fallback semester end date uses local calendar in a negative UTC offset', () => {
+  const previous = process.env.TZ
+  try {
+    process.env.TZ = 'America/Los_Angeles'
+    const source = fs.readFileSync(path.join(__dirname, '../pages/index/index.js'), 'utf8')
+    const sandbox = { getApp: () => ({}), Page: () => {} }
+    vm.runInNewContext(source + '\nthis.suggest = suggestSemesterDates', sandbox)
+    const result = sandbox.suggest('2026-2027学年第1学期')
+    assert.equal(result.start, '2026-09-07')
+    assert.equal(result.end, '2027-01-24')
+  } finally {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  }
 })

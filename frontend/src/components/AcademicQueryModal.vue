@@ -49,13 +49,18 @@ async function followTask(task, current) {
   }
   localStorage.setItem('academicPendingTaskId', task.id);
   busy.value = true;
-  syncStatus.value = task.state === 'running' ? '正在从学校同步课表…' : '已加入同步队列，等待处理…';
+  syncStatus.value = task.state === 'running' ? (task.phase === 'writing' ? '正在备份并保存课表…' : '正在从学校读取课表…') : (task.phase === 'retrying' ? '学校暂未响应，等待自动重试…' : '已加入同步队列，等待处理…');
   pollTimer = setTimeout(async () => {
     try { await followTask(await academicApi.task(task.id), current); }
     catch (e) {
-      if (current === revision) { busy.value = false; syncStatus.value = ''; error.value = '暂时无法查看同步进度。任务可能仍在进行，请稍后重新打开查看。'; }
+      if (current === revision && props.open) {
+        error.value = '暂时无法查看同步进度，正在重试…';
+        pollTimer = setTimeout(() => {
+          if (current === revision && props.open) followTask(task, current);
+        }, 3000);
+      }
     }
-  }, 1500);
+  }, task.state === 'queued' ? 3000 : 1500);
 }
 
 watch(() => props.open, async (open) => {

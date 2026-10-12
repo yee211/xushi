@@ -61,3 +61,20 @@ def test_unchanged_session_not_rewritten(monkeypatch):
     monkeypatch.setattr(worker, "save_connection", lambda *_: pytest.fail("unchanged session rewritten"))
     assert worker.export_verified(Context(), Page(), "school-account") == (["2024"], False)
 
+
+
+def test_export_verifies_outside_the_browser_event_loop(monkeypatch):
+    import asyncio
+    import threading
+    owner = threading.get_ident()
+    class LoopClient(Client):
+        def grades(self):
+            assert threading.get_ident() != owner
+            with asyncio.Runner() as runner:
+                return runner.run(asyncio.sleep(0, result=["2024"]))
+    monkeypatch.setattr(worker, "CcsutClient", LoopClient)
+    monkeypatch.setattr(worker, "connection_headers", lambda: {"Cookie": "old", "User-Agent": "test-agent"})
+    monkeypatch.setattr(worker, "save_connection", lambda *_: None)
+    async def browser_context():
+        return worker.export_verified(Context(), Page(), "school-account")
+    assert asyncio.run(browser_context()) == (["2024"], True)

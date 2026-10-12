@@ -79,8 +79,14 @@ def get_llm_config(scope: str) -> dict:
         row = None
     if not row:
         return fallback
+    try:
+        api_key = decrypt_key(row["api_key_encrypted"])
+    except RuntimeError:
+        import logging
+        logging.getLogger(__name__).error("LLM key decryption failed for scope=%s; using environment configuration", scope)
+        return fallback
     return {"scope": scope, "label": SCOPES[scope]["label"], "base_url": row["base_url"].rstrip("/"),
-            "api_key": decrypt_key(row["api_key_encrypted"]), "model": row["model"],
+            "api_key": api_key, "model": row["model"],
             "timeout_seconds": float(row["timeout_seconds"]), "max_tokens": int(row["max_tokens"]),
             "enable_thinking": bool(row["enable_thinking"]), "source": "database"}
 

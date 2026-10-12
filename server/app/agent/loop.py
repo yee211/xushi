@@ -10,21 +10,20 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
 
 import httpx
 
+from ..services.llm_config import get_llm_config
 from .circuit_breaker import llm_circuit_breaker
-from .http_client import get_llm_client, get_llm_semaphore, is_httpx_post_patched
+from .http_client import post_llm
 from .intent_ai import agent_config
 from .polish_ai import FORBIDDEN_TOKENS, TIME_PATTERN, _api_messages
 from .skills import build_skills, dispatch, openai_tools
 
 
 def _post_llm(url: str, **kwargs):
-    if is_httpx_post_patched():
-        return httpx.post(url, **kwargs)
-    with get_llm_semaphore():
-        return get_llm_client().post(url, **kwargs)
+    return post_llm(url, **kwargs)
 
 
 logger = logging.getLogger("agent.loop")
@@ -74,7 +73,7 @@ def _timeout() -> float:
 def _grounded(content: str, context: str) -> bool:
     """宽松接地校验：拦住编造时间、超长与元信息泄漏。
 
-    合法时间来自整个对话上下文（工具结果、历史消息、服务端当前时间），
+    合法时间来自工具事实及服务端当前时刻，不包含时区偏移或历史消息时间戳，
     因此模型基于事实做的时间推算（如“还剩 76 分钟”“现在 08:44”）不会被误杀。
     """
     text = str(content or "").strip()
@@ -82,8 +81,11 @@ def _grounded(content: str, context: str) -> bool:
         return False
     if any(token in text.lower() for token in FORBIDDEN_TOKENS):
         return False
-    allowed_times = set(TIME_PATTERN.findall(str(context or "")))
-    return set(TIME_PATTERN.findall(text)) <= allowed_times
+    def times(value):
+        return {f"{int(hour):02d}:{minute}" for token in TIME_PATTERN.findall(value)
+                for hour, minute in [token.split(":")]}
+    allowed_times = times(str(context or ""))
+    return times(text) <= allowed_times
 
 
 def _execute_tool_call(skills, call: dict) -> tuple[dict, dict]:
@@ -119,6 +121,7 @@ def run(tools, message: str, history: list | None = None) -> dict | None:
     try:
         return _run(tools, message, history)
     except Exception as error:
+        logger.warning("Agent failed: %s", type(error).__name__)
         llm_circuit_breaker.record_failure(error)
         return None
     finally:
@@ -131,6 +134,7 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
     base_url, api_key, model = agent_config()
     if not (base_url and api_key and model):
         return None
+    config = get_llm_config("agent")
     skills = build_skills(tools)
     messages = _api_messages(SYSTEM_PROMPT, history,
                              json.dumps({"服务端当前时间": tools.context.now.isoformat(),
@@ -139,11 +143,17 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
     facts: list[dict] = []
     try:
         for _ in range(MAX_ROUNDS):
+            payload = {"model": model, "temperature": 0.2, "max_tokens": int(config.get("max_tokens") or MAX_TOKENS),
+                       "messages": messages, "tools": openai_tools(skills), "tool_choice": "auto"}
+            if urlsplit(base_url).hostname == "api.deepseek.com":
+                # DeepSeek uses thinking.type, not the Qwen enable_thinking field.
+                # Disabling it avoids multi-turn reasoning_content protocol requirements.
+                payload["thinking"] = {"type": "enabled" if config.get("enable_thinking") else "disabled"}
+            else:
+                payload["enable_thinking"] = bool(config.get("enable_thinking", False))
             response = _post_llm(f"{base_url}/chat/completions",
-                                 headers={"Authorization": f"Bearer {api_key}"}, timeout=_timeout(),
-                                 json={"model": model, "temperature": 0.2, "max_tokens": MAX_TOKENS,
-                                       "enable_thinking": False, "messages": messages,
-                                       "tools": openai_tools(skills), "tool_choice": "auto"})
+                                 headers={"Authorization": f"Bearer {api_key}"}, timeout=float(config.get("timeout_seconds") or _timeout()),
+                                 json=payload)
             response.raise_for_status()
             reply = response.json()["choices"][0]["message"]
             calls = reply.get("tool_calls") or []
@@ -151,15 +161,18 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
                 content = str(reply.get("content") or "").strip()
                 content = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", content, flags=re.DOTALL).strip()
                 content = content.replace("😂", "").strip()
-                if content and _grounded(content, json.dumps(messages, ensure_ascii=False, default=str)):
+                if content and _grounded(content, json.dumps(facts, ensure_ascii=False, default=str) + " " + tools.context.now.strftime("%H:%M")):
                     llm_circuit_breaker.record_success()
                     return {"answer": content, "skills": [fact["skill"] for fact in facts],
                             "tool_result": {"skills": facts},
                             "resolved_context": _extract_context_entities(facts)}
+                logger.warning("Agent response rejected: %s", "empty" if not content else "grounding_validation")
                 llm_circuit_breaker.record_failure("empty or ungrounded LLM response")
                 return None
-            messages.append({"role": "assistant", "content": str(reply.get("content") or ""),
-                             "tool_calls": calls})
+            assistant = {"role": "assistant", "content": str(reply.get("content") or ""), "tool_calls": calls}
+            if reply.get("reasoning_content") is not None:
+                assistant["reasoning_content"] = reply["reasoning_content"]
+            messages.append(assistant)
             if len(calls) == 1:
                 fact, tool_msg = _execute_tool_call(skills, calls[0])
                 facts.append(fact)
@@ -170,8 +183,11 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
                 for fact, tool_msg in results:
                     facts.append(fact)
                     messages.append(tool_msg)
+        logger.warning("Agent failed: maximum_rounds")
         llm_circuit_breaker.record_failure("agent loop exhausted maximum rounds")
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+        status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+        logger.warning("Agent request failed: type=%s status=%s", type(error).__name__, status)
         llm_circuit_breaker.record_failure(error)
         return None
     return None

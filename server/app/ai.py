@@ -15,6 +15,7 @@ import httpx
 from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from .agent.http_client import post_llm
 from .excel import read_sheets
 from .parser import course_color, merge_section_courses, parse_weeks
 from .services.llm_config import get_llm_config
@@ -230,7 +231,7 @@ def parse_with_ai(path: Path) -> tuple[dict | None, str]:
     if config["enable_thinking"]:
         body["enable_thinking"] = True
     try:
-        response = httpx.post(
+        response = post_llm(
             f"{config['base_url']}/chat/completions",
             headers={"Authorization": f"Bearer {config['api_key']}"},
             timeout=config["timeout"],
@@ -339,7 +340,7 @@ def parse_html_with_ai(payload: str) -> tuple[dict | None, str]:
         body["enable_thinking"] = True
 
     try:
-        response = httpx.post(
+        response = post_llm(
             f"{config['base_url']}/chat/completions",
             headers={"Authorization": f"Bearer {config['api_key']}"},
             timeout=config["timeout"],

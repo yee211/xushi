@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from ..db import connect
 from ..parser import normalize_courses
-from . import academic, schedule_backups, user_cache
+from . import academic, academic_runtime, schedule_backups, user_cache
 from .schedule_import import write_schedule
 
 
@@ -23,7 +23,7 @@ def read_binding(user_id, use_cache=False):
             with academic._lock:
                 academic._put(academic._students, student["id"], student, 5000)
         return cached
-    with connect() as db:
+    with connect() as db, academic_runtime.transaction(db):
         row = db.execute("""SELECT student,revision,updated_at,last_synced_at,last_synced_term
             FROM academic_bindings WHERE user_id=%s""", (user_id,)).fetchone()
     if not row:
@@ -74,17 +74,21 @@ def sync(user_id, term, refresh=False, expected_binding=None):
         raise HTTPException(409, "请先绑定学校身份")
     if expected_binding and (student["id"], bound["revision"], bound["updated_at"]) != expected_binding:
         raise HTTPException(409, "绑定已变更，请重新同步")
+    academic_runtime.stage('querying')
     snapshot = academic.get_schedule(student["id"], term, refresh)
     if snapshot.get("stale"):
         refresh_error = snapshot.get("refresh_error") or {}
         transient = {"upstream_failed": 502, "upstream_timeout": 504, "query_busy": 429, "rate_limit_unavailable": 503}
+        if refresh_error.get("code") == "connection_expired":
+            raise academic.AcademicError("connection_expired", refresh_error.get("message") or "学校连接已过期，请重新登录", 409)
         if refresh_error.get("code") in transient:
             raise academic.AcademicError(refresh_error["code"], refresh_error.get("message") or "学校暂不可用，原课表已保留",
                                          transient[refresh_error["code"]])
     if snapshot.get("stale") or not snapshot.get("complete"):
         raise HTTPException(409, "学校连接暂不可用，未更新主课表，请恢复连接后重试")
     digest = snapshot_hash(snapshot)
-    with connect() as db:
+    academic_runtime.stage('writing')
+    with connect() as db, academic_runtime.transaction(db):
         lock_user(db, user_id)
         current = db.execute("SELECT student,revision,updated_at FROM academic_bindings WHERE user_id=%s FOR UPDATE",
                              (user_id,)).fetchone()

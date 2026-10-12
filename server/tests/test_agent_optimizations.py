@@ -136,7 +136,7 @@ def test_parallel_tool_calls_in_loop(monkeypatch):
                 json=lambda: {"choices": [{"message": {"content": "今天有课，没有雨。"}}]}
             )
 
-    monkeypatch.setattr(loop_module, "get_llm_client", lambda: FakeClient())
+    monkeypatch.setattr("app.agent.http_client.get_llm_client", lambda: FakeClient())
 
     # Mock dispatch with delay to verify parallel execution
     delays = []
@@ -186,7 +186,7 @@ def test_half_open_probe_reopens_on_ungrounded_response(monkeypatch):
                 json=lambda: {"choices": [{"message": {"content": "编造的回答"}}]},
             )
 
-    monkeypatch.setattr(loop_module, "get_llm_client", lambda: FakeClient())
+    monkeypatch.setattr("app.agent.http_client.get_llm_client", lambda: FakeClient())
     monkeypatch.setattr(loop_module, "_grounded", lambda content, ctx: False)
 
     tools = MagicMock()

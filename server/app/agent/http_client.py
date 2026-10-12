@@ -1,5 +1,6 @@
 import os
 import threading
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -31,6 +32,11 @@ def post_llm(url: str, **kwargs) -> httpx.Response:
     1. 单元测试 mock patch 时直接调用 httpx.post；
     2. 真实运行时通过全局信号量限流削峰，复用连接池 client。
     """
+    if urlsplit(url).hostname == "api.deepseek.com" and isinstance(kwargs.get("json"), dict):
+        payload = dict(kwargs["json"])
+        enabled = bool(payload.pop("enable_thinking", False))
+        payload.setdefault("thinking", {"type": "enabled" if enabled else "disabled"})
+        kwargs["json"] = payload
     if is_httpx_post_patched():
         return httpx.post(url, **kwargs)
     with get_llm_semaphore():

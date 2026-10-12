@@ -105,7 +105,9 @@ test('fuzzy school search, select, bind, queued sync completes the miniapp flow'
   await harness.page.bindSchool()
   assert.equal(harness.page.data.bound.id, student.id)
   assert.equal(harness.storage.get('bound_student').id, student.id)
-  await harness.page.syncSchool()
+  assert.equal(calls.filter(([url]) => url.endsWith('/sync/tasks')).length, 1)
+  assert.equal(harness.page.data.busy, true)
+  await harness.page.syncSchool() // While the automatic sync is pending, clicks cannot duplicate it.
   await harness.tick()
   assert.deepEqual(harness.loads, [42])
 })
@@ -126,17 +128,17 @@ test('fuzzy search displays truncation and ignores responses after unload', asyn
   assert.equal(closed.page.data.students.length, 0)
 })
 
-test('term lookup failure preserves completed binding and its default semester', async () => {
+test('automatic sync submission failure preserves completed binding and its default semester', async () => {
   const student = { id: 'student01', default_term: '2026-2027-1' }
   const harness = pageHarness(async url => {
     if (url === '/api/academic/binding') return { student }
-    throw new Error('学期查询超时')
+    throw new Error('同步提交超时')
   })
   harness.page.data.selected = student
   await harness.page.bindSchool()
   assert.equal(harness.page.data.bound.id, student.id)
   assert.equal(harness.page.data.terms[0], student.default_term)
-  assert.match(harness.page.data.error, /学期查询超时/)
+  assert.match(harness.page.data.error, /同步提交超时/)
   assert.equal(harness.page.data.busy, false)
 })
 
@@ -204,4 +206,72 @@ test('repeated sync clicks share one confirmation and closed page does not submi
   harness.page.onUnload()
   modal.success({ confirm: true })
   await pending
+})
+
+
+test('binding without a default term loads terms then automatically syncs', async () => {
+  const calls = []
+  const harness = pageHarness(async (url, options) => {
+    calls.push(url)
+    if (url === '/api/academic/binding') return { student: { id: 'new-student' } }
+    if (url.endsWith('/terms')) return { terms: ['2026-2027-1'] }
+    assert.equal(options.data.term, '2026-2027-1')
+    return { id: 'new-job', state: 'queued' }
+  })
+  harness.page.data.selected = { id: 'new-student' }
+  await harness.page.bindSchool()
+  assert.equal(calls.length, 3)
+  assert.equal(harness.storage.get('academic_pending_task_id'), 'new-job')
+  assert.equal(harness.page.data.busy, true)
+})
+
+
+test('transient polling failure retries the same task and completes', async () => {
+  let attempts = 0
+  const h = pageHarness(async () => {
+    if (++attempts === 1) throw new Error('断网')
+    return { id: 'job', state: 'succeeded', result: { schedule_id: 8, last_synced_at: '2026-10-11T00:00:00Z' } }
+  })
+  await h.page.followTask({ id: 'job', state: 'running' })
+  await h.tick()
+  assert.equal(h.page.data.busy, true)
+  assert.match(h.page.data.syncStatus, /自动重连/)
+  await h.tick()
+  await h.tick()
+  assert.deepEqual(h.loads, [8])
+})
+
+test('hiding pauses polling and returning resumes it', async () => {
+  const h = pageHarness(async () => ({ id: 'job', state: 'failed', error: '学校不可用' }))
+  await h.page.followTask({ id: 'job', state: 'running' })
+  h.page.onHide()
+  assert.equal(h.hasTimer(), false)
+  h.page.onShow()
+  assert.equal(h.hasTimer(), true)
+  await h.tick()
+  assert.equal(h.page.data.error, '学校不可用')
+})
+
+test('term lookup failure gives a separate notice and keeps default term usable', async () => {
+  const h = pageHarness(async () => { throw new Error('网络失败') })
+  await h.page.loadTerms({ id: 'student', default_term: '2026-2027-1' })
+  assert.equal(h.page.data.terms[0], '2026-2027-1')
+  assert.equal(h.page.data.error, '')
+  assert.match(h.page.data.notice, /仍可同步默认学期/)
+})
+
+
+test('obsolete in-flight poll cannot restart after a newer chain completes', async () => {
+  let resolveOld
+  const h = pageHarness(() => new Promise(resolve => { resolveOld = resolve }))
+  const task = { id: 'job-1', state: 'queued' }
+  await h.page.followTask(task)
+  const oldPoll = h.tick()
+  await h.page.followTask({ id: 'job-1', state: 'succeeded', result: { schedule_id: 42, last_synced_at: '2026-10-12T12:00:00Z' } })
+  resolveOld({ id: 'job-1', state: 'running' })
+  await oldPoll
+  assert.equal(h.page.data.busy, false)
+  assert.equal(h.page.pendingTask, null)
+  assert.equal(h.hasTimer(), false)
+  assert.deepEqual(h.loads, [42])
 })
