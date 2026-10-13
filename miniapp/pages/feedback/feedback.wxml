@@ -35,9 +35,9 @@
         <text class="counter">{{description.length}} / 1000</text>
       </view>
 
-      <view class="field field-last">
+      <view class="field field-last" wx:if="{{false}}">
         <text class="field-label">联系方式（选填）</text>
-        <input class="input" value="{{contact}}" maxlength="120" placeholder="QQ / 微信 / 邮箱" placeholder-class="placeholder" bindinput="setContact" />
+        <input class="input" value="{{contact}}" maxlength="120" placeholder="用于接收答复（选填）" placeholder-class="placeholder" bindinput="setContact" />
         <text class="field-tip">仅用于向你同步修复进度，绝不对外公开</text>
       </view>
 

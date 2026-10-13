@@ -213,8 +213,8 @@
         </view>
       </view>
 
-      <!-- 模块 4：问题反馈 -->
-      <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openFeedback">
+      <!-- 模块 4：问题反馈（已隐藏） -->
+      <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openFeedback" wx:if="{{false}}">
         <view class="service-icon-box icon-emerald">
           <text class="service-emoji">💬</text>
         </view>
