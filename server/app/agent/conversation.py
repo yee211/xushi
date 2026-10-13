@@ -53,7 +53,7 @@ def _key(user_id: int, provider: str, thread_key: str) -> str:
     return f"wx-schedule:agent-context:v2:{safe_provider}:{user_id}:{safe_thread[:128]}"
 
 
-def load_history(user_id: int, provider: str, thread_key: str) -> list:
+def load_history(user_id: int, provider: str, thread_key: str, schedule_version: str | None = None) -> list:
     client = _client()
     if client is None:
         return []
@@ -67,6 +67,12 @@ def load_history(user_id: int, provider: str, thread_key: str) -> list:
         timestamp = item.get("created_at", "")
         resolved = item.get("resolved_context") or {}
         content = clean_message_content(item.get("content"))
+        if schedule_version is not None and item.get("schedule_version") != schedule_version:
+            if item.get("role") != "user":
+                continue
+            resolved = {key: value for key, value in resolved.items()
+                        if key in {"intent", "target_date", "period", "weekday", "course_name"}}
+            content += "\n[课表已更新：历史消息仅用于理解追问，课程事实必须重新查询]"
         if item.get("role") == "user":
             suffix = f"\n[消息时间：{timestamp}；已解析上下文：{json.dumps(resolved, ensure_ascii=False)}]"
             result.append(HumanMessage(content=content + suffix))
@@ -76,16 +82,16 @@ def load_history(user_id: int, provider: str, thread_key: str) -> list:
 
 
 def append_turn(user_id: int, provider: str, thread_key: str, user_text: str,
-                answer: str, received_at: datetime, resolved_context: dict) -> None:
+                answer: str, received_at: datetime, resolved_context: dict, schedule_version: str | None = None) -> None:
     client = _client()
     if client is None:
         return
     key = _key(user_id, provider, thread_key)
     messages = [
         {"role": "user", "content": clean_message_content(user_text), "created_at": received_at.isoformat(),
-         "resolved_context": resolved_context},
+         "resolved_context": resolved_context, "schedule_version": schedule_version},
         {"role": "assistant", "content": clean_message_content(answer), "created_at": datetime.now(received_at.tzinfo).isoformat(),
-         "resolved_context": resolved_context},
+         "resolved_context": resolved_context, "schedule_version": schedule_version},
     ]
     payload = {"messages": messages, "state": resolved_context,
                "updated_at": received_at.isoformat(),
@@ -94,3 +100,25 @@ def append_turn(user_id: int, provider: str, thread_key: str, user_text: str,
         client.eval(_APPEND_TURN_LUA, 1, key, json.dumps(payload, ensure_ascii=False), _ttl())
     except RedisError:
         return
+
+
+def selected_schedule(user_id: int, provider: str, thread_key: str) -> int | None:
+    client = _client()
+    if client is None:
+        return None
+    try:
+        value = client.get(_key(user_id, provider, thread_key) + ":selection")
+        return int(value) if value else None
+    except (RedisError, ValueError, TypeError):
+        return None
+
+
+def select_schedule(user_id: int, provider: str, thread_key: str, schedule_id: int) -> bool:
+    client = _client()
+    if client is None:
+        return False
+    try:
+        client.setex(_key(user_id, provider, thread_key) + ":selection", 86400, str(schedule_id))
+        return True
+    except RedisError:
+        return False

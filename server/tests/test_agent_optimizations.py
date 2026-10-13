@@ -144,7 +144,8 @@ def test_parallel_tool_calls_in_loop(monkeypatch):
     def fake_dispatch(skills, name, arguments):
         time.sleep(0.06)
         delays.append(name)
-        return {"data": name}
+        return ({"courses": [{"name": "高数"}]} if name == "query_day_courses"
+                else {"rain": {"rain": False, "peak": 0}})
 
     monkeypatch.setattr(loop_module, "dispatch", fake_dispatch)
     monkeypatch.setattr(loop_module, "_grounded", lambda content, ctx: True)

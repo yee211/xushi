@@ -10,11 +10,13 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from urllib.parse import urlsplit
 
 import httpx
 
 from ..services.llm_config import get_llm_config
+from .budget import execution, remaining
 from .circuit_breaker import llm_circuit_breaker
 from .http_client import post_llm
 from .intent_ai import agent_config
@@ -39,12 +41,15 @@ SYSTEM_PROMPT = """你是课表小程序「序时」的课表助手，身份是�
 - 天气、会不会下雨、要不要带伞用 get_weather；要结合课程给带伞建议时，同时调用
   query_day_courses 和 get_weather，按上课时段给出结论；
 - 问有没有空/空档用 query_day_courses 的结果自行推导。
+- 问同步进度、数据是否更新、学校绑定或没有导入课表，用 get_schedule_status；不能宣称已发起同步。
+- 多课表冲突如实列出工具返回的候选，提示用户发送“使用课表 编号”，不要替用户选择。
+- 历史回答不是当前事实，涉及课表和天气的追问也必须重新查询。工具不可用与没有课是两种不同结果。
 日期一律依据服务端当前时间换算成 YYYY-MM-DD。与课表无关的闲聊不调用技能，一两句话简短自然回应。
 情境判断与交流分寸（重要）：
 回答前先把服务端当前时间和技能返回的上课时间做对比，结合用户处境交流：
 - 面对旷课/起不来/想偷懒/求劝：
   态度要真诚中肯、有分寸感。不要像教导主任训话，不要机械复读免责官话（“你自己决定我不劝也不拦”），也不要油腔滑调、强行讲烂梗；
-  像靠谱同门一样体谅犯困或疲惫，结合课程信息给出中肯实在的提醒或建议（例如说明天第一节课抓考勤/算平时分，实在困带杯咖啡去后排听听，别因为缺勤影响期末等）；
+  体谅犯困或疲惫，结合已查到的上课时间给出实在建议；不得猜测考勤要求、平时分、教师习惯；
 - 面对闲聊与倾诉（“你劝劝我”、“你好冷漠”）：
   真诚体贴回应，温和解释，给予适当的情绪关怀，不生硬抗辩，不油腻嬉笑；
 - 上课进行中用户说还在宿舍/床上：
@@ -62,7 +67,7 @@ SYSTEM_PROMPT = """你是课表小程序「序时」的课表助手，身份是�
   - 头大 / 崩溃 / 纠结：🤯、🫠、🤦、🥶
   - 下课 / 轻松 / 庆祝：🎉、🥤、✨、😎
 - 严禁在回复末尾输出 [消息时间...] 或已解析上下文等系统内部标记；
-- 保留关键事实，整体简练不超过 150 字，结尾不要补多余标点。
+- 普通回答尽量不超过 150 字；周课表或多课列表按天逐项列出，允许更长，不能因字数限制省略关键课程。
 技能返回 error 时如实说明，不要猜测或虚构数据。"""
 
 
@@ -77,7 +82,7 @@ def _grounded(content: str, context: str) -> bool:
     因此模型基于事实做的时间推算（如“还剩 76 分钟”“现在 08:44”）不会被误杀。
     """
     text = str(content or "").strip()
-    if not text or len(text) > 600:
+    if not text or len(text) > 4000:
         return False
     if any(token in text.lower() for token in FORBIDDEN_TOKENS):
         return False
@@ -86,6 +91,81 @@ def _grounded(content: str, context: str) -> bool:
                 for hour, minute in [token.split(":")]}
     allowed_times = times(str(context or ""))
     return times(text) <= allowed_times
+
+
+
+def _facts_grounded(content: str, facts: list[dict], question: str) -> bool:
+    successful = [f for f in facts if isinstance(f.get("result"), dict) and not f["result"].get("error")]
+    course_tools = {"query_day_courses", "query_week_courses", "get_next_course", "find_course"}
+    queried = [f for f in successful if f["skill"] in course_tools]
+    status_question = bool(re.search(r"同步|学校绑定|课表.*更新|旧课表", question))
+    course_question = not status_question and bool(re.search(
+        r"有什么课|有课吗|有没有.*课|课表|下一节|下节课|什么时候上|谁教|在哪上", question))
+    unavailable_reply = bool(facts and not queried and re.search(
+        r"查不到|无法|失败|不可用|多张|选择|范围|没有导入", content))
+    if status_question and not any(f["skill"] == "get_schedule_status" for f in successful) and not unavailable_reply:
+        return False
+    claim = bool(re.search(r"有.{0,16}课(?!表)|没有课|正在上|下一节是|不用上课|没课|在[A-Z][A-Za-z]*-?\d{2,5}", content))
+    if (course_question or claim) and not queried:
+        positive = re.sub(r"没有[^，。！？\n]*|没课|不用上课", "", content)
+        unsupported = bool(re.search(r"有.{0,16}课(?!表)|正在上|下一节是|在[A-Z][A-Za-z]*-?\d{2,5}|《", positive))
+        if unavailable_reply:
+            if unsupported:
+                return False
+        elif course_question or not re.search(r"可以|帮你|帮忙|能查", content):
+            return False
+    if queried:
+        rows = []
+        for fact in queried:
+            result = fact["result"]
+            rows.extend(result.get("courses") or [])
+            rows.extend(result.get("occurrences") or [])
+            if result.get("course"):
+                rows.append(result["course"])
+            for day in result.get("days") or []:
+                rows.extend(day.get("courses") or [])
+        positive = re.sub(r"没有[^，。！？\n]*|没课|不用上课", "", content)
+        if not rows and re.search(r"有.{0,16}课(?!表)|正在上|下一节是", positive):
+            return False
+        # A single-day result cannot be rewritten as a blanket no-class conclusion.
+        day_results = [f["result"] for f in queried if f["skill"] == "query_day_courses"]
+        if len(day_results) == 1 and day_results[0].get("courses") and re.search(
+                r"(?:今天|明天|后天|当天)?(?:没有课|没课|全天无课|没有任何课)", content):
+            return False
+        allowed_rooms = {str(row.get("room") or "") for row in rows}
+        for room in re.findall(r"(?<![A-Za-z0-9])[A-Z][A-Za-z]*-?\d{2,5}(?![A-Za-z0-9])", content):
+            if not any(room in allowed for allowed in allowed_rooms):
+                return False
+        names = {str(row.get("name") or "") for row in rows}
+        for name in re.findall(r"《([^》]+)》", content):
+            if name not in names:
+                return False
+    weather_question = bool(re.search(r"天气|下雨|带伞|温度|几度", question))
+    weather_claim = bool(re.search(r"晴天|多云|阴天|有雨|无雨|不会下雨|会下雨|带伞|\d+\s*(?:℃|°C|度)", content))
+    if weather_question or weather_claim:
+        weather = [f["result"] for f in successful if f["skill"] == "get_weather"]
+        if not weather:
+            return unavailable_reply and not weather_claim
+        if all(r.get("rain") is None and r.get("daily") is None for r in weather):
+            return bool(re.search(r"查不到|无法|不可用|暂时|未配置", content)) and not weather_claim
+        rain_values = [r["rain"]["rain"] for r in weather if isinstance(r.get("rain"), dict)]
+        if rain_values and all(rain_values) and re.search(r"不用带伞|不需要带伞|不会下雨|没有雨|无雨", content):
+            return False
+        positive_weather = re.sub(r"没有雨|不会下雨|无雨", "", content)
+        if rain_values and not any(rain_values) and re.search(r"预报有雨|会下雨|有雨", positive_weather):
+            return False
+        daily = [r["daily"] for r in weather if isinstance(r.get("daily"), dict)]
+        conditions = {r.get("condition") for r in daily}
+        for condition in re.findall(r"晴间多云|雷阵雨|多云|晴天|阴天|小雨|中雨|大雨|小雪|大雪|大雾", content):
+            if {"晴天": "晴", "阴天": "阴"}.get(condition, condition) not in conditions:
+                return False
+        temperatures = {str(r[key]) for r in daily for key in ("temp_min", "temp_max") if key in r}
+        mentioned = set(re.findall(r"(?<!\d)(-?\d+)(?:\s*°[CcＣ]|\s*℃|\s*度)", content))
+        for low, high in re.findall(r"(-?\d+)\s*[-～~–至]\s*(-?\d+)\s*(?:℃|°[CcＣ]|度)", content):
+            mentioned.update((low, high))
+        if mentioned and not mentioned <= temperatures:
+            return False
+    return True
 
 
 def _execute_tool_call(skills, call: dict) -> tuple[dict, dict]:
@@ -102,6 +182,8 @@ def _execute_tool_call(skills, call: dict) -> tuple[dict, dict]:
 def _extract_context_entities(facts: list[dict]) -> dict:
     resolved: dict = {"intent": "AGENT_LOOP", "skills": [fact["skill"] for fact in facts]}
     for fact in facts:
+        if (fact.get("result") or {}).get("error"):
+            continue
         raw_args = fact.get("arguments")
         try:
             args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
@@ -119,7 +201,8 @@ def _extract_context_entities(facts: list[dict]) -> dict:
 
 def run(tools, message: str, history: list | None = None) -> dict | None:
     try:
-        return _run(tools, message, history)
+        with execution():
+            return _run(tools, message, history)
     except Exception as error:
         logger.warning("Agent failed: %s", type(error).__name__)
         llm_circuit_breaker.record_failure(error)
@@ -143,6 +226,7 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
     facts: list[dict] = []
     try:
         for _ in range(MAX_ROUNDS):
+            remaining()
             payload = {"model": model, "temperature": 0.2, "max_tokens": int(config.get("max_tokens") or MAX_TOKENS),
                        "messages": messages, "tools": openai_tools(skills), "tool_choice": "auto"}
             if urlsplit(base_url).hostname == "api.deepseek.com":
@@ -155,13 +239,18 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
                                  headers={"Authorization": f"Bearer {api_key}"}, timeout=float(config.get("timeout_seconds") or _timeout()),
                                  json=payload)
             response.raise_for_status()
-            reply = response.json()["choices"][0]["message"]
+            remaining()
+            choice = response.json()["choices"][0]
+            if choice.get("finish_reason") == "length":
+                return None  # A truncated course list must fall back to the complete template.
+            reply = choice["message"]
             calls = reply.get("tool_calls") or []
             if not calls:
                 content = str(reply.get("content") or "").strip()
                 content = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", content, flags=re.DOTALL).strip()
                 content = content.replace("😂", "").strip()
-                if content and _grounded(content, json.dumps(facts, ensure_ascii=False, default=str) + " " + tools.context.now.strftime("%H:%M")):
+                if content and _grounded(content, json.dumps([f["result"] for f in facts if not f["result"].get("error")],
+                                                      ensure_ascii=False, default=str) + " " + tools.context.now.strftime("%H:%M")) and _facts_grounded(content, facts, message):
                     llm_circuit_breaker.record_success()
                     return {"answer": content, "skills": [fact["skill"] for fact in facts],
                             "tool_result": {"skills": facts},
@@ -179,7 +268,8 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
                 messages.append(tool_msg)
             else:
                 with ThreadPoolExecutor(max_workers=min(len(calls), 6)) as executor:
-                    results = list(executor.map(lambda c: _execute_tool_call(skills, c), calls))
+                    futures = [executor.submit(copy_context().run, _execute_tool_call, skills, call) for call in calls]
+                    results = [future.result() for future in futures]
                 for fact, tool_msg in results:
                     facts.append(fact)
                     messages.append(tool_msg)

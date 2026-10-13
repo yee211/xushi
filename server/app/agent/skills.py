@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import date as date_type
 
 from ..services.schedule_query import ScheduleQueryError
-from ..services.weather import day_rain
+from ..services.weather import day_rain, fetch_daily_weather
 from .tools import ScheduleTools
 
 
@@ -50,9 +50,15 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
         return {"courses": tools.list_course_catalog()}
 
     def get_weather(date: str, period: str = "all") -> dict:
-        return {"date": date, "period": period, "rain": day_rain(date_type.fromisoformat(date), period)}
+        target = date_type.fromisoformat(date)
+        if period not in {"all", "morning", "afternoon", "evening"}:
+            raise ValueError("无效的时间段")
+        return {"date": date, "period": period, "rain": day_rain(target, period),
+                "daily": fetch_daily_weather(target)}
 
     return [
+        Skill("get_schedule_status", "查询已导入课表、学校绑定、最近同步时间和同步任务进度；不发起同步",
+              {}, (), tools.get_schedule_status),
         Skill("query_day_courses", "查询某一天的课程列表，可按时段过滤",
               {"date": _DATE, "period": _PERIOD}, ("date",), query_day_courses),
         Skill("query_week_courses", "查询某一自然周（周一到周日）的每日课程，默认本周",
@@ -63,7 +69,7 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
                "from_date": {**_DATE, "description": "起始日期，可空表示今天"}}, ("name",), find_course),
         Skill("list_course_catalog", "列出该用户课表里的全部课程候选，用于把简称/口语对照成完整课程名",
               {}, (), list_course_catalog),
-        Skill("get_weather", "查询某天（可限定时段）的降雨情况，用于回答天气或要不要带伞",
+        Skill("get_weather", "查询某天天气概况、最高最低温度及指定时段降雨；daily 是全天概况，rain 是所选时段降雨",
               {"date": _DATE, "period": _PERIOD}, ("date",), get_weather),
     ]
 

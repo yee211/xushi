@@ -90,7 +90,7 @@ def build_morning_brief(db, user_id: int, target_date: date) -> str:
                        user_id, target_date, err.code)
         query_result = {"courses": [], "week": None}
         if err.code == "AMBIGUOUS_SCHEDULE":
-            schedule_notice = "⚠️ 你有多张生效中的课表，请在小程序里选定默认课表后查看今日安排。"
+            schedule_notice = "⚠️ 你有多张生效中的课表，暂时无法确定今日安排，请在小程序中查看并整理课表。"
     courses = query_result.get("courses", [])
     week = query_result.get("week")
 

@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from ..agent.budget import remaining
+
 WET_WEATHER_CODES = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99}
 RAIN_PROBABILITY_THRESHOLD = 50
 _CACHE: dict[tuple, tuple[float, list[dict]]] = {}
@@ -70,7 +72,7 @@ def fetch_hourly(target_date: date, now: datetime | None = None) -> list[dict] |
         return cached[1]
     try:
         response = httpx.get("https://api.open-meteo.com/v1/forecast",
-                             timeout=max(2.0, min(float(os.getenv("WEATHER_TIMEOUT_SECONDS", "3")), 10.0)),
+                             timeout=remaining(max(2.0, min(float(os.getenv("WEATHER_TIMEOUT_SECONDS", "3")), 10.0))),
                              params={"latitude": settings[0], "longitude": settings[1],
                                      "hourly": "precipitation_probability,weather_code",
                                      "start_date": target_date.isoformat(),
@@ -135,7 +137,7 @@ def fetch_daily_weather(target_date: date, now: datetime | None = None) -> dict 
         return cached[1]
     try:
         response = httpx.get("https://api.open-meteo.com/v1/forecast",
-                             timeout=max(2.0, min(float(os.getenv("WEATHER_TIMEOUT_SECONDS", "3")), 10.0)),
+                             timeout=remaining(max(2.0, min(float(os.getenv("WEATHER_TIMEOUT_SECONDS", "3")), 10.0))),
                              params={"latitude": settings[0], "longitude": settings[1],
                                      "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
                                      "start_date": target_date.isoformat(),
@@ -149,7 +151,7 @@ def fetch_daily_weather(target_date: date, now: datetime | None = None) -> dict 
         precip_prob = int((daily.get("precipitation_probability_max") or [0])[0] or 0)
 
         condition = WMO_WEATHER_NAMES.get(code, "多云")
-        rain = code in WET_WEATHER_CODES or precip_prob >= 40
+        rain = code in WET_WEATHER_CODES or precip_prob >= RAIN_PROBABILITY_THRESHOLD
         result = {
             "weather_code": code,
             "condition": condition,

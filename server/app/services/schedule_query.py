@@ -60,7 +60,16 @@ def select_effective_schedule(schedules: Sequence[Mapping], target_date: date,
             return adjusted or chosen
     if len(effective) == 1:
         return effective[0]
-    raise ScheduleQueryError("AMBIGUOUS_SCHEDULE", "目标日期存在多张可用课表，请先选择默认课表")
+    # A uniquely identified school schedule is authoritative, including its adjusted copy.
+    school = [item for item in effective if item.get("academic_student_id") or any(
+        source.get("academic_student_id") and source["id"] == item.get("source_schedule_id")
+        for source in active)]
+    if len(school) == 1:
+        return school[0]
+    candidates = "；".join(f"{item['id']}：{item.get('name') or item.get('term') or '课表'}"
+                           for item in effective)
+    raise ScheduleQueryError("AMBIGUOUS_SCHEDULE",
+                             f"这个日期有多张可用课表：{candidates}。请发送“使用课表 编号”明确选择")
 
 def materialize_courses(courses: Iterable[Mapping], adjustments: Iterable[Mapping],
                         week: int, weekday: int, period: str = "all") -> list[dict]:
@@ -109,6 +118,8 @@ def query_courses_by_date(db, user_id: int, target_date: date, period: str = "al
     return {"date": target_date.isoformat(), "weekday": target_date.isoweekday(), "week": week,
             "schedule_id": schedule["id"], "schedule_name": schedule.get("term") or schedule.get("name") or "课表",
             "timezone": APP_TIMEZONE,
+            "source": "school" if schedule.get("academic_student_id") else "import",
+            "synced_at": str(schedule["academic_synced_at"]) if schedule.get("academic_synced_at") else None,
             "courses": materialize_courses(courses, adjustments, week, target_date.isoweekday(), period)}
 
 def next_course(db, user_id: int, now: datetime | None = None, lookahead_days: int = 7,

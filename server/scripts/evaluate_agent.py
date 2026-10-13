@@ -33,12 +33,20 @@ def fixture_tools(kind="normal"):
             self.rows = rows
         def fetchall(self):
             return self.rows
+        def fetchone(self):
+            return self.rows[0] if self.rows else None
 
     class Database:
         def execute(self, sql, params):
             schedule = {"id": 1, "user_id": 1, "name": "评测课表", "term": "2026秋",
                         "start_date": date(2026, 9, 7), "end_date": date(2027, 1, 24),
                         "variant_type": "original", "source_schedule_id": None}
+            if "FROM academic_bindings" in sql:
+                return Result([])
+            if "FROM academic_sync_jobs" in sql:
+                return Result([])
+            if "FROM schedules" in sql and len(params) == 1:
+                return Result([schedule] if kind != "missing" else [])
             if "FROM schedules" in sql:
                 active = kind != "missing" and teaching_week(schedule, params[1]) is not None
                 return Result([schedule] if active else [])
@@ -101,7 +109,10 @@ def evaluate_case(case):
     try:
         with patch.object(loop, "agent_config", return_value=config), \
              patch.object(loop, "_post_llm", side_effect=traced_post), \
-             patch.object(skills, "day_rain", return_value=rain):
+             patch.object(skills, "day_rain", return_value=rain), \
+             patch.object(skills, "fetch_daily_weather", return_value={
+                 "condition": "小雨", "temp_min": 18, "temp_max": 25,
+                 "rain": True, "rain_probability": 80}):
             result = loop.run(tools, case["question"], history)
         if result is None:
             row["error"] = "AgentReturnedNone"

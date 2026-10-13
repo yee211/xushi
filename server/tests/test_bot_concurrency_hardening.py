@@ -38,7 +38,7 @@ class CountingConnectionPool:
                 self.parent = parent
                 self.mock_db = MagicMock()
                 # 预设常见查询返回
-                self.mock_db.execute.return_value.fetchone.return_value = {"user_id": 42}
+                self.mock_db.execute.return_value.fetchone.return_value = {"user_id": 42, "snapshot": {}}
                 self.mock_db.execute.return_value.fetchall.return_value = []
 
             def __enter__(self):

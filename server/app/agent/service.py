@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from ..db import db_ctx
 from ..services.binding import BindingError, consume_binding_code, unbind_provider_identity
-from .conversation import append_turn, load_history
+from .conversation import append_turn, load_history, select_schedule, selected_schedule
 from .orchestrator import handle_message
 from .tools import AgentContext, ScheduleTools
 
@@ -44,10 +44,32 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
     timezone = ZoneInfo(timezone_name)
     now = received_at or datetime.now(timezone)
     # ScheduleTools 内部按需借还连接；在 handle_message 等待大模型网络响应时，零数据库连接占用
-    tools = ScheduleTools(db, AgentContext(row["user_id"], now, str(timezone)))
-    history = load_history(row["user_id"], provider, sender_id)
+    user_id = row["user_id"]
+    selection = re.fullmatch(r"使用课表\s*(\d+)", text)
+    schedule_id = int(selection.group(1)) if selection else selected_schedule(user_id, provider, sender_id)
+    if schedule_id is not None:
+        with db_ctx(db) as conn:
+            chosen = conn.execute("SELECT id,name FROM schedules WHERE id=%s AND user_id=%s",
+                                  (schedule_id, user_id)).fetchone()
+        if not chosen:
+            if selection:
+                return "没有找到这张课表，请确认课表编号。"
+            schedule_id = None
+        elif selection:
+            if not select_schedule(user_id, provider, sender_id, schedule_id):
+                return "暂时无法保存课表选择，请稍后再试。"
+            return f"已选择“{chosen['name']}”，本渠道后续查询将优先使用它，选择保留 24 小时。"
+    tools = ScheduleTools(db, AgentContext(user_id, now, str(timezone), schedule_id))
+    try:
+        version = f"{tools.schedule_version()}:{schedule_id or ''}"
+        history = load_history(user_id, provider, sender_id, version)
+    except Exception:
+        # Never reuse unverifiable course facts when the snapshot cannot be read.
+        import logging
+        logging.getLogger(__name__).warning("Agent history snapshot unavailable", exc_info=True)
+        version, history = None, []
     result = handle_message(text, tools, history=history)
     append_turn(row["user_id"], provider, sender_id, text, result["answer"], now,
-                result.get("resolved_context") or {"intent": result.get("intent")})
+                result.get("resolved_context") or {"intent": result.get("intent")}, version)
     return result["answer"]
 

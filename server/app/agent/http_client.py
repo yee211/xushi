@@ -4,6 +4,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from .budget import remaining
+
 _original_httpx_post = httpx.post
 _client: httpx.Client | None = None
 _client_lock = threading.Lock()
@@ -37,10 +39,18 @@ def post_llm(url: str, **kwargs) -> httpx.Response:
         enabled = bool(payload.pop("enable_thinking", False))
         payload.setdefault("thinking", {"type": "enabled" if enabled else "disabled"})
         kwargs["json"] = payload
+    timeout = float(kwargs.get("timeout") or 15)
+    kwargs["timeout"] = remaining(timeout)
     if is_httpx_post_patched():
         return httpx.post(url, **kwargs)
-    with get_llm_semaphore():
+    semaphore = get_llm_semaphore()
+    if not semaphore.acquire(timeout=remaining(timeout)):
+        raise httpx.TimeoutException("Agent model queue timed out")
+    try:
+        kwargs["timeout"] = remaining(timeout)
         return get_llm_client().post(url, **kwargs)
+    finally:
+        semaphore.release()
 
 
 def get_llm_client() -> httpx.Client:

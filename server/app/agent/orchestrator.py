@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from ..services.schedule_query import ScheduleQueryError, resolve_course_name
-from ..services.weather import day_rain, rain_advisory
+from ..services.weather import day_rain, fetch_daily_weather, rain_advisory
+from .budget import available, execution
 from .circuit_breaker import CircuitState, llm_circuit_breaker
 from .intent_ai import extract_intent, llm_configured
 from .loop import run as run_agent
@@ -87,7 +88,7 @@ def parse_intent(message: str, today: date) -> ParsedIntent:
         "afternoon" if "下午" in text else ("evening" if any(x in text for x in ("晚上", "晚间")) else "all"))
     target = _target_day(text, today)
     # “明天要带伞吗”“今天会下雨吗”这类天气是非问句：有明确日期即按天气意图处理。
-    if target and any(word in text for word in ("天气", "雨", "带伞")):
+    if target and any(word in text for word in ("天气", "雨", "带伞", "温度", "几度")):
         return ParsedIntent("QUERY_WEATHER", target, period)
     match = HAS_COURSE_PATTERN.search(text)
     if target and match:
@@ -118,6 +119,11 @@ def handle_message(message: str, tools: ScheduleTools, history: list | None = No
 
     循环不可用（LLM 未配置/熔断中/超时/输出未过接地校验）时，退回确定性意图+模板路径兜底。
     """
+    with execution():
+        return _handle_message(message, tools, history)
+
+
+def _handle_message(message: str, tools: ScheduleTools, history: list | None = None) -> dict:
     llm_allowed = llm_configured() and llm_circuit_breaker.allow_request()
     if llm_allowed:
         looped = run_agent(tools, message, history)
@@ -128,11 +134,31 @@ def handle_message(message: str, tools: ScheduleTools, history: list | None = No
     # OPEN/HALF_OPEN fallback must remain entirely deterministic. When the breaker
     # is still CLOSED, retain the existing intent-extraction/polishing fallback.
     return _legacy_reply(message, tools, history,
-                         allow_llm=llm_circuit_breaker.state == CircuitState.CLOSED)
+                         allow_llm=available() and llm_circuit_breaker.state == CircuitState.CLOSED)
 
 
 def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = None,
                   *, allow_llm: bool = True) -> dict:
+    if any(word in message for word in ("同步", "旧课表", "学校绑定", "课表更新")):
+        try:
+            status = tools.get_schedule_status()
+        except Exception:
+            return {"intent": "SCHEDULE_STATUS", "answer": "暂时无法查询同步状态，请稍后重试。",
+                    "error": {"code": "service_unavailable"}}
+        job = status.get("sync_job")
+        if "学校绑定" in message:
+            answer = "已绑定学校身份。" if status["school_bound"] else "还没有绑定学校身份，请先在小程序中绑定。"
+        elif job and job["state"] in {"queued", "running"}:
+            answer = "课表正在排队同步。" if job["state"] == "queued" else "课表正在同步，请稍后再查。"
+        elif job and job["state"] == "failed":
+            answer = "最近一次同步失败，当前仍使用已保存的课表，请在小程序查看同步状态并重试。"
+        elif not status["schedules"]:
+            answer = "还没有导入课表，请先在小程序导入或绑定学校后同步。"
+        else:
+            answer = "当前有已保存的课表。"
+            if status.get("last_synced_at"):
+                answer += f"最近学校同步时间：{status['last_synced_at']}。"
+        return {"intent": "SCHEDULE_STATUS", "answer": answer, "tool_result": status}
     try:
         # 课程目录只有 LLM 意图提取会用到；纯规则路径不查，省一次数据库往返。
         catalog = tools.list_course_catalog() if allow_llm and llm_configured() else []
@@ -195,6 +221,7 @@ def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = Non
             target = intent.target_date
             day = f"{target.isoformat()}（{DAY_LABELS[target.isoweekday() - 1]}）{PERIOD_LABELS[intent.period]}"
             rain = day_rain(target, intent.period)
+            daily = fetch_daily_weather(target)
             if rain is None:
                 answer = f"暂时查不到{day}的天气，稍后再问我吧。"
             elif rain["rain"]:
@@ -208,8 +235,11 @@ def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = Non
                 answer = f"{day}目前预报没有雨，不用带伞。"
                 if courses:
                     answer += f"当天有 {len(courses)} 门课，正常出门就行。"
+            if daily:
+                summary = f"全天{daily['condition']}，气温 {daily['temp_min']}～{daily['temp_max']}℃。"
+                answer = f"{day}{summary}" if rain is None else f"{answer}\n{summary}"
             result = {"date": target.isoformat(), "weekday": target.isoweekday(),
-                      "courses": courses, "rain": rain}
+                      "courses": courses, "rain": rain, "daily": daily}
         elif intent.name == "QUERY_WEEK" and intent.target_date:
             result = tools.get_courses_by_week(intent.target_date, intent.weekday)
             lines = []
@@ -243,7 +273,7 @@ def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = Non
             advisory = rain_advisory(result["date"], result["courses"])
             if advisory:
                 answer += f"\n{advisory}"
-        if result and allow_llm:
+        if result and allow_llm and available():
             # 事实来自工具结果，模板只是基准表达；润色失败或未通过接地校验时保持模板。
             polished = polish_answer(message, answer, result, history, tools.context.now)
             if polished:
@@ -256,6 +286,6 @@ def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = Non
                 "resolved_context": resolved_context}
     except ScheduleQueryError as error:
         messages = {"OUTSIDE_TERM": "这个日期不在已导入课表的学期范围内。",
-                    "AMBIGUOUS_SCHEDULE": "这个日期有多张可用课表，请先在小程序中选择默认课表。"}
+                    "AMBIGUOUS_SCHEDULE": error.message}
         return {"intent": intent.name, "answer": messages.get(error.code, error.message),
                 "error": {"code": error.code, "message": error.message}}

@@ -47,6 +47,9 @@ class FakeAgentDb:
         if sql.startswith("INSERT INTO user_identities"):
             self.inserted_identities.append(params)
             return FakeResult([])
+        if "AS snapshot" in sql:
+            return FakeResult([{"snapshot": {"schedules": list(self.schedules),
+                                             "courses": list(self.courses), "adjustments": []}}])
         if "FROM schedules" in sql:
             self.schedule_query_user_ids.append(params[0])
             return FakeResult([item for item in self.schedules if teaching_week(item, params[1]) is not None])

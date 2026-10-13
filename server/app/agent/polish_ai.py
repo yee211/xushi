@@ -34,7 +34,7 @@ POLISH_SYSTEM_PROMPT = """你是课表小程序「序时」的课表助手（身
   - 头大 / 崩溃 / 纠结：🤯、🫠、🤦、🥶
   - 下课 / 轻松 / 庆祝：🎉、🥤、✨、😎
 - 严禁输出 [消息时间...] 或已解析上下文等系统内部标记；
-- 整体不超过 150 字，只输出回复正文，不要解释。没有把握时原样输出模板答案。"""
+- 普通回答尽量不超过 150 字，周课表或多课列表允许更长并保留全部课程。只输出正文，没有把握时原样输出模板答案。"""
 
 SMALL_TALK_SYSTEM_PROMPT = """你是课表小程序「序时」的课表助手，身份是真诚、温和、靠谱的大学同学。用户的消息不是具体的课表或天气查询（闲聊、问候、吐槽、纠结旷课等）。
 像正常靠谱的同学一样自然回复（一到两句话），态度温和真诚，不生硬免责，也不要油腔滑调、强行逗笑。
@@ -95,6 +95,10 @@ def _grounded(polished: str, answer: str, tool_result) -> bool:
         return False  # 列表型答案不能把所有时间都润色没了
     if "没有" in answer and "没有" not in text:
         return False
+    for key in ("name", "start_time", "end_time"):
+        for value in _fact_values(tool_result, {key}):
+            if value in answer and value not in text:
+                return False  # Keep every course fact present in the template.
     if "带伞" in answer and "伞" not in text:
         return False  # 天气提醒不能被润色丢掉
     if not has_courses and "没有" not in text and COURSE_CLAIM_PATTERN.search(text):
@@ -135,7 +139,10 @@ def polish_answer(message: str, answer: str, tool_result, history: list | None =
                   "enable_thinking": enable_thinking,
                   "messages": _api_messages(POLISH_SYSTEM_PROMPT, history, payload)})
         response.raise_for_status()
-        text = response.json()["choices"][0]["message"]["content"].strip()
+        choice = response.json()["choices"][0]
+        if choice.get("finish_reason") == "length":
+            return None
+        text = choice["message"]["content"].strip()
         text = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", text, flags=re.DOTALL).strip()
         text = text.replace("😂", "").strip()
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
@@ -158,7 +165,10 @@ def small_talk(message: str, history: list | None = None) -> str | None:
                   "enable_thinking": enable_thinking,
                   "messages": _api_messages(SMALL_TALK_SYSTEM_PROMPT, history, message)})
         response.raise_for_status()
-        text = response.json()["choices"][0]["message"]["content"].strip()
+        choice = response.json()["choices"][0]
+        if choice.get("finish_reason") == "length":
+            return None
+        text = choice["message"]["content"].strip()
         text = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", text, flags=re.DOTALL).strip()
         text = text.replace("😂", "").strip()
     except (httpx.HTTPError, ValueError, KeyError, TypeError):

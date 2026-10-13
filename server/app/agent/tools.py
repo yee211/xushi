@@ -1,3 +1,5 @@
+import hashlib
+import json
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -64,3 +66,33 @@ class ScheduleTools:
                                        target_date or self.context.now.date(),
                                        self.context.default_schedule_id)
 
+
+    def schedule_version(self) -> str:
+        """Hash one consistent database snapshot, including edits and weekly overrides."""
+        with self._connection() as db:
+            row = db.execute("""
+                SELECT jsonb_build_object(
+                    'schedules', COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id)
+                        FROM schedules s WHERE s.user_id=%s), '[]'::jsonb),
+                    'courses', COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id)
+                        FROM courses c JOIN schedules s ON s.id=c.schedule_id WHERE s.user_id=%s), '[]'::jsonb),
+                    'adjustments', COALESCE((SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id)
+                        FROM course_adjustments a JOIN courses c ON c.id=a.course_id
+                        JOIN schedules s ON s.id=c.schedule_id WHERE s.user_id=%s), '[]'::jsonb)
+                ) AS snapshot
+            """, (self.context.user_id,) * 3).fetchone()
+        return hashlib.sha256(json.dumps(row["snapshot"], sort_keys=True, default=str,
+                                         ensure_ascii=False).encode()).hexdigest()
+
+    def get_schedule_status(self) -> dict:
+        with self._connection() as db:
+            schedules = db.execute("""SELECT id,name,term,start_date,end_date,academic_synced_at
+                FROM schedules WHERE user_id=%s ORDER BY id DESC""", (self.context.user_id,)).fetchall()
+            binding = db.execute("""SELECT last_synced_at,last_synced_term FROM academic_bindings
+                WHERE user_id=%s""", (self.context.user_id,)).fetchone()
+            job = db.execute("""SELECT state,phase,error,updated_at FROM academic_sync_jobs
+                WHERE user_id=%s ORDER BY created_at DESC LIMIT 1""", (self.context.user_id,)).fetchone()
+        return {"schedules": [dict(s) for s in schedules], "school_bound": binding is not None,
+                "last_synced_at": binding["last_synced_at"] if binding else None,
+                "last_synced_term": binding["last_synced_term"] if binding else None,
+                "sync_job": dict(job) if job else None}
