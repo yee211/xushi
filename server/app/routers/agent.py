@@ -39,10 +39,12 @@ BINDING_PROVIDERS = ("weixin_ilink", "wecom")
 @router.get("/agent-bindings")
 def agent_binding_status(user=Depends(get_current_user)):
     with connect() as db:
-        rows = db.execute("""SELECT provider,created_at,last_seen_at FROM user_identities
-            WHERE user_id=%s AND provider=ANY(%s)""", (user["id"], list(BINDING_PROVIDERS))).fetchall()
+        rows = db.execute("""SELECT u.provider,u.created_at,u.last_seen_at,
+            COALESCE(c.status='active',FALSE) AS connected FROM user_identities u
+            LEFT JOIN channel_accounts c ON c.provider=u.provider AND c.account_id=u.account_id
+            WHERE u.user_id=%s AND u.provider=ANY(%s)""", (user["id"], list(BINDING_PROVIDERS))).fetchall()
     by_provider = {row["provider"]: row for row in rows}
-    channels = [{"provider": provider, "bound": provider in by_provider,
+    channels = [{"provider": provider, "bound": provider in by_provider and (provider != "weixin_ilink" or by_provider[provider]["connected"]),
                  "created_at": by_provider[provider]["created_at"].isoformat() if provider in by_provider else None,
                  "last_seen_at": by_provider[provider]["last_seen_at"].isoformat() if provider in by_provider else None}
                 for provider in BINDING_PROVIDERS]

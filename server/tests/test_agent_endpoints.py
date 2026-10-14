@@ -113,7 +113,7 @@ def test_poll_weixin_login_auto_binds_current_user(client, monkeypatch):
 def test_binding_status_lists_both_channels(client, monkeypatch):
     from datetime import datetime
     now = datetime(2026, 9, 14, 12, 0)
-    db = FakeAgentDb(identity_rows=[{"provider": "weixin_ilink", "created_at": now, "last_seen_at": now}])
+    db = FakeAgentDb(identity_rows=[{"provider": "weixin_ilink", "created_at": now, "last_seen_at": now, "connected": True}])
     monkeypatch.setattr(main_module, "connect", lambda: db)
     response = client.get("/api/agent-bindings", headers={"Authorization": "Bearer anything"})
     body = response.json()

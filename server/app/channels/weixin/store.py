@@ -47,6 +47,19 @@ def save_account(db, credentials: Credentials, owner_user_id: int | None = None)
          credentials.admin_user_id, owner_user_id))
 
 
+def mark_session_expired(db, credentials: Credentials) -> bool:
+    """Do not let an old poller invalidate credentials saved by a fresh scan."""
+    row = db.execute("""SELECT bot_token_encrypted FROM channel_accounts
+        WHERE provider='weixin_ilink' AND account_id=%s AND status='active' FOR UPDATE""",
+        (credentials.account_id,)).fetchone()
+    if not row or decrypt_token(row["bot_token_encrypted"]) != credentials.bot_token:
+        return False
+    updated = db.execute("""UPDATE channel_accounts SET status='expired',updated_at=CURRENT_TIMESTAMP
+        WHERE provider='weixin_ilink' AND account_id=%s AND bot_token_encrypted=%s AND status='active'
+        RETURNING account_id""", (credentials.account_id, row["bot_token_encrypted"])).fetchone()
+    return bool(updated)
+
+
 def load_accounts(db) -> list[tuple[Credentials, str, str]]:
     """活跃账号列表：(凭证, 游标, token 指纹)。指纹用于检测重新扫码后的 token 轮换。"""
     rows = db.execute("""SELECT account_id,bot_token_encrypted,api_base_url,admin_user_id,update_cursor

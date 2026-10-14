@@ -17,6 +17,7 @@ from .store import (
     claim_message,
     complete_message,
     load_accounts,
+    mark_session_expired,
     reset_stale_processing,
     save_cursor,
 )
@@ -237,7 +238,17 @@ def poll_account(credentials: Credentials, cursor: str, stop_event: threading.Ev
                     with connect() as db:
                         save_cursor(db, credentials.account_id, cursor)
             except ILinkError as error:
-                delay = 3600 if error.code == "-14" else 10
+                if str(error.code) == "-14":
+                    try:
+                        with connect() as db:
+                            mark_session_expired(db, credentials)
+                    except Exception:
+                        logger.exception("could not persist expired session account=%s", credentials.account_id)
+                        stop_event.wait(10)
+                        continue
+                    logger.warning("session expired; waiting for a fresh scan account=%s", credentials.account_id)
+                    break
+                delay = 10
                 logger.warning("poll failed account=%s retry=%ss: %s", credentials.account_id, delay, error)
                 stop_event.wait(delay)
             except Exception:
