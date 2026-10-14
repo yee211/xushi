@@ -261,13 +261,22 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
                                          "时区": tools.context.timezone, "用户消息": message},
                                         ensure_ascii=False))
     facts: list[dict] = []
+    from .course_reply import CourseComment, course_facts, render_courses
+
+    def saved_answer(closing=""):
+        bundle = course_facts(facts, message)
+        if bundle is None:
+            return None
+        return {"answer": render_courses(bundle, tools.context.now.date(), closing),
+                "skills": [fact["skill"] for fact in facts], "tool_result": {"skills": facts},
+                "resolved_context": _extract_context_entities(facts)}
+
     try:
         for _ in range(MAX_ROUNDS):
             remaining()
             payload = {"model": model, "temperature": 0.2, "max_tokens": int(config.get("max_tokens") or MAX_TOKENS),
                        "messages": messages, "tools": openai_tools(skills), "tool_choice": "auto"}
-            from .course_reply import CourseComment, day_fact, render_day
-            structured_day = day_fact(facts, message)
+            structured_day = course_facts(facts, message)
             if structured_day is not None:
                 payload["messages"] = messages + [{"role": "system", "content":
                     '课程列表由服务端使用工具事实生成。只输出 JSON 对象 {"closing":"一句可选的自然提醒"}。'
@@ -287,7 +296,7 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
             remaining()
             choice = response.json()["choices"][0]
             if choice.get("finish_reason") == "length":
-                return None  # A truncated course list must fall back to the complete template.
+                return saved_answer()  # Keep validated facts even when model output is truncated.
             reply = choice["message"]
             calls = reply.get("tool_calls") or []
             if not calls:
@@ -299,10 +308,10 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
                         comment = CourseComment.model_validate_json(content).closing
                     except ValueError:
                         comment = ""
-                    candidate = render_day(structured_day, tools.context.now.date(), comment)
+                    candidate = render_courses(structured_day, tools.context.now.date(), comment)
                     if comment and not (_grounded(candidate, json.dumps([f["result"] for f in facts], ensure_ascii=False, default=str))
                                         and _facts_grounded(candidate, facts, message)):
-                        candidate = render_day(structured_day, tools.context.now.date())
+                        candidate = render_courses(structured_day, tools.context.now.date())
                     llm_circuit_breaker.record_success()
                     return {"answer": candidate, "skills": [fact["skill"] for fact in facts],
                             "tool_result": {"skills": facts}, "resolved_context": _extract_context_entities(facts)}
@@ -336,5 +345,5 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
         status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
         logger.warning("Agent request failed: type=%s status=%s", type(error).__name__, status)
         llm_circuit_breaker.record_failure(error)
-        return None
-    return None
+        return saved_answer()
+    return saved_answer()

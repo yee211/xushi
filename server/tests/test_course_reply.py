@@ -49,3 +49,71 @@ def test_structured_reply_keeps_tool_list_even_if_model_format_is_wrong(monkeypa
         assert result["answer"].endswith("\n\n"+closing)
     else:
         assert "同步失败" not in result["answer"] and "18:00" not in result["answer"]
+
+
+@pytest.mark.parametrize("failure", ["timeout", "truncated", "queue_timeout"])
+def test_model_failure_after_query_keeps_complete_facts(monkeypatch, failure):
+    import httpx
+
+    from tests.test_agent_loop import FakeResponse
+
+    tools = make_tools()
+    query = tools.get_courses_by_date
+    calls = []
+    def counted(*args, **kwargs):
+        calls.append(args)
+        return query(*args, **kwargs)
+    monkeypatch.setattr(tools, "get_courses_by_date", counted)
+    configure(monkeypatch, [])
+    posts = []
+    def post(url, **kwargs):
+        posts.append(kwargs)
+        if len(posts) == 1:
+            return FakeResponse(reply_message(tool_calls=[tool_call("day", "query_day_courses", '{"date":"2026-09-09"}')]))
+        if failure == "truncated":
+            return FakeResponse({"choices":[{"finish_reason":"length", "message":{"content":"partial"}}]})
+        raise httpx.TimeoutException("model unavailable")
+    monkeypatch.setattr(loop, "_post_llm", post)
+    if failure == "queue_timeout":
+        checks = [0]
+        def remaining():
+            checks[0] += 1
+            if checks[0] >= 3:
+                raise httpx.TimeoutException("budget exhausted")
+            return 10
+        monkeypatch.setattr(loop, "remaining", remaining)
+    result = loop.run(tools, "明天有什么课")
+    assert "• 14:00–15:40 高数，张老师，A101" in result["answer"]
+    assert len(calls) == 1
+
+
+def test_week_and_multiple_days_share_layout():
+    from datetime import date
+
+    from app.agent.course_reply import course_facts, render_courses
+
+    days = [
+        {"date":"2026-10-15","courses":[{"name":"高数","start_time":"08:20","end_time":"10:00","teacher":"张华","room":"A101"}]},
+        {"date":"2026-10-16","courses":[]}]
+    weekly_days = [{"date": f"2026-10-{n}", "courses": []} for n in range(12, 19)]
+    weekly_days[3] = days[0]
+    weekly = [{"skill":"query_week_courses","result":{"week_start":"2026-10-12","week_end":"2026-10-18","days":weekly_days}}]
+    text = render_courses(course_facts(weekly,"这周有什么课"),date(2026,10,14))
+    assert "• 08:20–10:00 高数，张华，A101" in text
+    multi = [{"skill":"query_day_courses","arguments":"{}","result":day} for day in days]
+    text = render_courses(course_facts(multi,"明天和后天有什么课"),date(2026,10,14))
+    assert "后天（10月16日，周五）没有课" in text
+    assert course_facts(multi[:1],"明天和后天有什么课") is None
+    assert course_facts(multi[:1],"明天有什么课，教室在哪") is not None
+    assert course_facts(multi[:1],"教室在哪") is None
+    assert course_facts(multi + [{"skill":"query_day_courses","result":{"error":"unavailable"}}],"明天有什么课") is None
+
+
+def test_partial_week_is_not_presented_as_complete():
+    from app.agent.course_reply import course_facts
+
+    partial = [{"skill":"query_week_courses", "result":{"week_start":"2026-10-12",
+        "week_end":"2026-10-18", "days":[{"date":"2026-10-12", "courses":[]}]}}]
+    assert course_facts(partial, "这周有什么课") is None
+    assert course_facts([{"skill":"query_day_courses", "arguments":"{}",
+        "result":{"date":"2026-10-14", "courses":[]}}], "今天和明天有什么课") is None

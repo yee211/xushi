@@ -1,6 +1,6 @@
 """Validated tool facts and a fixed day-course list layout."""
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -24,7 +24,7 @@ class DayCourses(BaseModel):
     model_config = ConfigDict(extra="ignore")
     date: date
     courses: list[CourseRow]
-    period: str = "all"
+    period: str = Field(default="all", pattern="^(all|morning|afternoon|evening)$")
 
 
 class CourseComment(BaseModel):
@@ -41,7 +41,7 @@ class CourseComment(BaseModel):
 
 def list_question(message: str) -> bool:
     return bool(re.search(r"(?:什么|啥|几节|多少|哪些|几门).*课|课表|课程列表", message)) and not bool(
-        re.search(r"天气|雨|伞|有没有|有空|空闲|同步|更新|老师|教师|教室|在哪|哪里", message))
+        re.search(r"天气|雨|伞|有没有|有空|空闲|同步|更新", message))
 
 
 def day_fact(facts: list[dict], message: str) -> DayCourses | None:
@@ -71,4 +71,72 @@ def render_day(day: DayCourses, today: date, closing: str = "") -> str:
         details = "，".join(value for value in (course.name, course.teacher, course.room) if value)
         lines.append(f"• {course.start_time}–{course.end_time} {details}")
     answer = title + f"有{len(day.courses)}节课：\n" + "\n".join(lines)
+    return answer + ("\n\n" + closing if closing else "")
+
+
+class CourseList(BaseModel):
+    days: list[DayCourses]
+    week_start: date | None = None
+    week_end: date | None = None
+
+    @model_validator(mode="after")
+    def complete_dates(self):
+        if not self.days:
+            raise ValueError("course list requires date coverage")
+        if (self.week_start is None) != (self.week_end is None):
+            raise ValueError("both week boundaries are required")
+        if self.week_start is not None:
+            if self.week_end != self.week_start + timedelta(days=6):
+                raise ValueError("week must span seven days")
+            expected = {self.week_start + timedelta(days=n) for n in range(7)}
+            if {day.date for day in self.days} != expected or len(self.days) != 7:
+                raise ValueError("weekly result must cover every date")
+        return self
+
+
+def course_facts(facts: list[dict], message: str) -> CourseList | None:
+    if not list_question(message):
+        return None
+    import json
+
+    from pydantic import ValidationError
+
+    hits = [f for f in facts if f.get("skill") in {"query_day_courses", "query_week_courses"}]
+    if not hits or any(f.get("result", {}).get("error") for f in hits):
+        return None
+    try:
+        week = [f for f in hits if f["skill"] == "query_week_courses"]
+        if week:
+            if len(hits) != 1:
+                return None
+            result = week[0]["result"]
+            return CourseList.model_validate(result)
+        days = []
+        for hit in hits:
+            args = hit.get("arguments") or "{}"
+            args = json.loads(args) if isinstance(args, str) else args
+            days.append(DayCourses.model_validate(dict(hit["result"], period=args.get("period", "all"))))
+        relative_count = sum(word in message for word in ("今天", "明天", "后天"))
+        explicit_dates = set(re.findall(r"\d{4}-\d{2}-\d{2}", message))
+        if len({day.date for day in days}) < max(relative_count, len(explicit_dates)):
+            return None
+        if len({(day.date, day.period) for day in days}) != len(days):
+            return None
+        return CourseList(days=days)
+    except (ValidationError, ValueError, TypeError, KeyError):
+        return None
+
+
+def render_courses(bundle: CourseList, today: date, closing: str = "") -> str:
+    days = sorted(bundle.days, key=lambda day: (day.date, day.period))
+    if bundle.week_start is not None:
+        end = bundle.week_end.isoformat() if bundle.week_end else ""
+        header = f"{bundle.week_start.isoformat()}～{end}的课表："
+        active = [day for day in days if day.courses]
+        if not active:
+            return header + "\n这一周没有课。"
+        body = "\n\n".join(render_day(day, today) for day in active)
+        answer = header + "\n" + body
+    else:
+        answer = "\n\n".join(render_day(day, today) for day in days)
     return answer + ("\n\n" + closing if closing else "")

@@ -239,12 +239,10 @@ def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = Non
                       "courses": courses, "rain": rain, "daily": daily}
         elif intent.name == "QUERY_WEEK" and intent.target_date:
             result = tools.get_courses_by_week(intent.target_date, intent.weekday)
-            lines = []
-            for day in result["days"]:
-                for item in day["courses"]:
-                    lines.append(f"{day['date']}（{DAY_LABELS[day['weekday'] - 1]}）{_course_line(item)}")
-            answer = "这一周没有课。" if not lines else f"这一周查到 {len(lines)} 门次课程：\n" + "\n".join(
-                f"{index}. {line}" for index, line in enumerate(lines, 1))
+            from .course_reply import CourseList, render_courses
+            answer = render_courses(CourseList.model_validate(result), tools.context.now.date())
+            return {"intent": intent.name, "answer": answer, "tool_result": result,
+                    "resolved_context": {"intent": intent.name, "target_date": intent.target_date.isoformat()}}
         elif intent.name == "FIND_COURSE" and intent.course_name:
             catalog = tools.list_course_catalog(intent.target_date)
             resolved = resolve_course_name(intent.course_name, catalog)
