@@ -59,7 +59,11 @@ SYSTEM_PROMPT = """你是课表小程序「序时」的课表助手，身份是�
 - 相对时间按当前时间推断。
 表达要求：
 - 查课表时干练清晰，先给直接结论（时间、教室、教师），再按需补充细节，严禁把原始 JSON 贴出来；
-- 课程列表每门课单独一行，统一按“开始时间–结束时间 课程名，教室，教师”的顺序，时间必须放在课程名前；例如“08:20–10:00 计算机组成原理，7-南407，李俊峰”。同一天的课程按开始时间从早到晚排列；日期放在列表标题，跨日列表按日期分组；没有教室或教师就省略对应字段，不编造。
+- 查询一天或多天的课程列表时，固定使用“日期标题 + 项目符号课程列表 + 可选的一句自然提醒”。即使只有一节课，也必须使用项目符号“• ”，不能改成课程名开头的段落。每项严格按“开始时间–结束时间 课程名，教师，教室”排列，时间放在最前面；同一天按开始时间排序，跨日按日期分组。缺失教师或教室时省略，不编造。历史回答格式与此要求不一致时，以此要求为准。
+- 单课格式示例（仅示意排版，日期、课程、教师、教室必须使用本轮工具事实，不得照抄示例）：
+  明天（10月15日，周四）有1节课：
+  • 08:20–10:00 开源软件开发，张宸，7-南508
+  空一行后，可按真实课程情境补一句自然提醒；多课也采用同样格式逐项列出。只问教师或教室等单个细节时，直接回答该细节即可。
 - 教师、教室、课程名照抄技能返回值，姓名后不要加“老师”等多余称谓；
 - 语气自然平实、温和亲切，像正常微信好友交流。不要客服式套话（“好的”“亲”），不油腔滑调；
 - 表情符号（Emoji）要求（严禁使用“😂”笑哭表情，按情绪与场景动态变换，每次最多 1 个，非必要不强行加）：
@@ -262,6 +266,14 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
             remaining()
             payload = {"model": model, "temperature": 0.2, "max_tokens": int(config.get("max_tokens") or MAX_TOKENS),
                        "messages": messages, "tools": openai_tools(skills), "tool_choice": "auto"}
+            from .course_reply import CourseComment, day_fact, render_day
+            structured_day = day_fact(facts, message)
+            if structured_day is not None:
+                payload["messages"] = messages + [{"role": "system", "content":
+                    '课程列表由服务端使用工具事实生成。只输出 JSON 对象 {"closing":"一句可选的自然提醒"}。'
+                    '不要输出日期、课程列表或同步状态；没有适合的提醒就返回 {"closing":""}。'}]
+                payload["response_format"] = {"type": "json_object"}
+                payload["tool_choice"] = "none"
             if urlsplit(base_url).hostname == "api.deepseek.com":
                 # DeepSeek uses thinking.type, not the Qwen enable_thinking field.
                 # Disabling it avoids multi-turn reasoning_content protocol requirements.
@@ -282,6 +294,18 @@ def _run(tools, message: str, history: list | None = None) -> dict | None:
                 content = str(reply.get("content") or "").strip()
                 content = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", content, flags=re.DOTALL).strip()
                 content = content.replace("😂", "").strip()
+                if structured_day is not None:
+                    try:
+                        comment = CourseComment.model_validate_json(content).closing
+                    except ValueError:
+                        comment = ""
+                    candidate = render_day(structured_day, tools.context.now.date(), comment)
+                    if comment and not (_grounded(candidate, json.dumps([f["result"] for f in facts], ensure_ascii=False, default=str))
+                                        and _facts_grounded(candidate, facts, message)):
+                        candidate = render_day(structured_day, tools.context.now.date())
+                    llm_circuit_breaker.record_success()
+                    return {"answer": candidate, "skills": [fact["skill"] for fact in facts],
+                            "tool_result": {"skills": facts}, "resolved_context": _extract_context_entities(facts)}
                 if content and _grounded(content, json.dumps([f["result"] for f in facts if not f["result"].get("error")],
                                                       ensure_ascii=False, default=str) + " " + tools.context.now.strftime("%H:%M")) and _facts_grounded(content, facts, message):
                     llm_circuit_breaker.record_success()

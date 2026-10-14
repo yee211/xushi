@@ -174,6 +174,14 @@ def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = Non
         elif intent.name in {"QUERY_DAY", "QUERY_AVAILABILITY"} and intent.target_date:
             result = tools.get_courses_by_date(intent.target_date, intent.period)
             courses = result["courses"]
+            from .course_reply import DayCourses, list_question, render_day
+            if intent.name == "QUERY_DAY" and list_question(message):
+                answer = render_day(DayCourses.model_validate(dict(result, period=intent.period)), tools.context.now.date())
+                advisory = rain_advisory(result["date"], courses) if courses else None
+                if advisory:
+                    answer += "\n\n" + advisory
+                return {"intent": intent.name, "answer": answer, "tool_result": result,
+                        "resolved_context": {"intent": intent.name, "target_date": result["date"], "period": intent.period}}
             day = f"{result['date']}（{DAY_LABELS[result['weekday'] - 1]}）{PERIOD_LABELS[intent.period]}"
             if intent.name == "QUERY_AVAILABILITY":
                 answer = f"{day}没有课，你有空。" if not courses else f"{day}有 {len(courses)} 门课，不是整段空闲：\n" + "\n".join(

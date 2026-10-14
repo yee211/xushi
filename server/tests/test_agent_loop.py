@@ -88,9 +88,10 @@ def test_loop_calls_skill_then_answers(monkeypatch):
         reply_message(content=final),
     ])
     result = loop.run(make_tools(), "明天有什么课")
-    assert result["answer"] == final and result["skills"] == ["query_day_courses"]
-    assert sent[1]["messages"][-2]["tool_calls"][0]["function"]["name"] == "query_day_courses"
-    assert "高数" in sent[1]["messages"][-1]["content"]
+    assert "• 14:00–15:40 高数，张老师，A101" in result["answer"]
+    assert result["skills"] == ["query_day_courses"]
+    assert sent[1]["messages"][-3]["tool_calls"][0]["function"]["name"] == "query_day_courses"
+    assert "高数" in sent[1]["messages"][-2]["content"]
     assert any(item["function"]["name"] == "query_day_courses" for item in sent[0]["tools"])
 
 
@@ -105,7 +106,8 @@ def test_loop_rejects_hallucinated_time(monkeypatch):
         reply_message(tool_calls=[tool_call("c1", "query_day_courses", '{"date": "2026-09-09"}')]),
         reply_message(content="明天 18:30 有高数课。"),
     ])
-    assert loop.run(make_tools(), "明天有什么课") is None
+    result = loop.run(make_tools(), "明天有什么课")
+    assert "14:00–15:40" in result["answer"] and "18:30" not in result["answer"]
 
 
 def test_loop_returns_none_on_llm_error(monkeypatch):

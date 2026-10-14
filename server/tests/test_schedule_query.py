@@ -277,7 +277,9 @@ def test_orchestrator_polishes_final_answer(monkeypatch):
                         lambda message, answer, tool_result, history, now:
                         "明天下午 14:00 有高数课，在 A101，张老师带哦。" if "14:00" in answer else None)
     result = handle_message("今天下午有什么课", tools)
-    assert result["answer"] == "明天下午 14:00 有高数课，在 A101，张老师带哦。"
+    assert "今天（9月8日，周二）下午" in result["answer"]
+    assert "• 14:00–15:40 高数，张老师，A101" in result["answer"]
+    assert "明天" not in result["answer"]
 
 
 def test_orchestrator_keeps_template_when_polish_unavailable(monkeypatch):
@@ -287,7 +289,7 @@ def test_orchestrator_keeps_template_when_polish_unavailable(monkeypatch):
     monkeypatch.setattr("app.agent.orchestrator.llm_configured", lambda: True)
     monkeypatch.setattr("app.agent.orchestrator.polish_answer", lambda *args, **kwargs: None)
     result = handle_message("今天下午有什么课", tools)
-    assert "14:00–15:40（第5–6节）高数，A101，张老师" in result["answer"]
+    assert "• 14:00–15:40 高数，张老师，A101" in result["answer"]
 
 
 def test_orchestrator_small_talk_for_help(monkeypatch):

@@ -23,6 +23,6 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - name: Agent, concurrency and evaluation regression
-        run: python -m pytest tests/test_agent_loop.py tests/test_agent_optimizations.py tests/test_agent_conversation.py tests/test_bot_concurrency_hardening.py tests/test_intent_corpus.py tests/test_evaluation_contracts.py tests/test_agent_provider_fixes.py tests/test_agent_sync.py tests/test_agent_sync_multiturn.py tests/test_academic_sync_notifications.py tests/test_weixin_session_expiry.py -q -p no:cacheprovider
+        run: python -m pytest tests/test_agent_loop.py tests/test_agent_optimizations.py tests/test_agent_conversation.py tests/test_bot_concurrency_hardening.py tests/test_intent_corpus.py tests/test_evaluation_contracts.py tests/test_agent_provider_fixes.py tests/test_agent_sync.py tests/test_course_reply.py tests/test_agent_sync_multiturn.py tests/test_academic_sync_notifications.py tests/test_weixin_session_expiry.py -q -p no:cacheprovider
       - name: Validate corpus without provider calls
         run: python -m scripts.evaluate_agent

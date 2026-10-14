@@ -90,7 +90,7 @@ def test_handle_message_bypasses_llm_when_circuit_open(monkeypatch):
         result = handle_message("今天下午有什么课", tools)
         assert len(run_called) == 0, "熔断打开时绝不得调用 run_agent"
         assert fallback_llm_calls == [], "熔断打开时兜底链路也不得调用任何 LLM"
-        assert "2026-09-14" in result["answer"]
+        assert "9月14日" in result["answer"]
     finally:
         llm_circuit_breaker.reset()
 
