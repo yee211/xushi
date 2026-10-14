@@ -44,6 +44,7 @@ SYSTEM_PROMPT = """你是课表小程序「序时」的课表助手，身份是�
 - 问同步进度、数据是否更新、学校绑定或没有导入课表，用 get_schedule_status；只有 sync_schedule 返回成功才可宣称已提交；排队或运行中不能说已完成。
 - 多课表冲突如实列出工具返回的候选，提示用户发送“使用课表 编号”，不要替用户选择。
 - 历史回答不是当前事实，涉及课表和天气的追问也必须重新查询。工具不可用与没有课是两种不同结果。
+- 只回答本次问题，查询课程时不要主动补充历史同步结论。后台同步结果通知可能不在对话历史里；判断同步成功、失败、未提交或仍在排队必须重新调用 get_schedule_status，不能依据历史消息猜测。
 日期一律依据服务端当前时间换算成 YYYY-MM-DD。与课表无关的闲聊不调用技能，一两句话简短自然回应。
 情境判断与交流分寸（重要）：
 回答前先把服务端当前时间和技能返回的上课时间做对比，结合用户处境交流：
@@ -96,6 +97,22 @@ def _grounded(content: str, context: str) -> bool:
 
 def _facts_grounded(content: str, facts: list[dict], question: str) -> bool:
     successful = [f for f in facts if isinstance(f.get("result"), dict) and not f["result"].get("error")]
+    sync_states = [(f["result"].get("sync_job") or {}).get("state")
+                   for f in successful if f["skill"] == "get_schedule_status"]
+    sync_states += [f["result"].get("state") for f in successful
+                    if f["skill"] == "sync_schedule" and f["result"].get("ok")]
+    # A failed job was submitted successfully; it cannot prove submission failed.
+    not_submitted = re.search(
+        r"同步.{0,12}(?:没有|未|没).{0,8}(?:提交|发起)|(?:没有|未|没).{0,8}(?:提交|发起).{0,8}同步", content)
+    failure_claim = re.search(r"同步.{0,12}(?:失败|不成功|没成功|未成功|没有成功)|(?:没有|未|没|未能)同步成功", content)
+    pending_claim = re.search(r"同步.{0,12}(?:尚未完成|还没完成|未完成|没有完成|排队中)|(?:正在|尚未|还未|没有|未|没)同步(?:完成)?", content)
+    if not_submitted:
+        return False  # Submission errors are rendered deterministically by sync.reply.
+    if failure_claim:
+        if "failed" not in sync_states:
+            return False
+    elif pending_claim and not any(state in {"queued", "running"} for state in sync_states):
+        return False
     sync_assertion = re.sub(
         r"(?:尚未|还未|没有|未能|并未|未|没|等待|等|待|如果|若|直到)同步(?:已)?(?:成功|完成|好了)|同步(?:成功|完成)(?:后|时)",
         "", content)

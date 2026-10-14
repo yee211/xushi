@@ -102,3 +102,33 @@ def test_future_completion_is_not_a_success_claim():
     facts = [{"skill": "get_schedule_status", "result": {"sync_job": {"state": "queued"}}}]
     assert _facts_grounded("等待同步完成后再查询课表", facts, "同步好了吗")
     assert _facts_grounded("尚未同步完成", facts, "同步好了吗")
+
+
+@pytest.mark.parametrize("answer", [
+    "明天有一节课。另外，刚才的同步没有提交成功，需要你再明确发一句同步课表我才能发起。",
+    "明天有一节课，刚才同步失败了。",
+    "明天有一节课，同步还没完成。",
+])
+def test_course_reply_cannot_invent_sync_outcome(answer):
+    from app.agent.loop import _facts_grounded
+
+    facts = [{"skill": "query_day_courses", "result": {"courses": [{"name": "开源软件开发"}]}}]
+    assert not _facts_grounded(answer, facts, "明天有几节课")
+
+
+@pytest.mark.parametrize("state", ["queued", "running", "succeeded", "failed"])
+def test_existing_job_never_means_submission_failed(state):
+    from app.agent.loop import _facts_grounded
+
+    facts = [{"skill": "get_schedule_status", "result": {"sync_job": {"state": state}}}]
+    assert not _facts_grounded("刚才的同步没有提交成功", facts, "同步好了吗")
+
+
+def test_sync_failure_requires_failed_current_job():
+    from app.agent.loop import _facts_grounded
+
+    def facts(state):
+        return [{"skill": "get_schedule_status", "result": {"sync_job": {"state": state}}}]
+    assert not _facts_grounded("刚才同步失败了", facts("succeeded"), "同步好了吗")
+    assert _facts_grounded("刚才同步失败了", facts("failed"), "同步好了吗")
+    assert _facts_grounded("正在同步", facts("running"), "同步好了吗")
