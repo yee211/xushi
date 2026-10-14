@@ -158,7 +158,7 @@ def process_message(client: ILinkClient, message: InboundText) -> bool:
             ).start()
         reply = build_agent_reply(connect, message.text, "weixin_ilink", message.sender_id,
                                   message.received_at, os.getenv("APP_TIMEZONE", "Asia/Shanghai"),
-                                  message.account_id)
+                                  message.account_id, message_id=message.message_id)
         client.send_text(message.sender_id, reply, message.context_token,
                          client_id=reply_client_id(message.account_id, message.message_id),
                          run_id=message.run_id)

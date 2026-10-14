@@ -20,12 +20,15 @@ class AgentContext:
     now: datetime
     timezone: str = "Asia/Shanghai"
     default_schedule_id: int | None = None
+    notification_target: dict | None = None
 
 
 class ScheduleTools:
     def __init__(self, db_or_factory, context: AgentContext):
         self._db_or_factory = db_or_factory
         self.context = context
+        self.sync_authorized = False
+        self._sync_result = None
 
     @property
     def db(self):
@@ -90,9 +93,53 @@ class ScheduleTools:
                 FROM schedules WHERE user_id=%s ORDER BY id DESC""", (self.context.user_id,)).fetchall()
             binding = db.execute("""SELECT last_synced_at,last_synced_term FROM academic_bindings
                 WHERE user_id=%s""", (self.context.user_id,)).fetchone()
-            job = db.execute("""SELECT state,phase,error,updated_at FROM academic_sync_jobs
+            job = db.execute("""SELECT id,term,state,phase,error,error_code,result,updated_at FROM academic_sync_jobs
                 WHERE user_id=%s ORDER BY created_at DESC LIMIT 1""", (self.context.user_id,)).fetchone()
         return {"schedules": [dict(s) for s in schedules], "school_bound": binding is not None,
                 "last_synced_at": binding["last_synced_at"] if binding else None,
                 "last_synced_term": binding["last_synced_term"] if binding else None,
                 "sync_job": dict(job) if job else None}
+
+
+    def sync_schedule(self) -> dict:
+        """Enqueue only; school network calls run in the existing background worker."""
+        import logging
+        import re
+
+        from fastapi import HTTPException
+
+        from ..services import academic_jobs
+
+        if not self.sync_authorized:
+            return {"ok": False, "error": "explicit_request_required",
+                    "message": "请明确发送“同步课表”来发起同步。", "retryable": False}
+        if self._sync_result is not None:
+            return self._sync_result
+        try:
+            with self._connection() as db:
+                binding = db.execute("SELECT student,last_synced_term FROM academic_bindings WHERE user_id=%s",
+                                     (self.context.user_id,)).fetchone()
+            if not binding:
+                result = {"ok": False, "error": "school_not_bound",
+                          "message": "请先在小程序绑定学校身份，再同步课表。", "retryable": False}
+            else:
+                term = binding.get("last_synced_term") or (binding.get("student") or {}).get("default_term")
+                if not isinstance(term, str) or not re.fullmatch(r"\d{4}-\d{4}-[12]", term):
+                    result = {"ok": False, "error": "term_required",
+                              "message": "暂时无法确定同步学期，请先在小程序选择学期并同步。", "retryable": False}
+                else:
+                    options = {"cooldown_seconds": 30}
+                    if self.context.notification_target:
+                        options["notification_target"] = self.context.notification_target
+                    job = academic_jobs.enqueue(self.context.user_id, term, True, **options)
+                    result = {"ok": True, "job_id": str(job["id"]), "state": job["state"],
+                              "term": job["term"], "error_code": job.get("error_code"), "notification_registered": bool(job.get("notification_registered"))}
+        except HTTPException as error:
+            result = {"ok": False, "error": "sync_rejected",
+                      "message": str(error.detail), "retryable": False}
+        except Exception:
+            logging.getLogger(__name__).exception("Agent sync submission failed")
+            result = {"ok": False, "error": "submission_unknown", "retryable": False,
+                      "message": "暂时无法确认同步是否提交，请先查询同步进度，稍后再试。"}
+        self._sync_result = result
+        return result

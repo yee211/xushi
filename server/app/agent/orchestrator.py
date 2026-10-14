@@ -124,6 +124,10 @@ def handle_message(message: str, tools: ScheduleTools, history: list | None = No
 
 
 def _handle_message(message: str, tools: ScheduleTools, history: list | None = None) -> dict:
+    from .sync import reply, requested
+    if requested(message):
+        tools.sync_authorized = True
+        return reply(tools.sync_schedule(), message)
     llm_allowed = llm_configured() and llm_circuit_breaker.allow_request()
     if llm_allowed:
         looped = run_agent(tools, message, history)
@@ -151,7 +155,8 @@ def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = Non
         elif job and job["state"] in {"queued", "running"}:
             answer = "课表正在排队同步。" if job["state"] == "queued" else "课表正在同步，请稍后再查。"
         elif job and job["state"] == "failed":
-            answer = "最近一次同步失败，当前仍使用已保存的课表，请在小程序查看同步状态并重试。"
+            from ..services.academic_sync_notifications import completion_text
+            answer = completion_text(job)
         elif not status["schedules"]:
             answer = "还没有导入课表，请先在小程序导入或绑定学校后同步。"
         else:

@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from ..db import connect
-from . import academic, academic_binding, academic_runtime
+from . import academic, academic_binding, academic_runtime, academic_sync_notifications
 
 logger = logging.getLogger(__name__)
 SHANGHAI = timezone(timedelta(hours=8))
@@ -37,18 +37,21 @@ SCHEMA = (
 _stop = threading.Event()
 _thread = None
 _scheduler_thread = None
+_notification_thread = None
 
 
 def init_schema():
     with connect() as db:
-        for sql in SCHEMA:
+        for sql in (*SCHEMA, *academic_sync_notifications.SCHEMA):
             db.execute(sql)
 
 
 def public_job(row):
     if not row:
         return None
-    return {key: row[key] for key in ('id','term','state','attempts','result','error','created_at','updated_at','phase','started_at')}
+    result = {key: row[key] for key in ('id','term','state','attempts','result','error','created_at','updated_at','phase','started_at')}
+    result["error_code"] = row.get("error_code")
+    return result
 
 
 def read(user_id, job_id=None):
@@ -62,8 +65,14 @@ def read(user_id, job_id=None):
     return public_job(row)
 
 
-def enqueue(user_id, term, refresh=False):
+def enqueue(user_id, term, refresh=False, *, cooldown_seconds=0, notification_target=None):
     with connect() as db:
+        def finish(row):
+            result = public_job(row)
+            if notification_target:
+                result["notification_registered"] = academic_sync_notifications.subscribe(db, row, notification_target)
+            return result
+
         academic_binding.lock_user(db, user_id)
         binding = db.execute("SELECT student,revision,updated_at FROM academic_bindings WHERE user_id=%s FOR UPDATE", (user_id,)).fetchone()
         if not binding:
@@ -73,8 +82,16 @@ def enqueue(user_id, term, refresh=False):
             if (active['student_id'] == binding['student']['id'] and active['binding_revision'] == binding['revision']
                     and active['binding_updated_at'] == binding['updated_at'] and active['term'] == term
                     and (not refresh or active['refresh'])):
-                return public_job(active)
+                return finish(active)
             raise HTTPException(409, "已有同步任务，请等待完成后重试")
+        if cooldown_seconds:
+            recent = db.execute("""SELECT * FROM academic_sync_jobs WHERE user_id=%s
+                AND student_id=%s AND binding_revision=%s AND binding_updated_at=%s AND term=%s
+                AND created_at > CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+                ORDER BY created_at DESC LIMIT 1""", (user_id, binding['student']['id'],
+                binding['revision'], binding['updated_at'], term, cooldown_seconds)).fetchone()
+            if recent:
+                return finish(recent)
         row = db.execute("""INSERT INTO academic_sync_jobs(id,user_id,student_id,binding_revision,binding_updated_at,term,refresh)
             VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(user_id) WHERE state IN ('queued','running') DO NOTHING RETURNING *""", (uuid.uuid4(), user_id, binding['student']['id'],
                 binding['revision'], binding['updated_at'], term, refresh)).fetchone()
@@ -82,7 +99,7 @@ def enqueue(user_id, term, refresh=False):
             row = db.execute("SELECT * FROM academic_sync_jobs WHERE user_id=%s AND state IN ('queued','running')", (user_id,)).fetchone()
             if not row or row['term'] != term or (refresh and not row['refresh']):
                 raise HTTPException(409, "已有同步任务，请等待完成后重试")
-    return public_job(row)
+        return finish(row)
 
 
 def daily(db, now=None):
@@ -119,6 +136,7 @@ def process_one(db):
             state=CASE WHEN attempts>=3 THEN 'failed' ELSE 'queued' END,
             phase=CASE WHEN attempts>=3 THEN 'failed' ELSE 'queued' END,
             error=CASE WHEN attempts>=3 THEN '同步多次中断，请重新发起同步' ELSE error END,
+            error_code=CASE WHEN attempts>=3 THEN 'worker_interrupted' ELSE error_code END,
             updated_at=CURRENT_TIMESTAMP WHERE state='running'""")
         paused = db.execute("SELECT 1 FROM academic_sync_control WHERE pause_until>CURRENT_TIMESTAMP").fetchone()
         if paused:
@@ -153,15 +171,15 @@ def process_one(db):
                     logger.warning("School query failure notification unavailable")
             if (isinstance(error, academic.AcademicError) and error.code == 'connection_expired') or '学校连接暂不可用' in message:
                 db.execute("UPDATE academic_sync_control SET pause_until=CURRENT_TIMESTAMP + INTERVAL '60 seconds' WHERE id=1")
-            db.execute("""UPDATE academic_sync_jobs SET state=%s,phase=%s,error=%s,
+            db.execute("""UPDATE academic_sync_jobs SET state=%s,phase=%s,error=%s,error_code=%s,
                 available_at=CURRENT_TIMESTAMP + (%s * INTERVAL '1 second'),updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'""",
-                ('queued' if retry else 'failed', 'retrying' if retry else 'failed', message, 10 * 2 ** job['attempts'], job['id']))
+                ('queued' if retry else 'failed', 'retrying' if retry else 'failed', message, academic_sync_notifications.classify_error(error), 10 * 2 ** job['attempts'], job['id']))
         except Exception:
             logger.exception("School sync job failed: %s", job['id'])
-            db.execute("UPDATE academic_sync_jobs SET state='failed',phase='failed',error=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'",
+            db.execute("UPDATE academic_sync_jobs SET state='failed',phase='failed',error=%s,error_code='internal_error',updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'",
                 ("同步失败，请稍后重试；原课表已保留", job['id']))
         else:
-            db.execute("""UPDATE academic_sync_jobs SET state='succeeded',phase='completed',result=%s::jsonb,error=NULL,
+            db.execute("""UPDATE academic_sync_jobs SET state='succeeded',phase='completed',result=%s::jsonb,error=NULL,error_code=NULL,
                 updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'""", (json.dumps(jsonable_encoder({key: value for key, value in result.items() if key in (
                     'schedule_id','name','term','imported','replaced','unchanged','last_synced_at','warnings',
                     'overwrite_policy','binding_revision','fetched_at','completed_weeks','expected_weeks','cached','completeness')}), ensure_ascii=False), job['id']))
@@ -184,6 +202,16 @@ def run():
         _stop.wait(0.2 if worked else 1)
 
 
+def run_notifications():
+    while not _stop.is_set():
+        try:
+            worked = academic_sync_notifications.dispatch_one()
+        except Exception:
+            logger.exception("School sync notification worker unavailable")
+            worked = False
+        _stop.wait(0.2 if worked else 1)
+
+
 def run_scheduler():
     last_day = None
     while not _stop.is_set():
@@ -200,7 +228,7 @@ def run_scheduler():
 
 
 def start():
-    global _thread, _scheduler_thread
+    global _thread, _scheduler_thread, _notification_thread
     init_schema()
     if os.getenv('ACADEMIC_SYNC_WORKER_ENABLED', 'true').lower() not in ('1','true','yes'):
         return
@@ -211,6 +239,8 @@ def start():
     _thread.start()
     _scheduler_thread = threading.Thread(target=run_scheduler, name='school-midnight', daemon=True)
     _scheduler_thread.start()
+    _notification_thread = threading.Thread(target=run_notifications, name="school-sync-notify", daemon=True)
+    _notification_thread.start()
 
 
 def stop():
@@ -219,6 +249,8 @@ def stop():
         _thread.join(timeout=65)
     if _scheduler_thread:
         _scheduler_thread.join(timeout=2)
+    if _notification_thread:
+        _notification_thread.join(timeout=20)
 
 
 

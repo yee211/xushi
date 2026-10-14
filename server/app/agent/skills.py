@@ -57,6 +57,8 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
                 "daily": fetch_daily_weather(target)}
 
     return [
+        Skill("sync_schedule", "仅在用户明确要求同步/更新课表时提交后台任务；立即返回，不能代表同步完成",
+              {}, (), tools.sync_schedule),
         Skill("get_schedule_status", "查询已导入课表、学校绑定、最近同步时间和同步任务进度；不发起同步",
               {}, (), tools.get_schedule_status),
         Skill("query_day_courses", "查询某一天的课程列表，可按时段过滤",

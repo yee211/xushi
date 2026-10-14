@@ -41,7 +41,7 @@ SYSTEM_PROMPT = """你是课表小程序「序时」的课表助手，身份是�
 - 天气、会不会下雨、要不要带伞用 get_weather；要结合课程给带伞建议时，同时调用
   query_day_courses 和 get_weather，按上课时段给出结论；
 - 问有没有空/空档用 query_day_courses 的结果自行推导。
-- 问同步进度、数据是否更新、学校绑定或没有导入课表，用 get_schedule_status；不能宣称已发起同步。
+- 问同步进度、数据是否更新、学校绑定或没有导入课表，用 get_schedule_status；只有 sync_schedule 返回成功才可宣称已提交；排队或运行中不能说已完成。
 - 多课表冲突如实列出工具返回的候选，提示用户发送“使用课表 编号”，不要替用户选择。
 - 历史回答不是当前事实，涉及课表和天气的追问也必须重新查询。工具不可用与没有课是两种不同结果。
 日期一律依据服务端当前时间换算成 YYYY-MM-DD。与课表无关的闲聊不调用技能，一两句话简短自然回应。
@@ -96,6 +96,21 @@ def _grounded(content: str, context: str) -> bool:
 
 def _facts_grounded(content: str, facts: list[dict], question: str) -> bool:
     successful = [f for f in facts if isinstance(f.get("result"), dict) and not f["result"].get("error")]
+    sync_assertion = re.sub(
+        r"(?:尚未|还未|没有|未能|并未|未|没|等待|等|待|如果|若|直到)同步(?:已)?(?:成功|完成|好了)|同步(?:成功|完成)(?:后|时)",
+        "", content)
+    sync_claim = re.search(r"已(?:经)?(?:帮你|为你)?(?:提交|发起|启动).{0,8}同步|同步(?:已)?(?:成功|完成|好了)|课表已(?:经)?(?:更新|同步)", sync_assertion)
+    if sync_claim:
+        states = []
+        for fact in successful:
+            if fact["skill"] == "get_schedule_status":
+                states.append((fact["result"].get("sync_job") or {}).get("state"))
+            elif fact["skill"] == "sync_schedule" and fact["result"].get("ok"):
+                states.append(fact["result"].get("state"))
+        completed = bool(re.search(r"同步(?:已)?(?:成功|完成|好了)|课表已(?:经)?(?:更新|同步)", sync_assertion))
+        if not any(state == "succeeded" if completed else state in {"queued", "running", "succeeded"}
+                   for state in states):
+            return False
     course_tools = {"query_day_courses", "query_week_courses", "get_next_course", "find_course"}
     queried = [f for f in successful if f["skill"] in course_tools]
     status_question = bool(re.search(r"同步|学校绑定|课表.*更新|旧课表", question))

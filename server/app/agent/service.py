@@ -17,7 +17,7 @@ GUIDANCE = ("我是序时课表助手，可以查询你的课程。请先在序�
 
 def build_agent_reply(db, content: str, provider: str, sender_id: str,
                       received_at: datetime | None = None, timezone_name: str = "Asia/Shanghai",
-                      account_id: str = "") -> str:
+                      account_id: str = "", message_id: str = "") -> str:
     """Bind/unbind or dispatch a text message to the shared schedule agent."""
     text = str(content or "").strip()[:500]
     if text in {"解绑", "解除绑定"}:
@@ -59,7 +59,9 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
             if not select_schedule(user_id, provider, sender_id, schedule_id):
                 return "暂时无法保存课表选择，请稍后再试。"
             return f"已选择“{chosen['name']}”，本渠道后续查询将优先使用它，选择保留 24 小时。"
-    tools = ScheduleTools(db, AgentContext(user_id, now, str(timezone), schedule_id))
+    target = ({"provider": provider, "sender_id": sender_id, "account_id": account_id,
+               "message_id": message_id} if provider == "weixin_ilink" and account_id and message_id else None)
+    tools = ScheduleTools(db, AgentContext(user_id, now, str(timezone), schedule_id, target))
     try:
         version = f"{tools.schedule_version()}:{schedule_id or ''}"
         history = load_history(user_id, provider, sender_id, version)

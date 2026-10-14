@@ -213,3 +213,102 @@ def test_timeout_retries_and_exposes_progress(queue, monkeypatch):
     assert result['phase'] == 'retrying'
     assert result['started_at']
     assert "超时" in result['error']
+
+
+@pytest.fixture
+def notification_queue(queue, monkeypatch):
+    from app.services import academic_sync_notifications as notices
+
+    monkeypatch.setattr(notices, "connect", queue)
+    with queue() as db:
+        db.execute("""CREATE TABLE channel_messages(provider TEXT,account_id TEXT,message_id TEXT,status TEXT,
+            PRIMARY KEY(provider,account_id,message_id))""")
+        db.execute("INSERT INTO channel_messages VALUES('weixin_ilink','bot','m1','processing')")
+    return queue, notices
+
+
+def notification_target():
+    return {"provider": "weixin_ilink", "sender_id": "sender", "account_id": "bot", "message_id": "m1"}
+
+
+def test_completion_waits_for_initial_reply_and_deduplicates(notification_queue, monkeypatch):
+    queue, notices = notification_queue
+    task = jobs.enqueue(1, '2026-2027-1', True, notification_target=notification_target())
+    assert task['notification_registered']
+    again = jobs.enqueue(1, '2026-2027-1', True, notification_target=notification_target())
+    assert again['id'] == task['id']
+    monkeypatch.setattr(jobs, 'execute_job', lambda job: {'unchanged': True})
+    with queue() as db:
+        assert jobs.process_one(db)
+        assert notices.claim(db) is None  # Completed before the initial reply is sent.
+        assert db.execute('SELECT COUNT(*) AS count FROM academic_sync_notifications').fetchone()['count'] == 1
+        db.execute("UPDATE channel_messages SET status='done'")
+    with queue() as first, queue() as second:
+        row, result = notices.claim(first)
+        assert result['state'] == 'succeeded'
+        assert notices.claim(second) is None  # Row remains locked by first's transaction.
+    notices.finish(row, 'sent')
+    with queue() as db:
+        assert notices.claim(db) is None
+        assert db.execute('SELECT state FROM academic_sync_notifications').fetchone()['state'] == 'sent'
+
+
+def test_transient_failure_waits_until_final_failure(notification_queue, monkeypatch):
+    queue, notices = notification_queue
+    task = jobs.enqueue(1, '2026-2027-1', True, notification_target=notification_target())
+    def fail(job):
+        raise academic.AcademicError('upstream_timeout', '学校查询超时', 504)
+    monkeypatch.setattr(jobs, 'execute_job', fail)
+    with queue() as db:
+        db.execute("UPDATE channel_messages SET status='done'")
+        db.commit()
+        assert jobs.process_one(db)
+        assert notices.claim(db) is None
+        db.execute("UPDATE academic_sync_jobs SET attempts=2,available_at=now() WHERE id=%s", (task['id'],))
+        db.commit()
+        assert jobs.process_one(db)
+        row, result = notices.claim(db)
+        assert result['state'] == 'failed' and result['error_code'] == 'upstream_timeout'
+        assert '查询超时' in notices.completion_text(result)
+
+
+def test_notification_recovers_lease_and_rejects_stale_owner(notification_queue):
+    queue, notices = notification_queue
+    task = jobs.enqueue(1, '2026-2027-1', True, notification_target=notification_target())
+    with queue() as db:
+        db.execute("UPDATE channel_messages SET status='done'")
+        db.execute("UPDATE academic_sync_jobs SET state='succeeded' WHERE id=%s", (task['id'],))
+        first, _ = notices.claim(db)
+        db.execute("UPDATE academic_sync_notifications SET lease_until=now()-INTERVAL '1 second'")
+    with queue() as db:
+        second, _ = notices.claim(db)
+        assert second['id'] == first['id'] and second['lease_id'] != first['lease_id']
+        assert second['attempts'] == 2
+    notices.finish(first, 'sent')
+    with queue() as db:
+        assert db.execute('SELECT state FROM academic_sync_notifications').fetchone()['state'] == 'sending'
+    notices.finish(second, 'pending', 'delivery_failed')
+    with queue() as db:
+        assert notices.claim(db) is None  # Delivery retry is delayed.
+        db.execute("UPDATE academic_sync_notifications SET available_at=now()")
+        third, _ = notices.claim(db)
+        assert third['attempts'] == 3
+        db.execute("UPDATE academic_sync_notifications SET lease_until=now()-INTERVAL '1 second'")
+        assert notices.claim(db) is None
+        assert db.execute('SELECT state FROM academic_sync_notifications').fetchone()['state'] == 'failed'
+
+
+def test_changed_identity_cancels_notification(notification_queue):
+    queue, notices = notification_queue
+    jobs.enqueue(1, '2026-2027-1', True, notification_target=notification_target())
+    with queue() as db:
+        db.execute("CREATE TABLE user_identities(user_id BIGINT,provider TEXT,provider_user_id TEXT,account_id TEXT,context_token TEXT)")
+        db.execute("CREATE TABLE channel_accounts(provider TEXT,account_id TEXT,status TEXT,bot_token_encrypted TEXT,api_base_url TEXT,admin_user_id TEXT)")
+        db.execute("INSERT INTO user_identities VALUES(2,'weixin_ilink','sender','bot','context')")
+        db.execute("INSERT INTO channel_accounts VALUES('weixin_ilink','bot','active','encrypted','https://ilinkai.weixin.qq.com','')")
+        db.execute("UPDATE channel_messages SET status='done'")
+        db.execute("UPDATE academic_sync_jobs SET state='succeeded'")
+        row, result = notices.claim(db)
+    notices.deliver(row, result)
+    with queue() as db:
+        assert db.execute('SELECT state FROM academic_sync_notifications').fetchone()['state'] == 'cancelled'
