@@ -124,10 +124,12 @@ def handle_message(message: str, tools: ScheduleTools, history: list | None = No
 
 
 def _handle_message(message: str, tools: ScheduleTools, history: list | None = None) -> dict:
-    from .sync import reply, requested
+    from .sync import query_status, reply, requested, status_requested
     if requested(message):
         tools.sync_authorized = True
         return reply(tools.sync_schedule(), message)
+    if status_requested(message, history):
+        return query_status(tools, message)
     llm_allowed = llm_configured() and llm_circuit_breaker.allow_request()
     if llm_allowed:
         looped = run_agent(tools, message, history)
@@ -143,27 +145,9 @@ def _handle_message(message: str, tools: ScheduleTools, history: list | None = N
 
 def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = None,
                   *, allow_llm: bool = True) -> dict:
-    if any(word in message for word in ("同步", "旧课表", "学校绑定", "课表更新")):
-        try:
-            status = tools.get_schedule_status()
-        except Exception:
-            return {"intent": "SCHEDULE_STATUS", "answer": "暂时无法查询同步状态，请稍后重试。",
-                    "error": {"code": "service_unavailable"}}
-        job = status.get("sync_job")
-        if "学校绑定" in message:
-            answer = "已绑定学校身份。" if status["school_bound"] else "还没有绑定学校身份，请先在小程序中绑定。"
-        elif job and job["state"] in {"queued", "running"}:
-            answer = "课表正在排队同步。" if job["state"] == "queued" else "课表正在同步，请稍后再查。"
-        elif job and job["state"] == "failed":
-            from ..services.academic_sync_notifications import completion_text
-            answer = completion_text(job)
-        elif not status["schedules"]:
-            answer = "还没有导入课表，请先在小程序导入或绑定学校后同步。"
-        else:
-            answer = "当前有已保存的课表。"
-            if status.get("last_synced_at"):
-                answer += f"最近学校同步时间：{status['last_synced_at']}。"
-        return {"intent": "SCHEDULE_STATUS", "answer": answer, "tool_result": status}
+    from .sync import query_status, status_requested
+    if status_requested(message, history):
+        return query_status(tools, message)
     try:
         # 课程目录只有 LLM 意图提取会用到；纯规则路径不查，省一次数据库往返。
         catalog = tools.list_course_catalog() if allow_llm and llm_configured() else []

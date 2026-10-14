@@ -133,7 +133,7 @@ class ScheduleTools:
                         options["notification_target"] = self.context.notification_target
                     job = academic_jobs.enqueue(self.context.user_id, term, True, **options)
                     result = {"ok": True, "job_id": str(job["id"]), "state": job["state"],
-                              "term": job["term"], "error_code": job.get("error_code"), "notification_registered": bool(job.get("notification_registered"))}
+                              "term": job["term"], "phase": job.get("phase"), "result": job.get("result"), "error_code": job.get("error_code"), "notification_registered": bool(job.get("notification_registered"))}
         except HTTPException as error:
             result = {"ok": False, "error": "sync_rejected",
                       "message": str(error.detail), "retryable": False}
