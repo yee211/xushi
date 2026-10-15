@@ -35,7 +35,7 @@ def test_only_terminal_states_are_notified():
 
 
 def test_initial_reply_promises_notification_only_when_registered():
-    result = {"ok": True, "state": "queued", "notification_registered": True}
+    result = {"ok": True, "state": "queued", "job_id": "job-1", "notification_registered": True}
     assert "再发一条" in reply(result)["answer"]
     assert "再发一条" not in reply(dict(result, notification_registered=False))["answer"]
 
@@ -61,7 +61,7 @@ def test_success_routes_to_original_sender_and_latest_context(monkeypatch):
     notifications.deliver(row, {"state": "succeeded"})
     client.send_text.assert_called_once_with("sender", notifications.completion_text({"state": "succeeded"}),
                                              "latest-context", client_id="sync_notice-1")
-    assert db.execute.call_args.args[1] == (7, "weixin_ilink", "sender", "bot")
+    assert db.execute.call_args_list[0].args[1] == (7, "weixin_ilink", "sender", "bot")
     finish.assert_called_once_with(row, "sent")
     client.close.assert_called_once()
 

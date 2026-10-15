@@ -48,7 +48,7 @@ def make_plan():
 
 
 def test_submission_only_promises_registered_followup():
-    base = {"ok": True, "state": "queued", "notification_registered": True}
+    base = {"ok": True, "state": "queued", "job_id": "job-1", "notification_registered": True}
     assert "请再询问" in reply(base, "同步课表看看明天有什么课")["answer"]
     text = reply(dict(base, followup_registered=True), "同步课表看看明天有什么课")["answer"]
     assert "接着查询" in text and "请再询问" not in text

@@ -16,6 +16,7 @@ from langsmith import tracing_context
 
 from . import loop
 from .course_reply import CourseComment, course_facts, render_courses
+from .completion import COMPLETION_PROMPT, Completion, promises_work
 
 
 class QueryState(TypedDict, total=False):
@@ -25,6 +26,7 @@ class QueryState(TypedDict, total=False):
     reply: dict
     route: str
     answer: dict | None
+    corrected: bool
 
 
 class QueryRun:
@@ -49,10 +51,10 @@ class QueryRun:
         return self.answer(facts, render_courses(bundle, self.tools.context.now.date()))
 
     def initialize(self, state: QueryState) -> dict:
-        messages = loop._api_messages(loop.SYSTEM_PROMPT, self.history,
+        messages = loop._api_messages(loop.SYSTEM_PROMPT + COMPLETION_PROMPT, self.history,
             json.dumps({"服务端当前时间": self.tools.context.now.isoformat(),
                         "时区": self.tools.context.timezone, "用户消息": self.question}, ensure_ascii=False))
-        return {"messages": messages, "facts": [], "rounds": 0, "answer": None}
+        return {"messages": messages, "facts": [], "rounds": 0, "answer": None, "corrected": False}
 
     def model(self, state: QueryState) -> dict:
         if state["rounds"] >= loop.MAX_ROUNDS:
@@ -62,7 +64,8 @@ class QueryRun:
         loop.remaining()
         payload = {"model": self.model_name, "temperature": 0.2,
                    "max_tokens": int(self.config.get("max_tokens") or loop.MAX_TOKENS),
-                   "messages": state["messages"], "tools": loop.openai_tools(self.skills), "tool_choice": "auto"}
+                   "messages": state["messages"], "tools": loop.openai_tools(self.skills), "tool_choice": "auto",
+                   "response_format": {"type": "json_object"}}
         if course_facts(state["facts"], self.question) is not None:
             payload["messages"] = state["messages"] + [{"role": "system", "content":
                 '课程列表由服务端使用工具事实生成。只输出 JSON 对象 {"closing":"一句可选的自然提醒"}。'
@@ -103,16 +106,41 @@ class QueryRun:
         self.facts = facts
         return {"facts": facts, "messages": messages, "route": "model"}
 
+    def unfinished(self, state: QueryState) -> dict:
+        # One correction at most, within the original round/deadline budget.
+        if not state.get("corrected") and state["rounds"] < loop.MAX_ROUNDS:
+            return {"corrected": True, "route": "model", "messages": state["messages"] + [
+                {"role": "system", "content": "上一条回复没有完成用户请求，不能以稍等或稍后回复结束。"
+                 "请现在调用对应工具获取本轮事实；缺少信息请明确提问，不能承诺不存在的后台任务。"}]}
+        loop.llm_circuit_breaker.record_failure("completion correction exhausted")
+        return {"answer": None, "route": "done"}
+
     def validate(self, state: QueryState) -> dict:
         facts = state["facts"]
         content = str(state["reply"].get("content") or "").strip()
         content = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", content, flags=re.DOTALL).strip()
         content = content.replace("😂", "").strip()
+        completion_status = None
         bundle = course_facts(facts, self.question)
+        # Preserve verified courses even if the optional model comment is malformed.
+        # Older providers may return plain text; the same execution checks still apply.
+        if bundle is None and content.startswith(("{", "[")):
+            try:
+                completion = Completion.model_validate_json(content)
+            except ValueError:
+                return self.unfinished(state)
+            if completion.status == "pending" or completion.task_id is not None:
+                return self.unfinished(state)
+            content = completion.answer
+            if completion.status == "needs_input" and not re.search(r"[？?]|请.{0,8}(?:提供|补充|选择|说明)|哪", content):
+                return self.unfinished(state)
+            completion_status = completion.status
         if bundle is not None:
             try:
                 comment = CourseComment.model_validate_json(content).closing
             except ValueError:
+                comment = ""
+            if promises_work(comment):
                 comment = ""
             candidate = render_courses(bundle, self.tools.context.now.date(), comment)
             if comment and not (loop._grounded(candidate, json.dumps([f["result"] for f in facts],
@@ -121,11 +149,22 @@ class QueryRun:
                 candidate = render_courses(bundle, self.tools.context.now.date())
             loop.llm_circuit_breaker.record_success()
             return {"answer": self.answer(facts, candidate), "route": "done"}
+        from .orchestrator import parse_intent
+        intent = parse_intent(self.question, self.tools.context.now.date())
+        required = {"QUERY_DAY": "query_day_courses", "QUERY_AVAILABILITY": "query_day_courses",
+                    "QUERY_COURSE_ON_DAY": "query_day_courses", "QUERY_WEEK": "query_week_courses",
+                    "QUERY_NEXT": "get_next_course", "FIND_COURSE": "find_course", "QUERY_WEATHER": "get_weather"}
+        missing = required.get(intent.name) and not any(f["skill"] == required[intent.name] for f in facts)
+        if promises_work(content) or (missing and loop._facts_grounded(content, facts, self.question) and not re.search(r"[？?]|无法|暂时|失败|不可用|未绑定|未导入", content)):
+            return self.unfinished(state)
         context = json.dumps([f["result"] for f in facts if not f["result"].get("error")],
                              ensure_ascii=False, default=str) + " " + self.tools.context.now.strftime("%H:%M")
         if content and loop._grounded(content, context) and loop._facts_grounded(content, facts, self.question):
             loop.llm_circuit_breaker.record_success()
-            return {"answer": self.answer(facts, content), "route": "done"}
+            answer = self.answer(facts, content)
+            if completion_status in {"failed", "needs_input"}:
+                answer["_completion_status"] = completion_status
+            return {"answer": answer, "route": "done"}
         loop.logger.warning("Agent response rejected: %s", "empty" if not content else "grounding_validation")
         loop.llm_circuit_breaker.record_failure("empty or ungrounded LLM response")
         return {"answer": None, "route": "done"}
@@ -162,7 +201,7 @@ def build_graph(runtime: QueryRun):
     builder.add_conditional_edges("tools", lambda state: state["route"],
                                   {"model": "model", "recover": "recover"})
     builder.add_conditional_edges("validate", lambda state: state["route"],
-                                  {"done": END, "recover": "recover"})
+                                  {"done": END, "recover": "recover", "model": "model"})
     builder.add_edge("recover", END)
     return builder.compile()
 
@@ -175,7 +214,7 @@ def run(tools, message: str, history: list | None = None) -> dict | None:
     try:
         # Deliberately prevent graph tracing from exporting history/tool facts.
         with tracing_context(enabled=False):
-            result = build_graph(runtime).invoke({}, {"recursion_limit": 3 * loop.MAX_ROUNDS + 5})
+            result = build_graph(runtime).invoke({}, {"recursion_limit": 4 * loop.MAX_ROUNDS + 5})
         return result.get("answer")
     except Exception as error:
         loop.logger.warning("Agent graph failed: %s", type(error).__name__)

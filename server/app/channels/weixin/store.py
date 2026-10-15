@@ -109,3 +109,20 @@ def complete_message(db, account_id: str, message_id: str, error: str = "") -> N
     db.execute("""UPDATE channel_messages SET status=%s,error=%s,processed_at=CURRENT_TIMESTAMP
         WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s""",
         ("failed" if error else "done", error[:1000], account_id, message_id))
+
+
+def load_reply(db, account_id: str, message_id: str) -> str | None:
+    row = db.execute("""SELECT reply_text FROM channel_messages
+        WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s""",
+        (account_id, message_id)).fetchone()
+    return row["reply_text"] if row else None
+
+
+def save_reply(db, account_id: str, message_id: str, text: str) -> str:
+    # Commit before network delivery. Never replace an already frozen reply.
+    row = db.execute("""UPDATE channel_messages SET reply_text=COALESCE(reply_text,%s)
+        WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s AND status='processing'
+        RETURNING reply_text""", (text, account_id, message_id)).fetchone()
+    if not row or row["reply_text"] is None:
+        raise RuntimeError("reply persistence failed")
+    return row["reply_text"]

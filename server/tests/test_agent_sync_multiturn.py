@@ -73,6 +73,9 @@ class ScenarioDb(FakeAgentDb):
         self.status_owners = []
 
     def execute(self, sql, params=None):
+        if "UPDATE academic_sync_notifications SET delivery_text" in sql:
+            assert params[1:] == ("notice-1", "lease-1")
+            return FakeResult([{"id": "notice-1"}])
         if "FROM user_identities u JOIN channel_accounts" in sql:
             assert params == (7, "weixin_ilink", "sender", "bot")
             return FakeResult([{"context_token": "context", "bot_token_encrypted": "encrypted",

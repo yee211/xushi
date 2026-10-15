@@ -78,7 +78,15 @@ def test_graph_matches_frozen_stable_contracts(monkeypatch, question, responses)
     expected = records[key]
     result, requests, breaker = replay(monkeypatch, question, responses)
     assert result == expected["answer"]
-    assert hashlib.sha256(json.dumps(requests, ensure_ascii=False, sort_keys=True).encode()).hexdigest() == expected["requests_sha256"]
+    # The completion contract intentionally adds a prompt and JSON response mode.
+    # Everything else must still match the frozen pre-migration requests.
+    from app.agent.completion import COMPLETION_PROMPT
+    original_requests = copy.deepcopy(requests)
+    for request in original_requests:
+        request["messages"][0]["content"] = request["messages"][0]["content"].removesuffix(COMPLETION_PROMPT)
+        if request.get("tool_choice") != "none":
+            request.pop("response_format", None)
+    assert hashlib.sha256(json.dumps(original_requests, ensure_ascii=False, sort_keys=True).encode()).hexdigest() == expected["requests_sha256"]
     assert breaker.value == expected["breaker"]
     assert len(requests) <= loop.MAX_ROUNDS
 

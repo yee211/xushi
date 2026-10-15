@@ -17,6 +17,8 @@ from .store import (
     claim_message,
     complete_message,
     load_accounts,
+    load_reply,
+    save_reply,
     mark_session_expired,
     reset_stale_processing,
     save_cursor,
@@ -138,28 +140,25 @@ def process_message(client: ILinkClient, message: InboundText) -> bool:
                 WHERE provider='weixin_ilink' AND provider_user_id=%s""",
                 (message.context_token, message.sender_id))
     try:
-        allowed, retry_after = clawbot_limiter.hit(message.sender_id)
-        if not allowed:
-            reply = f"你提问太频繁啦，请慢一点~ 请等待 {retry_after} 秒后再问我吧。"
-            client.send_text(message.sender_id, reply, message.context_token,
-                             client_id=reply_client_id(message.account_id, message.message_id),
-                             run_id=message.run_id)
+        with connect() as db:
+            reply = load_reply(db, message.account_id, message.message_id)
+        if reply is None:
+            allowed, retry_after = clawbot_limiter.hit(message.sender_id)
+            if not allowed:
+                reply = f"你提问太频繁啦，请慢一点~ 请等待 {retry_after} 秒后再问我吧。"
+            else:
+                if client:
+                    threading.Thread(
+                        target=client.send_typing_indicator,
+                        args=(message.sender_id, message.context_token),
+                        kwargs={"status": 1}, daemon=True,
+                        name=f"typing-{message.message_id[:8]}",
+                    ).start()
+                reply = build_agent_reply(connect, message.text, "weixin_ilink", message.sender_id,
+                                          message.received_at, os.getenv("APP_TIMEZONE", "Asia/Shanghai"),
+                                          message.account_id, message_id=message.message_id)
             with connect() as db:
-                complete_message(db, message.account_id, message.message_id)
-            logger.warning("clawbot rate limited sender=%s account=%s", message.sender_id, message.account_id)
-            return True
-
-        if client:
-            threading.Thread(
-                target=client.send_typing_indicator,
-                args=(message.sender_id, message.context_token),
-                kwargs={"status": 1},
-                daemon=True,
-                name=f"typing-{message.message_id[:8]}",
-            ).start()
-        reply = build_agent_reply(connect, message.text, "weixin_ilink", message.sender_id,
-                                  message.received_at, os.getenv("APP_TIMEZONE", "Asia/Shanghai"),
-                                  message.account_id, message_id=message.message_id)
+                reply = save_reply(db, message.account_id, message.message_id, reply)
         client.send_text(message.sender_id, reply, message.context_token,
                          client_id=reply_client_id(message.account_id, message.message_id),
                          run_id=message.run_id)

@@ -137,7 +137,8 @@ def claim(db):
             AND (n.state='pending' OR (n.state='sending' AND n.lease_until<CURRENT_TIMESTAMP))
             AND n.available_at<=CURRENT_TIMESTAMP
             AND EXISTS (SELECT 1 FROM channel_messages m WHERE m.provider=n.provider
-                AND m.account_id=n.account_id AND m.message_id=n.message_id AND m.status='done')
+                AND m.account_id=n.account_id AND m.message_id=n.message_id
+                AND (m.status='done' OR (m.status='failed' AND m.attempts>=3)))
             ORDER BY n.created_at LIMIT 1 FOR UPDATE OF n SKIP LOCKED)
         RETURNING *""", (uuid.uuid4(),)).fetchone()
     if not row:
@@ -164,17 +165,16 @@ def deliver(row: dict, job: dict) -> None:
         if row.get("followup"):
             from .academic_sync_followup import delivery_text
             text = delivery_text(row, job)
-            # Persist before sending. On lease loss do not deliver or overwrite
-            # the next owner's work. Retries reuse the saved payload/client id.
-            with connect() as db:
-                saved = db.execute("""UPDATE academic_sync_notifications SET delivery_text=%s,
-                    lease_until=CURRENT_TIMESTAMP + INTERVAL '60 seconds'
-                    WHERE id=%s AND state='sending' AND lease_id=%s AND lease_until>CURRENT_TIMESTAMP
-                    RETURNING id""", (text, row["id"], row["lease_id"])).fetchone()
-            if not saved:
-                return
         else:
-            text = completion_text(job)
+            text = row.get("delivery_text") or completion_text(job)
+        # All deliveries must still own a live lease, including plain notices.
+        with connect() as db:
+            saved = db.execute("""UPDATE academic_sync_notifications SET delivery_text=%s,
+                lease_until=CURRENT_TIMESTAMP + INTERVAL '60 seconds'
+                WHERE id=%s AND state='sending' AND lease_id=%s AND lease_until>CURRENT_TIMESTAMP
+                RETURNING id""", (text, row["id"], row["lease_id"])).fetchone()
+        if not saved:
+            return
         client = ILinkClient(credentials)
         client.send_text(row["sender_id"], text, account["context_token"],
                          client_id=f"sync_{row['id']}")

@@ -177,6 +177,7 @@ def init_db():
             processed_at TIMESTAMPTZ,
             PRIMARY KEY(provider,account_id,message_id))""")
         db.execute("ALTER TABLE channel_messages ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1")
+        db.execute("ALTER TABLE channel_messages ADD COLUMN IF NOT EXISTS reply_text TEXT")
         db.execute("CREATE INDEX IF NOT EXISTS channel_messages_processed_idx ON channel_messages(processed_at)")
 
         # ---------- 反馈（网页版 feedback 的超集） ----------

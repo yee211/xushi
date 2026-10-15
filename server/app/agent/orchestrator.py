@@ -120,7 +120,8 @@ def handle_message(message: str, tools: ScheduleTools, history: list | None = No
     循环不可用（LLM 未配置/熔断中/超时/输出未过接地校验）时，退回确定性意图+模板路径兜底。
     """
     with execution():
-        return _handle_message(message, tools, history)
+        from .completion import finalize
+        return finalize(_handle_message(message, tools, history))
 
 
 def _handle_message(message: str, tools: ScheduleTools, history: list | None = None) -> dict:
@@ -138,6 +139,7 @@ def _handle_message(message: str, tools: ScheduleTools, history: list | None = N
         looped = run_agent(tools, message, history)
         if looped:
             return {"intent": "AGENT_LOOP", "answer": looped["answer"],
+                    "_completion_status": looped.get("_completion_status"),
                     "tool_result": looped["tool_result"],
                     "resolved_context": looped.get("resolved_context") or {"intent": "AGENT_LOOP", "skills": looped["skills"]}}
     # OPEN/HALF_OPEN fallback must remain entirely deterministic. When the breaker

@@ -345,6 +345,8 @@ def test_clawbot_rate_limiting(monkeypatch):
 
         monkeypatch.setattr(worker, "build_agent_reply", fake_build_agent_reply)
         monkeypatch.setattr(worker, "claim_message", lambda *args: True)
+        monkeypatch.setattr(worker, "load_reply", lambda *args: None)
+        monkeypatch.setattr(worker, "save_reply", lambda db, account, message, text: text)
         monkeypatch.setattr(worker, "complete_message", lambda *args: True)
 
         sent_replies = []

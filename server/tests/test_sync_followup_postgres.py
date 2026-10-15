@@ -44,7 +44,7 @@ def database(monkeypatch):
                 room TEXT,weekday INT,start_section INT,end_section INT,weeks INT[])""")
             db.execute("""CREATE TABLE course_adjustments(course_id BIGINT,week INT,weekday INT,
                 start_section INT,end_section INT,room TEXT)""")
-            db.execute("""CREATE TABLE channel_messages(provider TEXT,account_id TEXT,message_id TEXT,status TEXT)""")
+            db.execute("""CREATE TABLE channel_messages(provider TEXT,account_id TEXT,message_id TEXT,status TEXT,attempts INTEGER NOT NULL DEFAULT 1,reply_text TEXT)""")
             db.execute("""CREATE TABLE user_identities(user_id BIGINT,provider TEXT,provider_user_id TEXT,
                 account_id TEXT,context_token TEXT)""")
             db.execute("""CREATE TABLE channel_accounts(provider TEXT,account_id TEXT,status TEXT,
@@ -78,7 +78,7 @@ def complete(connect, job):
     with connect() as db:
         db.execute("""UPDATE academic_sync_jobs SET state='succeeded',result='{"schedule_id":12}'
             WHERE id=%s""", (job["id"],))
-        db.execute("INSERT INTO channel_messages VALUES('weixin_ilink','bot','m1','done')")
+        db.execute("INSERT INTO channel_messages(provider,account_id,message_id,status) VALUES('weixin_ilink','bot','m1','done')")
 
 
 def test_subscription_is_transactional_idempotent_and_cannot_be_overwritten(database):
@@ -188,3 +188,54 @@ def test_schema_upgrade_is_repeatable(database, monkeypatch):
             for statement in notifications.FOLLOWUP_SCHEMA:
                 db.execute(statement)
         assert db.execute("SELECT followup,delivery_text FROM academic_sync_notifications LIMIT 1").fetchone() is None
+
+
+def test_final_notification_unblocks_after_ack_delivery_exhausted(database):
+    connect = database
+    job, _ = submit(connect)
+    complete(connect, job)
+    with connect() as db:
+        db.execute("UPDATE channel_messages SET status='failed',attempts=2")
+        assert notifications.claim(db) is None
+        db.execute("UPDATE channel_messages SET attempts=3")
+        claimed = notifications.claim(db)
+        assert claimed is not None
+        assert claimed[1]["state"] == "succeeded"
+
+
+def test_reply_survives_connection_restart_without_overwrite(database):
+    from app.channels.weixin.store import load_reply, save_reply
+    with database() as db:
+        db.execute("INSERT INTO channel_messages(provider,account_id,message_id,status) VALUES('weixin_ilink','bot','cached','processing')")
+        assert save_reply(db, "bot", "cached", "frozen answer") == "frozen answer"
+    with database() as db:
+        assert load_reply(db, "bot", "cached") == "frozen answer"
+        assert load_reply(db, "other-bot", "cached") is None
+        assert save_reply(db, "bot", "cached", "new answer") == "frozen answer"
+
+
+def test_replayed_sync_reuses_completed_original_job_after_cooldown(database):
+    connect = database
+    job, target = submit(connect)
+    complete(connect, job)
+    with connect() as db:
+        db.execute("UPDATE academic_sync_jobs SET created_at=CURRENT_TIMESTAMP-INTERVAL '1 hour'")
+    replayed = academic_jobs.enqueue(7, job["term"], True, cooldown_seconds=30, notification_target=target)
+    assert replayed["id"] == job["id"]
+    with connect() as db:
+        assert db.execute("SELECT count(*) AS n FROM academic_sync_jobs").fetchone()["n"] == 1
+
+
+def test_reply_migration_can_upgrade_repeatedly(database, monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "migrations/versions/0021_message_reply.py"
+    spec = importlib.util.spec_from_file_location("message_reply_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with database() as db:
+        monkeypatch.setattr(migration.op, "execute", db.execute)
+        migration.downgrade()
+        migration.upgrade()
+        migration.upgrade()
+        assert db.execute("SELECT reply_text FROM channel_messages LIMIT 1").fetchone() is None

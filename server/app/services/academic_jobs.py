@@ -79,6 +79,20 @@ def enqueue(user_id, term, refresh=False, *, cooldown_seconds=0, notification_ta
         binding = db.execute("SELECT student,revision,updated_at FROM academic_bindings WHERE user_id=%s FOR UPDATE", (user_id,)).fetchone()
         if not binding:
             raise HTTPException(409, "请先绑定学校身份")
+        if (notification_target and notification_target.get("provider") == "weixin_ilink"
+                and all(notification_target.get(k) for k in ("account_id", "sender_id", "message_id"))):
+            # A crash after enqueue but before the acknowledgement was saved must
+            # reuse the original job even after completion and the cooldown window.
+            prior = db.execute("""SELECT j.* FROM academic_sync_jobs j
+                JOIN academic_sync_notifications n ON n.job_id=j.id AND n.user_id=j.user_id
+                WHERE j.user_id=%s AND n.provider=%s AND n.account_id=%s AND n.sender_id=%s
+                AND n.message_id=%s AND j.student_id=%s AND j.binding_revision=%s
+                AND j.binding_updated_at=%s AND j.term=%s
+                ORDER BY j.created_at DESC LIMIT 1""", (user_id, notification_target["provider"],
+                notification_target["account_id"], notification_target["sender_id"], notification_target["message_id"],
+                binding["student"]["id"], binding["revision"], binding["updated_at"], term)).fetchone()
+            if prior:
+                return finish(prior)
         active = db.execute("SELECT * FROM academic_sync_jobs WHERE user_id=%s AND state IN ('queued','running')", (user_id,)).fetchone()
         if active:
             if (active['student_id'] == binding['student']['id'] and active['binding_revision'] == binding['revision']
