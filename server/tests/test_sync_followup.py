@@ -221,6 +221,7 @@ def test_graph_does_not_fall_back_to_another_schedule():
 @pytest.mark.parametrize("binding_current", [True, False])
 def test_completed_sync_immediately_answers_and_checks_current_role(monkeypatch, resumed, binding_current):
     from dataclasses import replace
+
     from app.agent import orchestrator
     from tests.test_agent_loop import make_tools
 

@@ -18,10 +18,10 @@ from .store import (
     complete_message,
     load_accounts,
     load_reply,
-    save_reply,
     mark_session_expired,
     reset_stale_processing,
     save_cursor,
+    save_reply,
 )
 
 logger = logging.getLogger("weixin-ilink")

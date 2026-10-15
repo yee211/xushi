@@ -119,6 +119,7 @@ def answer(plan: FollowupPlan, tools) -> str:
 def completed_reply(result: dict, plan: dict, tools) -> str:
     """A reused completed job needs an immediate answer, not a new subscription."""
     import logging
+
     from ..services.academic_sync_followup import delivery_text
     from ..services.academic_sync_notifications import completion_text
 

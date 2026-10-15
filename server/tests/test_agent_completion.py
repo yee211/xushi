@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from app.agent import graph, loop, orchestrator
 from app.agent.completion import Completion, finalize
 from app.agent.sync import reply, status_requested
-from tests.test_agent_graph import replay, isolated_engine  # noqa: F401
+from tests.test_agent_graph import isolated_engine, replay  # noqa: F401
 from tests.test_agent_loop import make_tools, reply_message, tool_call
 
 
@@ -143,8 +143,8 @@ def test_failed_tools_produce_failed_completion():
 
 
 def test_correction_does_not_reset_deadline(monkeypatch):
-    from app.agent import budget
     import httpx
+
     calls = []
     monkeypatch.setattr(loop, "agent_config", lambda: ("https://example.test", "fake", "fake"))
     monkeypatch.setattr(loop, "get_llm_config", lambda scope: {})

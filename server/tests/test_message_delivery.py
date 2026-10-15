@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.channels.weixin import worker, store
+from app.channels.weixin import store, worker
 from app.channels.weixin.protocol import InboundText
 from app.services import academic_sync_notifications as notifications
 from tests.test_academic_sync_notifications import make_delivery
