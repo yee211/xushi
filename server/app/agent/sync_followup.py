@@ -3,7 +3,6 @@
 The notification row is the durable wait point. Replaying the graph only reads
 courses; it never submits jobs, invokes the model, or sends channel messages.
 """
-import os
 import re
 from datetime import date, datetime
 from typing import Literal, TypedDict
@@ -32,9 +31,6 @@ class FollowupPlan(BaseModel):
 
 
 def prepare(message: str, now: datetime) -> dict | None:
-    # Existing/default images do not promise a graph they cannot execute.
-    if os.getenv("AGENT_ENGINE", "legacy").strip().lower() != "langgraph":
-        return None
     from .orchestrator import parse_intent
     from .sync import COMMAND, PREFIX, requested
 

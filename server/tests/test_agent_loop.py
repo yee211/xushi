@@ -77,7 +77,7 @@ def configure(monkeypatch, responses):
         sent.append(kwargs["json"])
         return FakeResponse(remaining.pop(0))
 
-    monkeypatch.setattr(loop.httpx, "post", fake_post)
+    monkeypatch.setattr(loop, "_post_llm", fake_post)
     return sent
 
 
@@ -116,9 +116,9 @@ def test_loop_returns_none_on_llm_error(monkeypatch):
     monkeypatch.setenv("AGENT_API_KEY", "sk-test")
     monkeypatch.setenv("AGENT_MODEL", "test-model")
 
-    def boom(**kwargs): raise httpx_module.ConnectError("network down")
+    def boom(url, **kwargs): raise httpx_module.ConnectError("network down")
 
-    monkeypatch.setattr(loop.httpx, "post", boom)
+    monkeypatch.setattr(loop, "_post_llm", boom)
     assert loop.run(make_tools(), "明天有什么课") is None
 
 

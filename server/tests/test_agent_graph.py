@@ -1,16 +1,16 @@
 """Deterministic parity and failure-isolation checks; never call a real provider."""
 import copy
+import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import httpx
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-
-pytest.importorskip("langgraph")
 
 from app.agent import budget, graph, loop, orchestrator  # noqa: E402
 from app.agent.circuit_breaker import llm_circuit_breaker  # noqa: E402
@@ -26,7 +26,7 @@ def isolated_engine(monkeypatch):
     llm_circuit_breaker.reset()
 
 
-def replay(monkeypatch, engine, question, responses, tools=None, history=None):
+def replay(monkeypatch, question, responses, tools=None, history=None):
     replies = list(copy.deepcopy(responses))
     sent = []
     def post(url, **kwargs):
@@ -36,7 +36,6 @@ def replay(monkeypatch, engine, question, responses, tools=None, history=None):
         if isinstance(response, Exception):
             raise response
         return FakeResponse(response)
-    monkeypatch.setenv("AGENT_ENGINE", engine)
     monkeypatch.setattr(loop, "_post_llm", post)
     llm_circuit_breaker.reset()
     result = loop.run(tools or make_tools(), question, history)
@@ -72,23 +71,24 @@ def replay(monkeypatch, engine, question, responses, tools=None, history=None):
                         for n in range(4)]),
     ("明天有什么课", [reply_message(content="明天有高数课，在B999")]),
 ])
-def test_legacy_and_graph_have_identical_requests_results_and_breaker(monkeypatch, question, responses):
-    legacy, old_requests, old_breaker = replay(monkeypatch, "legacy", question, responses)
-    migrated, new_requests, new_breaker = replay(monkeypatch, "langgraph", question, responses)
-    assert migrated == legacy
-    assert new_requests == old_requests
-    assert new_breaker == old_breaker
-    assert len(new_requests) <= loop.MAX_ROUNDS
+def test_graph_matches_frozen_stable_contracts(monkeypatch, question, responses):
+    records = json.loads((Path(__file__).parent / "fixtures/agent_pre_langgraph_contracts.json").read_text(encoding="utf-8"))
+    key = hashlib.sha256(json.dumps([question, responses], ensure_ascii=False, sort_keys=True,
+                                   default=lambda v: type(v).__name__).encode()).hexdigest()
+    expected = records[key]
+    result, requests, breaker = replay(monkeypatch, question, responses)
+    assert result == expected["answer"]
+    assert hashlib.sha256(json.dumps(requests, ensure_ascii=False, sort_keys=True).encode()).hexdigest() == expected["requests_sha256"]
+    assert breaker.value == expected["breaker"]
+    assert len(requests) <= loop.MAX_ROUNDS
 
 
 def test_empty_timetable_and_history_are_preserved(monkeypatch):
     responses = [reply_message(tool_calls=[tool_call("day", "query_day_courses", '{"date":"2026-09-09"}')]),
                  reply_message(content='{"closing":""}')]
     history = [HumanMessage(content="明天查高数"), AIMessage(content="之前的教室是B999")]
-    old, old_requests, _ = replay(monkeypatch, "legacy", "明天有什么课", responses, make_tools([]), history)
-    new, new_requests, _ = replay(monkeypatch, "langgraph", "明天有什么课", responses, make_tools([]), history)
-    assert old == new and "没有课" in new["answer"]
-    assert old_requests == new_requests
+    new, new_requests, _ = replay(monkeypatch, "明天有什么课", responses, make_tools([]), history)
+    assert "没有课" in new["answer"]
     assert new_requests[0]["messages"][1]["content"] == "明天查高数"
 
 
@@ -106,21 +106,18 @@ def test_parallel_tool_order_and_context_are_preserved(monkeypatch):
         tool_call("d2", "query_day_courses", '{"date":"2026-09-10"}')]),
         reply_message(content='{"closing":""}')]
     try:
-        old, old_requests, _ = replay(monkeypatch, "legacy", "明天和后天有什么课", responses)
-        new, new_requests, _ = replay(monkeypatch, "langgraph", "明天和后天有什么课", responses)
+        new, new_requests, _ = replay(monkeypatch, "明天和后天有什么课", responses)
     finally:
         marker.reset(token)
-    assert old == new and old_requests == new_requests
-    assert seen == ["request-context"] * 4
+    assert new is not None
+    assert seen == ["request-context"] * 2
     assert [message["tool_call_id"] for message in new_requests[1]["messages"] if message["role"] == "tool"] == ["d1", "d2"]
 
 
-def test_graph_framework_failure_retains_facts_without_replaying_legacy(monkeypatch):
+def test_graph_framework_failure_retains_facts_without_replaying_model(monkeypatch):
     model = MagicMock(return_value=FakeResponse(reply_message(tool_calls=[
         tool_call("day", "query_day_courses", '{"date":"2026-09-09"}')])))
     monkeypatch.setattr(loop, "_post_llm", model)
-    old_loop = MagicMock(side_effect=AssertionError("must not replay old loop"))
-    monkeypatch.setattr(loop, "_run", old_loop)
     class BrokenGraph:
         def __init__(self, runtime):
             self.runtime = runtime
@@ -130,11 +127,10 @@ def test_graph_framework_failure_retains_facts_without_replaying_legacy(monkeypa
             state.update(self.runtime.execute_tools(state))
             raise RuntimeError("framework failure after tools")
     monkeypatch.setattr(graph, "build_graph", BrokenGraph)
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     result = loop.run(make_tools(), "明天有什么课")
     assert "• 14:00–15:40 高数，张老师，A101" in result["answer"]
     model.assert_called_once()
-    old_loop.assert_not_called()
+    assert not hasattr(loop, "_run")
 
 
 def test_graph_budget_expiry_does_not_discard_verified_courses(monkeypatch):
@@ -150,13 +146,11 @@ def test_graph_budget_expiry_does_not_discard_verified_courses(monkeypatch):
             raise httpx.TimeoutException("turn budget exhausted")
         return 10
     monkeypatch.setattr(loop, "remaining", remaining)
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     assert "高数" in loop.run(make_tools(), "明天有什么课")["answer"]
     assert len(calls) == 1
 
 
 def test_graph_requests_are_isolated_under_concurrency(monkeypatch):
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     def post(url, **kwargs):
         messages = kwargs["json"]["messages"]
         tool_messages = [m for m in messages if m["role"] == "tool"]
@@ -179,35 +173,36 @@ def test_graph_requests_are_isolated_under_concurrency(monkeypatch):
     assert "用户乙的课程" in b.result()["answer"] and "用户甲" not in b.result()["answer"]
 
 
-def test_sync_routes_bypass_both_query_engines(monkeypatch):
-    model = MagicMock(side_effect=AssertionError("sync must not invoke graph or legacy"))
+def test_sync_routes_bypass_query_graph(monkeypatch):
+    model = MagicMock(side_effect=AssertionError("sync must not invoke model graph"))
     monkeypatch.setattr(orchestrator, "run_agent", model)
-    for engine in ("legacy", "langgraph"):
-        monkeypatch.setenv("AGENT_ENGINE", engine)
-        tools = MagicMock()
-        tools.sync_schedule.return_value = {"ok":True,"state":"queued","job_id":"job-1"}
-        tools.get_schedule_status.return_value = {"school_bound":True,"sync_job":{"state":"succeeded"}}
-        assert "已提交" in orchestrator.handle_message("同步课表", tools)["answer"]
-        assert "同步成功" in orchestrator.handle_message("同步好了吗", tools)["answer"]
+    tools = MagicMock()
+    tools.sync_schedule.return_value = {"ok": True, "state": "queued", "job_id": "job-1"}
+    tools.get_schedule_status.return_value = {"school_bound": True, "sync_job": {"state": "succeeded"}}
+    assert "已提交" in orchestrator.handle_message("同步课表", tools)["answer"]
+    assert "同步成功" in orchestrator.handle_message("同步好了吗", tools)["answer"]
     model.assert_not_called()
 
 
-def test_legacy_is_default_and_unknown_engine_fails_closed(monkeypatch):
-    monkeypatch.delenv("AGENT_ENGINE", raising=False)
-    old = MagicMock(return_value={"answer":"legacy"})
-    monkeypatch.setattr(loop, "_run", old)
-    assert loop.run(make_tools(), "你好") == {"answer":"legacy"}
-    old.assert_called_once()
-    monkeypatch.setenv("AGENT_ENGINE", "misspelled")
-    assert loop.run(make_tools(), "你好") is None
-    assert old.call_count == 1
+@pytest.mark.parametrize("obsolete_setting", [None, "legacy", "misspelled"])
+def test_graph_is_the_only_engine_regardless_of_obsolete_setting(monkeypatch, obsolete_setting):
+    if obsolete_setting is None:
+        monkeypatch.delenv("AGENT_ENGINE", raising=False)
+    else:
+        monkeypatch.setenv("AGENT_ENGINE", obsolete_setting)
+    run = MagicMock(return_value={"answer": "graph"})
+    monkeypatch.setattr(graph, "run", run)
+    tools = make_tools()
+    assert loop.run(tools, "你好") == {"answer": "graph"}
+    run.assert_called_once_with(tools, "你好", None)
+    assert not hasattr(loop, "_run")
 
 
 def test_no_tracing_export_and_no_persistent_checkpointer(monkeypatch):
     from contextlib import nullcontext
     tracing = MagicMock(return_value=nullcontext())
     monkeypatch.setattr(graph, "tracing_context", tracing)
-    result, _, _ = replay(monkeypatch, "langgraph", "你好", [reply_message(content="在的，可以帮你查课表")])
+    result, _, _ = replay(monkeypatch, "你好", [reply_message(content="在的，可以帮你查课表")])
     assert result is not None
     tracing.assert_called_once_with(enabled=False)
     runtime = graph.QueryRun(make_tools(), "你好", [])
@@ -217,10 +212,9 @@ def test_no_tracing_export_and_no_persistent_checkpointer(monkeypatch):
 
 
 def test_shared_execution_budget_is_not_reset_by_graph(monkeypatch):
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     with budget.execution():
         deadline = budget._deadline.get()
-        replay(monkeypatch, "langgraph", "你好", [reply_message(content="在的，可以帮你查课表")])
+        replay(monkeypatch, "你好", [reply_message(content="在的，可以帮你查课表")])
         assert budget._deadline.get() == deadline
 
 
@@ -229,7 +223,6 @@ def test_unconfigured_graph_does_not_load_tools_or_change_breaker(monkeypatch):
     monkeypatch.setattr(loop, "agent_config", lambda: ("", "", ""))
     build = MagicMock(side_effect=AssertionError("unconfigured runtime must not load tools"))
     monkeypatch.setattr(loop, "build_skills", build)
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     assert loop.run(None, "你好") is None
     build.assert_not_called()
     assert llm_circuit_breaker._failure_count == 0

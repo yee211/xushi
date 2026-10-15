@@ -8,9 +8,6 @@ permissions:
 jobs:
   agent:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        engine: [legacy, langgraph]
     services:
       postgres:
         image: postgres:17-alpine
@@ -20,7 +17,6 @@ jobs:
         options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       XUSHI_FOLLOWUP_TEST_DSN: postgresql://postgres@127.0.0.1:55439/postgres
-      AGENT_ENGINE: ${{ matrix.engine }}
       APP_ENV: test
       PYTHONDONTWRITEBYTECODE: "1"
       AGENT_REDIS_URL: ""
@@ -34,9 +30,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
-      - name: Install optional graph engine
-        if: matrix.engine == 'langgraph'
-        run: pip install -r requirements-langgraph.txt
       - name: Agent, concurrency and evaluation regression
         run: python -m pytest tests/test_agent_loop.py tests/test_agent_graph.py tests/test_agent_optimizations.py tests/test_agent_conversation.py tests/test_bot_concurrency_hardening.py tests/test_intent_corpus.py tests/test_evaluation_contracts.py tests/test_agent_provider_fixes.py tests/test_agent_sync.py tests/test_course_reply.py tests/test_agent_sync_multiturn.py tests/test_academic_sync_notifications.py tests/test_sync_followup.py tests/test_sync_followup_postgres.py tests/test_weixin_session_expiry.py -q -p no:cacheprovider
       - name: Validate corpus without provider calls

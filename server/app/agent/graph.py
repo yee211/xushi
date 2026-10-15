@@ -1,4 +1,4 @@
-"""Opt-in LangGraph orchestration using the existing query contracts.
+"""LangGraph orchestration for all model-driven Agent queries.
 
 No checkpoint/store, retries, provider SDK migration, or channel side effects.
 Each invocation owns its graph, runtime and state. Credentials/tools stay out of state.

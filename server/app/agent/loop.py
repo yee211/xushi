@@ -1,4 +1,4 @@
-"""工具调用主循环：LLM 面对统一注册的技能自主决策，多轮调用后给出最终回答。
+"""LangGraph 查询入口及共享的工具执行、事实校验辅助函数。
 
 没有意图枚举、没有闲聊分支——一切由模型决定是否调技能以及如何作答。
 最终回答需通过接地校验（出现的时间不得超出工具结果事实集），
@@ -9,19 +9,18 @@ import json
 import logging
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
-from contextvars import copy_context
-from urllib.parse import urlsplit
 
-import httpx
-
-from ..services.llm_config import get_llm_config
-from .budget import execution, remaining
+from ..services.llm_config import get_llm_config as get_llm_config
+from .budget import execution
+from .budget import remaining as remaining
 from .circuit_breaker import llm_circuit_breaker
 from .http_client import post_llm
-from .intent_ai import agent_config
-from .polish_ai import FORBIDDEN_TOKENS, TIME_PATTERN, _api_messages
-from .skills import build_skills, dispatch, openai_tools
+from .intent_ai import agent_config as agent_config
+from .polish_ai import FORBIDDEN_TOKENS, TIME_PATTERN
+from .polish_ai import _api_messages as _api_messages
+from .skills import build_skills as build_skills
+from .skills import dispatch
+from .skills import openai_tools as openai_tools
 
 
 def _post_llm(url: str, **kwargs):
@@ -239,13 +238,8 @@ def _extract_context_entities(facts: list[dict]) -> dict:
 def run(tools, message: str, history: list | None = None) -> dict | None:
     try:
         with execution():
-            engine = os.getenv("AGENT_ENGINE", "legacy").strip().lower()
-            if engine == "legacy":
-                return _run(tools, message, history)
-            if engine == "langgraph":
-                from .graph import run as run_graph
-                return run_graph(tools, message, history)
-            raise ValueError("Unsupported AGENT_ENGINE")
+            from .graph import run as run_graph
+            return run_graph(tools, message, history)
     except Exception as error:
         logger.warning("Agent failed: %s", type(error).__name__)
         llm_circuit_breaker.record_failure(error)
@@ -254,102 +248,3 @@ def run(tools, message: str, history: list | None = None) -> dict | None:
         from .circuit_breaker import CircuitState
         if llm_circuit_breaker.state == CircuitState.HALF_OPEN:
             llm_circuit_breaker.record_failure("probe exited without a result")
-
-
-def _run(tools, message: str, history: list | None = None) -> dict | None:
-    base_url, api_key, model = agent_config()
-    if not (base_url and api_key and model):
-        return None
-    config = get_llm_config("agent")
-    skills = build_skills(tools)
-    messages = _api_messages(SYSTEM_PROMPT, history,
-                             json.dumps({"服务端当前时间": tools.context.now.isoformat(),
-                                         "时区": tools.context.timezone, "用户消息": message},
-                                        ensure_ascii=False))
-    facts: list[dict] = []
-    from .course_reply import CourseComment, course_facts, render_courses
-
-    def saved_answer(closing=""):
-        bundle = course_facts(facts, message)
-        if bundle is None:
-            return None
-        return {"answer": render_courses(bundle, tools.context.now.date(), closing),
-                "skills": [fact["skill"] for fact in facts], "tool_result": {"skills": facts},
-                "resolved_context": _extract_context_entities(facts)}
-
-    try:
-        for _ in range(MAX_ROUNDS):
-            remaining()
-            payload = {"model": model, "temperature": 0.2, "max_tokens": int(config.get("max_tokens") or MAX_TOKENS),
-                       "messages": messages, "tools": openai_tools(skills), "tool_choice": "auto"}
-            structured_day = course_facts(facts, message)
-            if structured_day is not None:
-                payload["messages"] = messages + [{"role": "system", "content":
-                    '课程列表由服务端使用工具事实生成。只输出 JSON 对象 {"closing":"一句可选的自然提醒"}。'
-                    '不要输出日期、课程列表或同步状态；没有适合的提醒就返回 {"closing":""}。'}]
-                payload["response_format"] = {"type": "json_object"}
-                payload["tool_choice"] = "none"
-            if urlsplit(base_url).hostname == "api.deepseek.com":
-                # DeepSeek uses thinking.type, not the Qwen enable_thinking field.
-                # Disabling it avoids multi-turn reasoning_content protocol requirements.
-                payload["thinking"] = {"type": "enabled" if config.get("enable_thinking") else "disabled"}
-            else:
-                payload["enable_thinking"] = bool(config.get("enable_thinking", False))
-            response = _post_llm(f"{base_url}/chat/completions",
-                                 headers={"Authorization": f"Bearer {api_key}"}, timeout=float(config.get("timeout_seconds") or _timeout()),
-                                 json=payload)
-            response.raise_for_status()
-            remaining()
-            choice = response.json()["choices"][0]
-            if choice.get("finish_reason") == "length":
-                return saved_answer()  # Keep validated facts even when model output is truncated.
-            reply = choice["message"]
-            calls = reply.get("tool_calls") or []
-            if not calls:
-                content = str(reply.get("content") or "").strip()
-                content = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", content, flags=re.DOTALL).strip()
-                content = content.replace("😂", "").strip()
-                if structured_day is not None:
-                    try:
-                        comment = CourseComment.model_validate_json(content).closing
-                    except ValueError:
-                        comment = ""
-                    candidate = render_courses(structured_day, tools.context.now.date(), comment)
-                    if comment and not (_grounded(candidate, json.dumps([f["result"] for f in facts], ensure_ascii=False, default=str))
-                                        and _facts_grounded(candidate, facts, message)):
-                        candidate = render_courses(structured_day, tools.context.now.date())
-                    llm_circuit_breaker.record_success()
-                    return {"answer": candidate, "skills": [fact["skill"] for fact in facts],
-                            "tool_result": {"skills": facts}, "resolved_context": _extract_context_entities(facts)}
-                if content and _grounded(content, json.dumps([f["result"] for f in facts if not f["result"].get("error")],
-                                                      ensure_ascii=False, default=str) + " " + tools.context.now.strftime("%H:%M")) and _facts_grounded(content, facts, message):
-                    llm_circuit_breaker.record_success()
-                    return {"answer": content, "skills": [fact["skill"] for fact in facts],
-                            "tool_result": {"skills": facts},
-                            "resolved_context": _extract_context_entities(facts)}
-                logger.warning("Agent response rejected: %s", "empty" if not content else "grounding_validation")
-                llm_circuit_breaker.record_failure("empty or ungrounded LLM response")
-                return None
-            assistant = {"role": "assistant", "content": str(reply.get("content") or ""), "tool_calls": calls}
-            if reply.get("reasoning_content") is not None:
-                assistant["reasoning_content"] = reply["reasoning_content"]
-            messages.append(assistant)
-            if len(calls) == 1:
-                fact, tool_msg = _execute_tool_call(skills, calls[0])
-                facts.append(fact)
-                messages.append(tool_msg)
-            else:
-                with ThreadPoolExecutor(max_workers=min(len(calls), 6)) as executor:
-                    futures = [executor.submit(copy_context().run, _execute_tool_call, skills, call) for call in calls]
-                    results = [future.result() for future in futures]
-                for fact, tool_msg in results:
-                    facts.append(fact)
-                    messages.append(tool_msg)
-        logger.warning("Agent failed: maximum_rounds")
-        llm_circuit_breaker.record_failure("agent loop exhausted maximum rounds")
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
-        status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
-        logger.warning("Agent request failed: type=%s status=%s", type(error).__name__, status)
-        llm_circuit_breaker.record_failure(error)
-        return saved_answer()
-    return saved_answer()

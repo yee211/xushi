@@ -1,5 +1,4 @@
 """Resume an explicitly registered query after a successful school sync."""
-import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -37,8 +36,6 @@ def delivery_text(row: dict, job: dict) -> str:
         return prefix + "学校绑定或课表已发生变化，没有继续原查询，请重新询问。"
     if row.get("delivery_text"):
         return row["delivery_text"]
-    if os.getenv("AGENT_ENGINE", "legacy").strip().lower() != "langgraph":
-        return prefix + "自动续答暂未启用，请重新询问课表。"
     tools = ScheduleTools(connect, AgentContext(row["user_id"], now, "Asia/Shanghai", schedule_id))
     try:
         content = answer(plan, tools)

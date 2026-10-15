@@ -1,0 +1,479 @@
+{
+  "9319d0ff8cb0771f3f22b668ec368a806c02852b3e5b9af5bde7aaf3ebfef208": {
+    "answer": {
+      "answer": "在的，可以帮你查课表",
+      "skills": [],
+      "tool_result": {
+        "skills": []
+      },
+      "resolved_context": {
+        "intent": "AGENT_LOOP",
+        "skills": []
+      }
+    },
+    "requests_sha256": "bccc87e08ba1520c357f8917c3e54977f434a55a1b57583d86c3f29bfd46d9a0",
+    "breaker": "closed"
+  },
+  "002a51b296c691440061f686a79dadd16a835ec99fa8e24b226d888c911dd73a": {
+    "answer": {
+      "answer": "明天（9月9日，周三）有1节课：\n• 14:00–15:40 高数，张老师，A101\n\n早点休息吧",
+      "skills": [
+        "query_day_courses"
+      ],
+      "tool_result": {
+        "skills": [
+          {
+            "skill": "query_day_courses",
+            "arguments": "{\"date\":\"2026-09-09\"}",
+            "result": {
+              "date": "2026-09-09",
+              "weekday": 3,
+              "week": 1,
+              "schedule_id": 1,
+              "schedule_name": "2026-2027-1",
+              "timezone": "Asia/Shanghai",
+              "source": "import",
+              "synced_at": null,
+              "courses": [
+                {
+                  "id": 1,
+                  "name": "高数",
+                  "teacher": "张老师",
+                  "room": "A101",
+                  "weekday": 3,
+                  "start_section": 5,
+                  "end_section": 6,
+                  "weeks": [
+                    1,
+                    2,
+                    3
+                  ],
+                  "adjusted": false,
+                  "adjusted_week": null,
+                  "start_time": "14:00",
+                  "end_time": "15:40"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_context": {
+        "intent": "AGENT_LOOP",
+        "skills": [
+          "query_day_courses"
+        ],
+        "target_date": "2026-09-09"
+      }
+    },
+    "requests_sha256": "1e2dad2b11ed98a645c45a2775dedc2dbd04245b48f384280c9f87ca2eb54eb2",
+    "breaker": "closed"
+  },
+  "4980994d7a5e72e8fbad497a712332e347d21fbc56ded8ef36a4730624b63611": {
+    "answer": {
+      "answer": "2026-09-07～2026-09-13的课表：\n明天（9月9日，周三）有1节课：\n• 14:00–15:40 高数，张老师，A101",
+      "skills": [
+        "query_week_courses"
+      ],
+      "tool_result": {
+        "skills": [
+          {
+            "skill": "query_week_courses",
+            "arguments": "{\"date\":\"2026-09-09\"}",
+            "result": {
+              "week_start": "2026-09-07",
+              "week_end": "2026-09-13",
+              "timezone": "Asia/Shanghai",
+              "days": [
+                {
+                  "date": "2026-09-07",
+                  "weekday": 1,
+                  "week": 1,
+                  "schedule_id": 1,
+                  "schedule_name": "2026-2027-1",
+                  "timezone": "Asia/Shanghai",
+                  "source": "import",
+                  "synced_at": null,
+                  "courses": []
+                },
+                {
+                  "date": "2026-09-08",
+                  "weekday": 2,
+                  "week": 1,
+                  "schedule_id": 1,
+                  "schedule_name": "2026-2027-1",
+                  "timezone": "Asia/Shanghai",
+                  "source": "import",
+                  "synced_at": null,
+                  "courses": []
+                },
+                {
+                  "date": "2026-09-09",
+                  "weekday": 3,
+                  "week": 1,
+                  "schedule_id": 1,
+                  "schedule_name": "2026-2027-1",
+                  "timezone": "Asia/Shanghai",
+                  "source": "import",
+                  "synced_at": null,
+                  "courses": [
+                    {
+                      "id": 1,
+                      "name": "高数",
+                      "teacher": "张老师",
+                      "room": "A101",
+                      "weekday": 3,
+                      "start_section": 5,
+                      "end_section": 6,
+                      "weeks": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "adjusted": false,
+                      "adjusted_week": null,
+                      "start_time": "14:00",
+                      "end_time": "15:40"
+                    }
+                  ]
+                },
+                {
+                  "date": "2026-09-10",
+                  "weekday": 4,
+                  "week": 1,
+                  "schedule_id": 1,
+                  "schedule_name": "2026-2027-1",
+                  "timezone": "Asia/Shanghai",
+                  "source": "import",
+                  "synced_at": null,
+                  "courses": []
+                },
+                {
+                  "date": "2026-09-11",
+                  "weekday": 5,
+                  "week": 1,
+                  "schedule_id": 1,
+                  "schedule_name": "2026-2027-1",
+                  "timezone": "Asia/Shanghai",
+                  "source": "import",
+                  "synced_at": null,
+                  "courses": []
+                },
+                {
+                  "date": "2026-09-12",
+                  "weekday": 6,
+                  "week": 1,
+                  "schedule_id": 1,
+                  "schedule_name": "2026-2027-1",
+                  "timezone": "Asia/Shanghai",
+                  "source": "import",
+                  "synced_at": null,
+                  "courses": []
+                },
+                {
+                  "date": "2026-09-13",
+                  "weekday": 7,
+                  "week": 1,
+                  "schedule_id": 1,
+                  "schedule_name": "2026-2027-1",
+                  "timezone": "Asia/Shanghai",
+                  "source": "import",
+                  "synced_at": null,
+                  "courses": []
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_context": {
+        "intent": "AGENT_LOOP",
+        "skills": [
+          "query_week_courses"
+        ],
+        "target_date": "2026-09-09"
+      }
+    },
+    "requests_sha256": "db70be8e538626182d733dc72ae7f37cda214424c658960c2ed1f1c1a80c73f1",
+    "breaker": "closed"
+  },
+  "5fe6ec90b8109157a1d63c2a3f643a2558d2169990dcca28ed232070bc6aa8be": {
+    "answer": {
+      "answer": "明天（9月9日，周三）有1节课：\n• 14:00–15:40 高数，张老师，A101\n\n后天（9月10日，周四）没有课。",
+      "skills": [
+        "query_day_courses",
+        "query_day_courses"
+      ],
+      "tool_result": {
+        "skills": [
+          {
+            "skill": "query_day_courses",
+            "arguments": "{\"date\":\"2026-09-09\"}",
+            "result": {
+              "date": "2026-09-09",
+              "weekday": 3,
+              "week": 1,
+              "schedule_id": 1,
+              "schedule_name": "2026-2027-1",
+              "timezone": "Asia/Shanghai",
+              "source": "import",
+              "synced_at": null,
+              "courses": [
+                {
+                  "id": 1,
+                  "name": "高数",
+                  "teacher": "张老师",
+                  "room": "A101",
+                  "weekday": 3,
+                  "start_section": 5,
+                  "end_section": 6,
+                  "weeks": [
+                    1,
+                    2,
+                    3
+                  ],
+                  "adjusted": false,
+                  "adjusted_week": null,
+                  "start_time": "14:00",
+                  "end_time": "15:40"
+                }
+              ]
+            }
+          },
+          {
+            "skill": "query_day_courses",
+            "arguments": "{\"date\":\"2026-09-10\"}",
+            "result": {
+              "date": "2026-09-10",
+              "weekday": 4,
+              "week": 1,
+              "schedule_id": 1,
+              "schedule_name": "2026-2027-1",
+              "timezone": "Asia/Shanghai",
+              "source": "import",
+              "synced_at": null,
+              "courses": []
+            }
+          }
+        ]
+      },
+      "resolved_context": {
+        "intent": "AGENT_LOOP",
+        "skills": [
+          "query_day_courses",
+          "query_day_courses"
+        ],
+        "target_date": "2026-09-09"
+      }
+    },
+    "requests_sha256": "36e3200d7584ad1d8ab983b1db465549e7d8f0b64b9d49623d6756db532f31f8",
+    "breaker": "closed"
+  },
+  "e27a7739c7b9098d9db4ea384caa14542047b8e420e4f47305dcdc06da45396b": {
+    "answer": {
+      "answer": "明天（9月9日，周三）有1节课：\n• 14:00–15:40 高数，张老师，A101",
+      "skills": [
+        "query_day_courses"
+      ],
+      "tool_result": {
+        "skills": [
+          {
+            "skill": "query_day_courses",
+            "arguments": "{\"date\":\"2026-09-09\"}",
+            "result": {
+              "date": "2026-09-09",
+              "weekday": 3,
+              "week": 1,
+              "schedule_id": 1,
+              "schedule_name": "2026-2027-1",
+              "timezone": "Asia/Shanghai",
+              "source": "import",
+              "synced_at": null,
+              "courses": [
+                {
+                  "id": 1,
+                  "name": "高数",
+                  "teacher": "张老师",
+                  "room": "A101",
+                  "weekday": 3,
+                  "start_section": 5,
+                  "end_section": 6,
+                  "weeks": [
+                    1,
+                    2,
+                    3
+                  ],
+                  "adjusted": false,
+                  "adjusted_week": null,
+                  "start_time": "14:00",
+                  "end_time": "15:40"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_context": {
+        "intent": "AGENT_LOOP",
+        "skills": [
+          "query_day_courses"
+        ],
+        "target_date": "2026-09-09"
+      }
+    },
+    "requests_sha256": "1e2dad2b11ed98a645c45a2775dedc2dbd04245b48f384280c9f87ca2eb54eb2",
+    "breaker": "closed"
+  },
+  "c616cbeb8680dc0970cdfa04f24d5ca8e6fd8a9b2a5251af1c9c479f3b865cba": {
+    "answer": {
+      "answer": "暂时无法查询课表",
+      "skills": [
+        "query_day_courses"
+      ],
+      "tool_result": {
+        "skills": [
+          {
+            "skill": "query_day_courses",
+            "arguments": "{\"date\":\"bad\"}",
+            "result": {
+              "error": "参数不合法：Invalid isoformat string: 'bad'"
+            }
+          }
+        ]
+      },
+      "resolved_context": {
+        "intent": "AGENT_LOOP",
+        "skills": [
+          "query_day_courses"
+        ]
+      }
+    },
+    "requests_sha256": "f86d6d545a2fec1119bf414888a70415337342809cdb765b136b3b0ef4d80072",
+    "breaker": "closed"
+  },
+  "50fc1700c9ab6a7208afe3dcf9ca93651682772edee5762b848e2501355a5a08": {
+    "answer": null,
+    "requests_sha256": "34561f23cbb55f39e22348f852258330f78fe01456e96b0e02a9e08f4b0fe85c",
+    "breaker": "closed"
+  },
+  "a2b5552d1e6796cf962216de005a8076ed4e0fe239aa60e478daaeb23de03497": {
+    "answer": {
+      "answer": "明天（9月9日，周三）有1节课：\n• 14:00–15:40 高数，张老师，A101",
+      "skills": [
+        "query_day_courses"
+      ],
+      "tool_result": {
+        "skills": [
+          {
+            "skill": "query_day_courses",
+            "arguments": "{\"date\":\"2026-09-09\"}",
+            "result": {
+              "date": "2026-09-09",
+              "weekday": 3,
+              "week": 1,
+              "schedule_id": 1,
+              "schedule_name": "2026-2027-1",
+              "timezone": "Asia/Shanghai",
+              "source": "import",
+              "synced_at": null,
+              "courses": [
+                {
+                  "id": 1,
+                  "name": "高数",
+                  "teacher": "张老师",
+                  "room": "A101",
+                  "weekday": 3,
+                  "start_section": 5,
+                  "end_section": 6,
+                  "weeks": [
+                    1,
+                    2,
+                    3
+                  ],
+                  "adjusted": false,
+                  "adjusted_week": null,
+                  "start_time": "14:00",
+                  "end_time": "15:40"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_context": {
+        "intent": "AGENT_LOOP",
+        "skills": [
+          "query_day_courses"
+        ],
+        "target_date": "2026-09-09"
+      }
+    },
+    "requests_sha256": "1e2dad2b11ed98a645c45a2775dedc2dbd04245b48f384280c9f87ca2eb54eb2",
+    "breaker": "closed"
+  },
+  "c0b2e96ea82741998905dac0b2aecdb3354e118b6beffda5508766d2dba4cb77": {
+    "answer": {
+      "answer": "明天（9月9日，周三）有1节课：\n• 14:00–15:40 高数，张老师，A101",
+      "skills": [
+        "query_day_courses"
+      ],
+      "tool_result": {
+        "skills": [
+          {
+            "skill": "query_day_courses",
+            "arguments": "{\"date\":\"2026-09-09\"}",
+            "result": {
+              "date": "2026-09-09",
+              "weekday": 3,
+              "week": 1,
+              "schedule_id": 1,
+              "schedule_name": "2026-2027-1",
+              "timezone": "Asia/Shanghai",
+              "source": "import",
+              "synced_at": null,
+              "courses": [
+                {
+                  "id": 1,
+                  "name": "高数",
+                  "teacher": "张老师",
+                  "room": "A101",
+                  "weekday": 3,
+                  "start_section": 5,
+                  "end_section": 6,
+                  "weeks": [
+                    1,
+                    2,
+                    3
+                  ],
+                  "adjusted": false,
+                  "adjusted_week": null,
+                  "start_time": "14:00",
+                  "end_time": "15:40"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_context": {
+        "intent": "AGENT_LOOP",
+        "skills": [
+          "query_day_courses"
+        ],
+        "target_date": "2026-09-09"
+      }
+    },
+    "requests_sha256": "1e2dad2b11ed98a645c45a2775dedc2dbd04245b48f384280c9f87ca2eb54eb2",
+    "breaker": "closed"
+  },
+  "38dc1382867b9e575368ad256ee753878645e422ceb0b0abaddac8faeec84b0e": {
+    "answer": null,
+    "requests_sha256": "1811c195b112808d80038949d3b8927670941978892e724f5690c214f6dc59d9",
+    "breaker": "closed"
+  },
+  "a7a79d8db0e6224be8f6772ad34a319ae2944267ef543cae889a8312cdf76523": {
+    "answer": null,
+    "requests_sha256": "34561f23cbb55f39e22348f852258330f78fe01456e96b0e02a9e08f4b0fe85c",
+    "breaker": "closed"
+  }
+}

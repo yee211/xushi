@@ -20,7 +20,6 @@ NOW = datetime.now(ZoneInfo("Asia/Shanghai"))
     ("同步课表，查下周课表", "week", None, "all"),
 ])
 def test_freeze_supported_query_dates(monkeypatch, message, kind, offset, period):
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     now = datetime(2026, 10, 15, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai"))
     plan = sync_followup.FollowupPlan.model_validate(sync_followup.prepare(message, now))
     assert plan.kind == kind and plan.period == period
@@ -35,14 +34,11 @@ def test_freeze_supported_query_dates(monkeypatch, message, kind, offset, period
     "同步课表，看看明天上午到下午有什么课", "同步课表，查下周上午有什么课",
 ])
 def test_unsupported_queries_never_promise_continuation(monkeypatch, message):
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     assert sync_followup.prepare(message, NOW) is None
 
 
-def test_legacy_and_naive_datetime_do_not_enable_followup(monkeypatch):
-    monkeypatch.setenv("AGENT_ENGINE", "legacy")
-    assert sync_followup.prepare("同步课表，看看明天有什么课", NOW) is None
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
+def test_followup_requires_timezone_but_no_engine_switch():
+    assert sync_followup.prepare("同步课表，看看明天有什么课", NOW) is not None
     assert sync_followup.prepare("同步课表，看看明天有什么课", NOW.replace(tzinfo=None)) is None
 
 
@@ -60,7 +56,6 @@ def test_submission_only_promises_registered_followup():
 
 @pytest.fixture
 def resumed(monkeypatch):
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     db = MagicMock()
     db.__enter__.return_value = db
     db.execute.return_value.fetchone.return_value = {"exists": 1}
@@ -102,7 +97,7 @@ def test_cached_answer_is_reused_but_binding_is_checked_again(resumed):
     query.assert_not_called()
 
 
-@pytest.mark.parametrize("mutation", ["invalid", "expired", "missing_schedule", "legacy"])
+@pytest.mark.parametrize("mutation", ["invalid", "expired", "missing_schedule"])
 def test_invalid_or_disabled_resume_never_queries(monkeypatch, resumed, mutation):
     db, query, row, job = resumed
     if mutation == "invalid":
@@ -111,8 +106,6 @@ def test_invalid_or_disabled_resume_never_queries(monkeypatch, resumed, mutation
         row["followup"]["requested_at"] = (NOW - timedelta(days=2)).isoformat()
     elif mutation == "missing_schedule":
         job["result"] = {}
-    else:
-        monkeypatch.setenv("AGENT_ENGINE", "legacy")
     assert "同步成功" in continuation.delivery_text(row, job)
     query.assert_not_called()
 
@@ -157,12 +150,10 @@ def test_lost_lease_does_not_send(monkeypatch):
 
 
 def test_graph_resumes_frozen_date_across_midnight_without_model(monkeypatch):
-    pytest.importorskip("langgraph")
     from app.agent.tools import AgentContext
     from tests.test_agent_loop import make_tools
     tools = make_tools()
     old = datetime(2026, 9, 8, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai"))
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     plan = sync_followup.FollowupPlan.model_validate(sync_followup.prepare("同步课表，看看明天有什么课", old))
     tools.context = AgentContext(7, old + timedelta(minutes=2))
     text = sync_followup.answer(plan, tools)
@@ -170,7 +161,6 @@ def test_graph_resumes_frozen_date_across_midnight_without_model(monkeypatch):
 
 
 def test_graph_rejects_wrong_target_date():
-    pytest.importorskip("langgraph")
     tools = MagicMock()
     tools.context.now = NOW
     tools.context.default_schedule_id = None
@@ -186,7 +176,6 @@ def test_channel_entry_registers_query_atomically_before_promising(monkeypatch):
     from app.services import academic_jobs
     from tests.test_agent_sync import tools_with_binding
 
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     tools = tools_with_binding({"student": {}, "last_synced_term": "2026-2027-1"})
     target = {"provider": "weixin_ilink", "sender_id": "sender", "account_id": "bot", "message_id": "m1"}
     tools.context = replace(tools.context, now=NOW, notification_target=target)
@@ -204,7 +193,6 @@ def test_channel_entry_registers_query_atomically_before_promising(monkeypatch):
 
 
 def test_weekly_graph_uses_existing_validated_renderer():
-    pytest.importorskip("langgraph")
     from tests.test_agent_loop import make_tools
     tools = make_tools()
     plan = sync_followup.FollowupPlan(kind="week", target_date="2026-09-07",
@@ -214,7 +202,6 @@ def test_weekly_graph_uses_existing_validated_renderer():
 
 
 def test_graph_does_not_fall_back_to_another_schedule():
-    pytest.importorskip("langgraph")
     tools = MagicMock()
     tools.context.default_schedule_id = 12
     tools.get_courses_by_date.return_value = {"date": NOW.date().isoformat(), "schedule_id": 99, "courses": []}

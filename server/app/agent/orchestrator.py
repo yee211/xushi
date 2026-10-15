@@ -142,11 +142,11 @@ def _handle_message(message: str, tools: ScheduleTools, history: list | None = N
                     "resolved_context": looped.get("resolved_context") or {"intent": "AGENT_LOOP", "skills": looped["skills"]}}
     # OPEN/HALF_OPEN fallback must remain entirely deterministic. When the breaker
     # is still CLOSED, retain the existing intent-extraction/polishing fallback.
-    return _legacy_reply(message, tools, history,
+    return _fallback_reply(message, tools, history,
                          allow_llm=available() and llm_circuit_breaker.state == CircuitState.CLOSED)
 
 
-def _legacy_reply(message: str, tools: ScheduleTools, history: list | None = None,
+def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = None,
                   *, allow_llm: bool = True) -> dict:
     from .sync import query_status, status_requested
     if status_requested(message, history):

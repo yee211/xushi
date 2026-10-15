@@ -30,7 +30,6 @@ def database(monkeypatch):
         admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
     def connect():
         return psycopg.connect(dsn, options="-c search_path=" + schema, row_factory=dict_row)
-    monkeypatch.setenv("AGENT_ENGINE", "langgraph")
     monkeypatch.setattr(academic_jobs, "connect", connect)
     monkeypatch.setattr(notifications, "connect", connect)
     monkeypatch.setattr(continuation, "connect", connect)
@@ -105,7 +104,6 @@ def test_subscription_is_transactional_idempotent_and_cannot_be_overwritten(data
 
 
 def test_restart_after_send_failure_reuses_cached_answer_and_message_id(database, monkeypatch):
-    pytest.importorskip("langgraph")
     connect = database
     job, _ = submit(connect)
     with connect() as db:

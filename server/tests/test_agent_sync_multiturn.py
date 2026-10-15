@@ -109,8 +109,8 @@ def flow(monkeypatch):
     monkeypatch.setattr(loop, "get_llm_config", lambda purpose: {})
     monkeypatch.setattr(orchestrator, "llm_configured", lambda: True)
     monkeypatch.setattr(orchestrator, "run_agent", loop.run)
-    legacy = orchestrator._legacy_reply
-    monkeypatch.setattr(orchestrator, "_legacy_reply", lambda message, tools, history=None, **kwargs:
+    legacy = orchestrator._fallback_reply
+    monkeypatch.setattr(orchestrator, "_fallback_reply", lambda message, tools, history=None, **kwargs:
                         legacy(message, tools, history, allow_llm=False))
     responses, requests = [], []
     def post(url, **kwargs):
