@@ -239,7 +239,13 @@ def _extract_context_entities(facts: list[dict]) -> dict:
 def run(tools, message: str, history: list | None = None) -> dict | None:
     try:
         with execution():
-            return _run(tools, message, history)
+            engine = os.getenv("AGENT_ENGINE", "legacy").strip().lower()
+            if engine == "legacy":
+                return _run(tools, message, history)
+            if engine == "langgraph":
+                from .graph import run as run_graph
+                return run_graph(tools, message, history)
+            raise ValueError("Unsupported AGENT_ENGINE")
     except Exception as error:
         logger.warning("Agent failed: %s", type(error).__name__)
         llm_circuit_breaker.record_failure(error)
