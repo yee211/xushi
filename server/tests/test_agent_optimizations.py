@@ -2,6 +2,7 @@
 import json
 import time
 from datetime import UTC, datetime
+from threading import Barrier
 from unittest.mock import MagicMock
 
 from app.agent.circuit_breaker import CircuitBreaker, CircuitState, llm_circuit_breaker
@@ -138,11 +139,12 @@ def test_parallel_tool_calls_in_loop(monkeypatch):
 
     monkeypatch.setattr("app.agent.http_client.get_llm_client", lambda: FakeClient())
 
-    # Mock dispatch with delay to verify parallel execution
+    # Both tools must enter dispatch before either can finish.
+    both_started = Barrier(2)
     delays = []
 
     def fake_dispatch(skills, name, arguments):
-        time.sleep(0.06)
+        both_started.wait(timeout=2)
         delays.append(name)
         return ({"courses": [{"name": "高数"}]} if name == "query_day_courses"
                 else {"rain": {"rain": False, "peak": 0}})
@@ -153,15 +155,12 @@ def test_parallel_tool_calls_in_loop(monkeypatch):
     tools = MagicMock()
     tools.context = AgentContext(user_id=1, now=datetime(2026, 9, 14, 10, 0, tzinfo=UTC), timezone="Asia/Shanghai")
 
-    t_start = time.monotonic()
     result = loop_module.run(tools, "今天有什么课，会下雨吗")
-    total_time = time.monotonic() - t_start
 
     assert result is not None
     assert result["answer"] == "今天有课，没有雨。"
     assert len(delays) == 2
-    # 2 calls of 0.06s in parallel should finish in significantly less than 0.12s
-    assert total_time < 0.11
+    assert set(delays) == {"query_day_courses", "get_weather"}
     assert result["resolved_context"]["target_date"] == "2026-09-14"
 
 

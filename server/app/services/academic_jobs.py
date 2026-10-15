@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from ..db import connect
-from . import academic, academic_binding, academic_runtime, academic_sync_notifications
+from . import academic, academic_binding, academic_runtime, academic_sync_notifications, academic_sync_requests
 
 logger = logging.getLogger(__name__)
 SHANGHAI = timezone(timedelta(hours=8))
@@ -25,6 +25,7 @@ SCHEMA = (
         available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""",
+    academic_sync_requests.SCHEMA,
     "ALTER TABLE academic_sync_jobs ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'queued'",
     "ALTER TABLE academic_sync_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
     """CREATE UNIQUE INDEX IF NOT EXISTS idx_academic_jobs_active_user ON academic_sync_jobs(user_id)
@@ -44,6 +45,7 @@ def init_schema():
     with connect() as db:
         for sql in (*SCHEMA, *academic_sync_notifications.SCHEMA):
             db.execute(sql)
+        db.execute(academic_sync_requests.BACKFILL)
 
 
 def public_job(row):
@@ -69,6 +71,8 @@ def enqueue(user_id, term, refresh=False, *, cooldown_seconds=0, notification_ta
     with connect() as db:
         def finish(row):
             result = public_job(row)
+            if academic_sync_requests.supported(notification_target):
+                academic_sync_requests.remember(db, user_id, notification_target, row["id"])
             if notification_target:
                 result["notification_registered"] = academic_sync_notifications.subscribe(db, row, notification_target)
                 if notification_target.get("followup"):
@@ -79,19 +83,14 @@ def enqueue(user_id, term, refresh=False, *, cooldown_seconds=0, notification_ta
         binding = db.execute("SELECT student,revision,updated_at FROM academic_bindings WHERE user_id=%s FOR UPDATE", (user_id,)).fetchone()
         if not binding:
             raise HTTPException(409, "请先绑定学校身份")
-        if (notification_target and notification_target.get("provider") == "weixin_ilink"
-                and all(notification_target.get(k) for k in ("account_id", "sender_id", "message_id"))):
-            # A crash after enqueue but before the acknowledgement was saved must
-            # reuse the original job even after completion and the cooldown window.
-            prior = db.execute("""SELECT j.* FROM academic_sync_jobs j
-                JOIN academic_sync_notifications n ON n.job_id=j.id AND n.user_id=j.user_id
-                WHERE j.user_id=%s AND n.provider=%s AND n.account_id=%s AND n.sender_id=%s
-                AND n.message_id=%s AND j.student_id=%s AND j.binding_revision=%s
-                AND j.binding_updated_at=%s AND j.term=%s
-                ORDER BY j.created_at DESC LIMIT 1""", (user_id, notification_target["provider"],
-                notification_target["account_id"], notification_target["sender_id"], notification_target["message_id"],
-                binding["student"]["id"], binding["revision"], binding["updated_at"], term)).fetchone()
+        if academic_sync_requests.supported(notification_target):
+            prior = academic_sync_requests.find(db, user_id, notification_target)
             if prior:
+                if (prior["student_id"] != binding["student"]["id"]
+                        or prior["binding_revision"] != binding["revision"]
+                        or prior["binding_updated_at"] != binding["updated_at"] or prior["term"] != term
+                        or (refresh and not prior["refresh"])):
+                    raise HTTPException(409, "原消息对应的同步条件已变更，请发送新的同步请求")
                 return finish(prior)
         active = db.execute("SELECT * FROM academic_sync_jobs WHERE user_id=%s AND state IN ('queued','running')", (user_id,)).fetchone()
         if active:

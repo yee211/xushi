@@ -239,3 +239,67 @@ def test_reply_migration_can_upgrade_repeatedly(database, monkeypatch):
         migration.upgrade()
         migration.upgrade()
         assert db.execute("SELECT reply_text FROM channel_messages LIMIT 1").fetchone() is None
+
+
+def test_notification_reassignment_does_not_destroy_original_message_idempotency(database):
+    connect = database
+    target = {"provider":"weixin_ilink", "sender_id":"sender", "account_id":"bot", "message_id":"m1"}
+    first = academic_jobs.enqueue(7, "2026-2027-1", True, cooldown_seconds=30, notification_target=target)
+    second = academic_jobs.enqueue(7, "2026-2027-1", True, cooldown_seconds=30,
+                                   notification_target=dict(target, message_id="m2"))
+    assert first["id"] == second["id"]
+    with connect() as db:
+        assert db.execute("SELECT message_id FROM academic_sync_notifications").fetchone()["message_id"] == "m2"
+        db.execute("UPDATE academic_sync_jobs SET state='succeeded',created_at=CURRENT_TIMESTAMP-INTERVAL '1 hour'")
+    replayed = academic_jobs.enqueue(7, "2026-2027-1", True, cooldown_seconds=30, notification_target=target)
+    assert replayed["id"] == first["id"]
+    with connect() as db:
+        assert db.execute("SELECT count(*) AS n FROM academic_sync_jobs").fetchone()["n"] == 1
+        assert db.execute("SELECT count(*) AS n FROM academic_sync_requests").fetchone()["n"] == 2
+
+
+def test_replayed_message_cannot_start_sync_for_changed_binding(database):
+    from fastapi import HTTPException
+    connect = database
+    job, target = submit(connect)
+    with connect() as db:
+        db.execute("UPDATE academic_sync_jobs SET state='succeeded'")
+        db.execute("UPDATE academic_bindings SET revision=4")
+    with pytest.raises(HTTPException) as error:
+        academic_jobs.enqueue(7, job["term"], True, notification_target=target)
+    assert error.value.status_code == 409
+    with connect() as db:
+        assert db.execute("SELECT count(*) AS n FROM academic_sync_jobs").fetchone()["n"] == 1
+
+
+def test_idempotency_record_rolls_back_with_subscription_failure(database, monkeypatch):
+    connect = database
+    def fail(*args):
+        raise RuntimeError("subscription failed")
+    monkeypatch.setattr(notifications, "subscribe", fail)
+    target = {"provider":"weixin_ilink", "sender_id":"sender", "account_id":"bot", "message_id":"m1"}
+    with pytest.raises(RuntimeError):
+        academic_jobs.enqueue(7, "2026-2027-1", True, notification_target=target)
+    with connect() as db:
+        assert db.execute("SELECT count(*) AS n FROM academic_sync_jobs").fetchone()["n"] == 0
+        assert db.execute("SELECT count(*) AS n FROM academic_sync_requests").fetchone()["n"] == 0
+
+
+def test_request_migration_backfills_once_and_preserves_original_mapping(database, monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    connect = database
+    job, _ = submit(connect)
+    path = Path(__file__).resolve().parents[1] / "migrations/versions/0022_sync_request_ids.py"
+    spec = importlib.util.spec_from_file_location("sync_request_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with connect() as db:
+        monkeypatch.setattr(migration.op, "execute", db.execute)
+        migration.downgrade()
+        migration.upgrade()
+        assert db.execute("SELECT job_id FROM academic_sync_requests WHERE message_id='m1'").fetchone()["job_id"] == job["id"]
+        db.execute("UPDATE academic_sync_notifications SET message_id='m2'")
+        migration.upgrade()
+        assert db.execute("SELECT job_id FROM academic_sync_requests WHERE message_id='m1'").fetchone()["job_id"] == job["id"]
+        assert db.execute("SELECT count(*) AS n FROM academic_sync_requests").fetchone()["n"] == 2

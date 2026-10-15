@@ -178,3 +178,58 @@ def test_structured_failure_and_clarification_are_not_completed(monkeypatch, sta
     output = finalize(dict(result, intent="AGENT_LOOP"))
     assert output["status"] == status
     assert "_completion_status" not in output
+
+
+@pytest.mark.parametrize("text", ["我帮你查询到了：高数在A101。", "我帮你查询完了：高数在A101。", "我帮你查询了课程，高数在A101。"])
+def test_finished_query_wording_preserves_verified_result(text):
+    result = finalize({"intent":"FIND_COURSE", "answer":text, "tool_result":{
+        "skills":[{"skill":"find_course", "result":{"occurrences":[{"name":"高数", "room":"A101"}]}}]}})
+    assert result["status"] == "completed" and result["answer"] == text
+
+
+@pytest.mark.parametrize("text", ["我帮你查询一下", "我帮你看看明天的课", "我帮你查询到了，稍等我再查一下"])
+def test_future_work_is_still_blocked(text):
+    result = finalize({"intent":"HELP", "answer":text})
+    assert result["status"] == "failed"
+
+
+def test_auxiliary_catalog_success_cannot_hide_core_query_failure(monkeypatch):
+    import json
+    facts = [
+        {"skill":"list_course_catalog", "result":{"courses":["高数"]}},
+        {"skill":"find_course", "arguments":'{"name":"高数"}', "result":{"error":"service_unavailable"}}]
+    runtime = graph.QueryRun(make_tools(), "高数什么时候上", [], ("https://example.test", "fake", "fake"))
+    state = {"facts":facts, "rounds":2, "messages":[], "reply":{"content":json.dumps({
+        "status":"completed", "answer":"暂时无法查询课表，请稍后重试。", "task_id":None}, ensure_ascii=False)}}
+    response = runtime.validate(state)
+    assert response["route"] == "done"
+    result = finalize(dict(response["answer"], intent="AGENT_LOOP"))
+    assert result["status"] == "failed"
+
+
+def test_successful_retry_of_same_core_query_is_completed():
+    facts = [
+        {"skill":"list_course_catalog", "result":{"courses":["高数"]}},
+        {"skill":"find_course", "arguments":'{"name":"高数","from_date":"2026-09-09"}', "result":{"error":"timeout"}},
+        {"skill":"find_course", "arguments":'{"from_date":"2026-09-09","name":"高数"}', "result":{"occurrences":[]}}]
+    result = finalize({"intent":"AGENT_LOOP", "answer":"没有查到高数课。", "tool_result":{"skills":facts}})
+    assert result["status"] == "completed"
+
+
+def test_one_date_success_cannot_hide_another_date_failure():
+    facts = [
+        {"skill":"query_day_courses", "arguments":'{"date":"2026-09-09"}', "result":{"courses":[]}},
+        {"skill":"query_day_courses", "arguments":'{"date":"2026-09-10"}', "result":{"error":"timeout"}}]
+    result = finalize({"intent":"AGENT_LOOP", "answer":"仅查询到部分日期，另一天暂时无法查询。", "tool_result":{"skills":facts}})
+    assert result["status"] == "failed"
+
+
+def test_finished_wording_returns_result_without_extra_model_call(monkeypatch):
+    import json
+    text = "我帮你查询到了：高数在A101。"
+    response, requests, _ = replay(monkeypatch, "高数在哪上", [
+        reply_message(tool_calls=[tool_call("course", "find_course", '{"name":"高数"}')]),
+        reply_message(content=json.dumps({"status":"completed", "answer":text, "task_id":None}, ensure_ascii=False))])
+    result = finalize(dict(response, intent="AGENT_LOOP"))
+    assert result["answer"] == text and result["status"] == "completed"
+    assert len(requests) == 2

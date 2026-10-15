@@ -23,7 +23,7 @@ class Completion(BaseModel):
 
 # Promises of future work are not final answers. Advice to ask again is allowed.
 WAITING = re.compile(
-    r"稍等|稍候|我(?:来|先|再|这就|马上)?查(?:一下|下|查)|等我(?:一下|一会|查)|(?:我|这边).{0,12}(?:帮你|替你|给你|为你).{0,8}(?:查查|查询|看看|查一下)"
+    r"稍等|稍候|我(?:来|先|再|这就|马上)?查(?:一下|下|查)|等我(?:一下|一会|查)|(?:我|这边).{0,12}(?:帮你|替你|给你|为你).{0,8}(?:查查|查询|看看|查一下)(?![到完好了])"
     r"|(?:查完|查到|查好|完成后|好了后|稍后|一会儿?).{0,12}(?:告诉你|回复你|发给你|通知你)"
     r"|(?:正在|马上|这就).{0,8}(?:查询|查课|查一下|帮你查)"
 )
@@ -31,6 +31,23 @@ WAITING = re.compile(
 
 def promises_work(text: str) -> bool:
     return bool(WAITING.search(text))
+
+
+def query_failed(facts: list[dict]) -> bool:
+    """Evaluate the latest result of each requested operation, excluding catalog help."""
+    import json
+
+    latest = {}
+    core = [fact for fact in facts if fact.get("skill") != "list_course_catalog"]
+    for fact in core or facts:
+        arguments = fact.get("arguments") or "{}"
+        try:
+            args = json.loads(arguments) if isinstance(arguments, str) else arguments
+            arguments = json.dumps(args, sort_keys=True, ensure_ascii=False)
+        except (ValueError, TypeError):
+            arguments = str(arguments)
+        latest[(fact.get("skill"), arguments)] = fact.get("result") or {}
+    return any(result.get("error") for result in latest.values())
 
 
 def finalize(result: dict) -> dict:
@@ -52,8 +69,7 @@ def finalize(result: dict) -> dict:
         elif data.get("state") in {"queued", "running"}:
             status = "failed"
             result["answer"] = "暂时无法确认同步任务编号，请查询同步进度。"
-    elif isinstance(data, dict) and data.get("skills") and all(
-            (fact.get("result") or {}).get("error") for fact in data["skills"]):
+    elif isinstance(data, dict) and query_failed(data.get("skills") or []):
         status = "failed"
     elif isinstance(data, dict) and (data.get("course_match") or {}).get("status") == "ambiguous":
         status = "needs_input"

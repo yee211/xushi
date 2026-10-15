@@ -158,7 +158,9 @@ def _facts_grounded(content: str, facts: list[dict], question: str) -> bool:
             rows.extend(result.get("occurrences") or [])
             if result.get("course"):
                 rows.append(result["course"])
-            for day in result.get("days") or []:
+            # find_course uses an integer days horizon; weekly queries return a list.
+            days = result.get("days")
+            for day in days if isinstance(days, list) else []:
                 rows.extend(day.get("courses") or [])
         positive = re.sub(r"没有[^，。！？\n]*|没课|不用上课", "", content)
         if not rows and re.search(r"有.{0,16}课(?!表)|正在上|下一节是", positive):

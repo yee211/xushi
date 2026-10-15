@@ -117,7 +117,8 @@ def test_sync_replay_reuses_original_terminal_job_after_cooldown(monkeypatch):
     db.__enter__.return_value = db
     binding = {"student":{"id":"student"}, "revision":1, "updated_at":"bound-at"}
     prior = dict.fromkeys(("id","term","state","attempts","result","error","created_at","updated_at","phase","started_at"))
-    prior.update(id="original-job", user_id=7, state="succeeded", term="2026-2027-1")
+    prior.update(id="original-job", user_id=7, state="succeeded", term="2026-2027-1",
+                 student_id="student", binding_revision=1, binding_updated_at="bound-at", refresh=True)
     db.execute.return_value.fetchone.side_effect = [binding, prior]
     monkeypatch.setattr(academic_jobs, "connect", lambda: db)
     monkeypatch.setattr(academic_jobs.academic_binding, "lock_user", MagicMock())
