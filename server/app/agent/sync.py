@@ -1,14 +1,17 @@
 """Explicit sync authorization and deterministic submission replies."""
 import re
 
+PREFIX = r"^(?:请|麻烦|帮我|给我|现在|立即|重新|再|先)*"
+COMMAND = r"(?:同步|更新|刷新)(?:一下|下)?(?:我的|学校|最新)*课表(?:一下|下)?"
+
 
 def requested(message: str) -> bool:
     text = re.sub(r"\s+", "", message).strip("。！!，,")
     if re.search(r"不要同步|别同步|别真的同步|不用同步|不需要同步|取消同步", text):
         return False
     # Authorize an imperative at the start, never a quoted/history/status mention.
-    prefix = r"^(?:请|麻烦|帮我|给我|现在|立即|重新|再|先)*"
-    command = r"(?:同步|更新|刷新)(?:一下|下)?(?:我的|学校|最新)*课表(?:一下|下)?"
+    prefix = PREFIX
+    command = COMMAND
     match = re.match(prefix + command, text)
     if match:
         tail = text[match.end():]
@@ -80,9 +83,11 @@ def reply(result: dict, message: str = "") -> dict:
         answer = result.get("message", "暂时无法提交同步，请稍后重试。")
     else:
         answer = job_answer(result)
-        if result.get("notification_registered"):
+        if result.get("notification_registered") and not result.get("followup_registered"):
             answer += "完成后我会再发一条成功或失败通知。"
-        if result.get("state") in {"queued", "running"} and re.search(r"查|看看|有什么课|哪.*课", message):
+        if result.get("followup_registered"):
+            answer += "同步成功后，我会接着查询并回复你刚才问的课表；同步失败会说明原因。"
+        elif result.get("state") in {"queued", "running", "succeeded"} and re.search(r"查|看看|有什么课|哪.*课", message):
             answer += "同步完成后，请再询问课表，我会读取更新后的数据。"
     return {"intent": "SYNC_SCHEDULE", "answer": answer, "tool_result": result,
             "resolved_context": {"intent": "SYNC_SCHEDULE", "job_id": result.get("job_id")}}

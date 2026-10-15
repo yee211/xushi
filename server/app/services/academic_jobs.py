@@ -71,6 +71,8 @@ def enqueue(user_id, term, refresh=False, *, cooldown_seconds=0, notification_ta
             result = public_job(row)
             if notification_target:
                 result["notification_registered"] = academic_sync_notifications.subscribe(db, row, notification_target)
+                if notification_target.get("followup"):
+                    result["followup_registered"] = result["notification_registered"]
             return result
 
         academic_binding.lock_user(db, user_id)

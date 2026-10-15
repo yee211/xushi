@@ -127,6 +127,9 @@ def _handle_message(message: str, tools: ScheduleTools, history: list | None = N
     from .sync import query_status, reply, requested, status_requested
     if requested(message):
         tools.sync_authorized = True
+        if tools.context.notification_target:
+            from .sync_followup import prepare
+            tools.sync_followup = prepare(message, tools.context.now)
         return reply(tools.sync_schedule(), message)
     if status_requested(message, history):
         return query_status(tools, message)

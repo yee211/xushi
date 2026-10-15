@@ -29,6 +29,7 @@ class ScheduleTools:
         self.context = context
         self.sync_authorized = False
         self._sync_result = None
+        self.sync_followup = None
 
     @property
     def db(self):
@@ -130,10 +131,13 @@ class ScheduleTools:
                 else:
                     options = {"cooldown_seconds": 30}
                     if self.context.notification_target:
-                        options["notification_target"] = self.context.notification_target
+                        options["notification_target"] = dict(self.context.notification_target)
+                        if self.sync_followup:
+                            options["notification_target"]["followup"] = self.sync_followup
                     job = academic_jobs.enqueue(self.context.user_id, term, True, **options)
                     result = {"ok": True, "job_id": str(job["id"]), "state": job["state"],
-                              "term": job["term"], "phase": job.get("phase"), "result": job.get("result"), "error_code": job.get("error_code"), "notification_registered": bool(job.get("notification_registered"))}
+                              "term": job["term"], "phase": job.get("phase"), "result": job.get("result"), "error_code": job.get("error_code"), "notification_registered": bool(job.get("notification_registered")),
+                              "followup_registered": bool(job.get("followup_registered"))}
         except HTTPException as error:
             result = {"ok": False, "error": "sync_rejected",
                       "message": str(error.detail), "retryable": False}

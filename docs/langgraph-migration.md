@@ -54,7 +54,7 @@ Compose 已向 API 与微信 worker 传递 AGENT_ENGINE=${AGENT_ENGINE:-legacy}�
 
 出现问题时，设置 AGENT_ENGINE=legacy，再执行 docker compose up -d --no-build api weixin-worker。无需数据库降级；需要整包回退时使用保存的原镜像或 pre-langgraph-20261014 标签。
 
-本阶段不启用同步完成后恢复查询、不引入持久化执行状态、不改变小程序，也不自动部署线上。
+第一阶段原范围不包含同步续答。第二阶段现已增加持久化同步续答，详见 [同步续答设计](sync-followup.md)。仍不改变小程序，也不自动部署线上。
 
 官方参考：
 - https://docs.langchain.com/oss/python/langgraph/graph-api

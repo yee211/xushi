@@ -1,4 +1,5 @@
 """Durable completion notifications for explicitly requested ClawBot sync jobs."""
+import json
 import logging
 import uuid
 
@@ -25,6 +26,12 @@ SCHEMA = (
         UNIQUE(job_id,provider,sender_id,account_id))""",
     "CREATE INDEX IF NOT EXISTS idx_academic_notifications_pending ON academic_sync_notifications(state,available_at)",
 )
+FOLLOWUP_SCHEMA = (
+    "ALTER TABLE academic_sync_notifications ADD COLUMN IF NOT EXISTS followup JSONB",
+    "ALTER TABLE academic_sync_notifications ADD COLUMN IF NOT EXISTS delivery_text TEXT",
+)
+SCHEMA += FOLLOWUP_SCHEMA
+
 
 
 def classify_error(error) -> str:
@@ -87,10 +94,29 @@ def subscribe(db, job: dict, target: dict | None) -> bool:
             or not all(target.get(key) for key in ("sender_id", "account_id", "message_id"))
             or job["state"] not in {"queued", "running"}):
         return False
+    if target.get("followup"):
+        from ..agent.sync_followup import FollowupPlan
+        plan = FollowupPlan.model_validate(target["followup"]).model_dump(mode="json")
+        # Do not replace another message's continuation on a reused active job.
+        # A replay of the exact original message reuses its immutable plan.
+        row = db.execute("""INSERT INTO academic_sync_notifications
+            (id,job_id,user_id,provider,sender_id,account_id,message_id,followup)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+            ON CONFLICT(job_id,provider,sender_id,account_id) DO NOTHING RETURNING id""",
+            (uuid.uuid4(), job["id"], job["user_id"], target["provider"], target["sender_id"],
+             target["account_id"], target["message_id"], json.dumps(plan, ensure_ascii=False))).fetchone()
+        if row:
+            return True
+        existing = db.execute("""SELECT followup FROM academic_sync_notifications
+            WHERE job_id=%s AND user_id=%s AND provider=%s AND sender_id=%s AND account_id=%s
+            AND message_id=%s AND state IN ('pending','sending')""",
+            (job["id"], job["user_id"], target["provider"], target["sender_id"],
+             target["account_id"], target["message_id"])).fetchone()
+        return bool(existing and existing.get("followup") == plan)
     db.execute("""INSERT INTO academic_sync_notifications(id,job_id,user_id,provider,sender_id,account_id,message_id)
         VALUES(%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT(job_id,provider,sender_id,account_id) DO UPDATE SET message_id=EXCLUDED.message_id
-        WHERE academic_sync_notifications.state='pending' AND NOT EXISTS (
+        WHERE academic_sync_notifications.state='pending' AND academic_sync_notifications.followup IS NULL AND NOT EXISTS (
             SELECT 1 FROM channel_messages m WHERE m.provider=academic_sync_notifications.provider
             AND m.account_id=academic_sync_notifications.account_id
             AND m.message_id=academic_sync_notifications.message_id AND m.status='done')""",
@@ -116,7 +142,7 @@ def claim(db):
         RETURNING *""", (uuid.uuid4(),)).fetchone()
     if not row:
         return None
-    job = db.execute("SELECT state,result,error_code FROM academic_sync_jobs WHERE id=%s AND user_id=%s",
+    job = db.execute("SELECT state,result,error_code,student_id,binding_revision,binding_updated_at FROM academic_sync_jobs WHERE id=%s AND user_id=%s",
                      (row["job_id"], row["user_id"])).fetchone()
     return row, job
 
@@ -135,8 +161,22 @@ def deliver(row: dict, job: dict) -> None:
     try:
         credentials = Credentials(row["account_id"], decrypt_token(account["bot_token_encrypted"]),
                                   account["api_base_url"], account.get("admin_user_id") or "")
+        if row.get("followup"):
+            from .academic_sync_followup import delivery_text
+            text = delivery_text(row, job)
+            # Persist before sending. On lease loss do not deliver or overwrite
+            # the next owner's work. Retries reuse the saved payload/client id.
+            with connect() as db:
+                saved = db.execute("""UPDATE academic_sync_notifications SET delivery_text=%s,
+                    lease_until=CURRENT_TIMESTAMP + INTERVAL '60 seconds'
+                    WHERE id=%s AND state='sending' AND lease_id=%s AND lease_until>CURRENT_TIMESTAMP
+                    RETURNING id""", (text, row["id"], row["lease_id"])).fetchone()
+            if not saved:
+                return
+        else:
+            text = completion_text(job)
         client = ILinkClient(credentials)
-        client.send_text(row["sender_id"], completion_text(job), account["context_token"],
+        client.send_text(row["sender_id"], text, account["context_token"],
                          client_id=f"sync_{row['id']}")
     except ILinkError as error:
         terminal = str(error.code) in {"-2", "-14"}
