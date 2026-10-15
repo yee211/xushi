@@ -222,8 +222,8 @@ def notification_queue(queue, monkeypatch):
     monkeypatch.setattr(notices, "connect", queue)
     with queue() as db:
         db.execute("""CREATE TABLE channel_messages(provider TEXT,account_id TEXT,message_id TEXT,status TEXT,
-            PRIMARY KEY(provider,account_id,message_id))""")
-        db.execute("INSERT INTO channel_messages VALUES('weixin_ilink','bot','m1','processing')")
+            attempts INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(provider,account_id,message_id))""")
+        db.execute("INSERT INTO channel_messages(provider,account_id,message_id,status) VALUES('weixin_ilink','bot','m1','processing')")
     return queue, notices
 
 
