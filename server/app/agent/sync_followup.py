@@ -43,7 +43,7 @@ def prepare(message: str, now: datetime) -> dict | None:
     query = text[match.end():].strip("，,。！!")
     date_start = re.search(r"今天|今日|明天|明日|后天|明早|(?:下下|上|下|本|这)?(?:周|星期)|这一周", query)
     if not date_start or not re.fullmatch(
-            r"(?:(?:完成|同步)(?:之)?后|然后|之后|后|再|并|顺便|帮我|给我|看看|查一下|查下|查询|查|，|,)*",
+            r"(?:(?:完成|同步)(?:之)?后|然后|之后|后|再|并|顺便|帮我|给我|告诉我|看看|查一下|查下|查询|查|，|,)*",
             query[:date_start.start()]):
         return None
     query = query[date_start.start():]
@@ -56,7 +56,7 @@ def prepare(message: str, now: datetime) -> dict | None:
     if len(re.findall(r"(?:周|星期)[一二三四五六日天]", query)) > 1:
         return None
     if not re.fullmatch(r"(?:今天|今日|明天|明日|后天|明早|(?:下下|上|下|本|这)?(?:周|星期)[一二三四五六日天]?|这一周)"
-                        r"(?:早上|上午|下午|晚上|晚间)?(?:的)?(?:有(?:什么|啥|几节|多少|哪些|几门)?课|课表|课程列表|课|安排)(?:吗|呢|呀)?[？?！!。]*", query):
+                        r"(?:早上|上午|下午|晚上|晚间)?(?:的)?(?:有(?:什么|啥|几节|多少|哪些|几门)?课|(?:什么|啥|哪些)课|课表|课程列表|课|安排)(?:吗|呢|呀)?[？?！!。]*", query):
         return None
     intent = parse_intent(query, now.date())
     if intent.name != "QUERY_DAY" and intent.name != "QUERY_WEEK":
@@ -114,3 +114,26 @@ def answer(plan: FollowupPlan, tools) -> str:
     builder.add_edge("render", END)
     with tracing_context(enabled=False):
         return builder.compile().invoke({}, {"recursion_limit": 5})["answer"]
+
+
+def completed_reply(result: dict, plan: dict, tools) -> str:
+    """A reused completed job needs an immediate answer, not a new subscription."""
+    import logging
+    from ..services.academic_sync_followup import delivery_text
+    from ..services.academic_sync_notifications import completion_text
+
+    try:
+        with tools._connection() as db:
+            job = db.execute(
+                "SELECT * FROM academic_sync_jobs WHERE id=%s AND user_id=%s",
+                (result["job_id"], tools.context.user_id),
+            ).fetchone()
+        if not job or job["state"] != "succeeded":
+            return "无法确认本次同步结果，没有继续查询，请重新发送同步及查课请求。"
+        # Reuse the same binding revision, schedule ownership and frozen-date
+        # checks as background delivery. This function never sends a message.
+        return delivery_text({"user_id": tools.context.user_id, "followup": plan,
+                              "attempts": 3, "delivery_text": None}, dict(job))
+    except Exception:
+        logging.getLogger(__name__).exception("Completed sync followup query failed")
+        return completion_text(result) + "后续课表查询暂时不可用，请重新询问课表。"

@@ -80,6 +80,8 @@ class ScenarioDb(FakeAgentDb):
             assert params == (7, "weixin_ilink", "sender", "bot")
             return FakeResult([{"context_token": "context", "bot_token_encrypted": "encrypted",
                                 "api_base_url": "https://ilinkai.weixin.qq.com", "admin_user_id": ""}])
+        if "AS snapshot" in sql:
+            return super().execute(sql, params)
         if "FROM academic_bindings" in sql:
             assert params == (7,)
             return FakeResult([{"student": {"default_term": "2026-2027-1"}, "last_synced_term": "2026-2027-1",

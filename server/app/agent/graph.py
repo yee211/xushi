@@ -15,8 +15,8 @@ from langgraph.graph import END, START, StateGraph
 from langsmith import tracing_context
 
 from . import loop
-from .course_reply import CourseComment, course_facts, render_courses
 from .completion import COMPLETION_PROMPT, Completion, promises_work
+from .course_reply import CourseComment, course_facts, render_courses
 
 
 class QueryState(TypedDict, total=False):
@@ -135,6 +135,13 @@ class QueryRun:
             if completion.status == "needs_input" and not re.search(r"[？?]|请.{0,8}(?:提供|补充|选择|说明)|哪", content):
                 return self.unfinished(state)
             completion_status = completion.status
+        if completion_status == "needs_input" and not promises_work(content):
+            context = json.dumps([f["result"] for f in facts], ensure_ascii=False, default=str)
+            if loop._grounded(content, context) and loop._facts_grounded(content, facts, ""):
+                loop.llm_circuit_breaker.record_success()
+                answer = self.answer(facts, content)
+                answer["_completion_status"] = "needs_input"
+                return {"answer": answer, "route": "done"}
         if bundle is not None:
             try:
                 comment = CourseComment.model_validate_json(content).closing

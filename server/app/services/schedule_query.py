@@ -25,9 +25,10 @@ SECTION_BY_NUMBER = {item.number: item for item in SECTION_TIMES}
 PERIOD_SECTIONS = {"all": (1, 12), "morning": (1, 4), "afternoon": (5, 8), "evening": (9, 12)}
 
 class ScheduleQueryError(RuntimeError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, candidates: list[dict] | None = None):
         super().__init__(message)
         self.code, self.message = code, message
+        self.candidates = candidates or []
 
 def _as_date(value) -> date | None:
     if value is None or isinstance(value, date):
@@ -69,7 +70,9 @@ def select_effective_schedule(schedules: Sequence[Mapping], target_date: date,
     candidates = "；".join(f"{item['id']}：{item.get('name') or item.get('term') or '课表'}"
                            for item in effective)
     raise ScheduleQueryError("AMBIGUOUS_SCHEDULE",
-                             f"这个日期有多张可用课表：{candidates}。请发送“使用课表 编号”明确选择")
+                             f"这个日期有多张可用课表：{candidates}。请发送“使用课表 编号”明确选择",
+                             [{"id": int(item["id"]), "name": item.get("name") or item.get("term") or "课表"}
+                              for item in effective])
 
 def materialize_courses(courses: Iterable[Mapping], adjustments: Iterable[Mapping],
                         week: int, weekday: int, period: str = "all") -> list[dict]:

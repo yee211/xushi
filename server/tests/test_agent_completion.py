@@ -233,3 +233,30 @@ def test_finished_wording_returns_result_without_extra_model_call(monkeypatch):
     result = finalize(dict(response, intent="AGENT_LOOP"))
     assert result["answer"] == text and result["status"] == "completed"
     assert len(requests) == 2
+
+
+@pytest.mark.parametrize("fields", [{}, {"answer": ""}, {"answer": "  \n "}, {"answer": None}, {"answer": 0}])
+def test_missing_or_empty_answer_returns_failure_reply(fields):
+    result = finalize(dict(fields, intent="HELP"))
+    assert result["status"] == "failed"
+    assert result["task_id"] is None
+    assert result["answer"] == "这次未能生成有效回复，请重新发送你要查询的日期或课程。"
+
+
+def test_non_string_answer_is_normalized():
+    result = finalize({"intent": "HELP", "answer": 123})
+    assert result["answer"] == "123"
+
+
+def test_clarification_survives_tool_failure():
+    result = finalize({"intent": "AGENT_LOOP", "answer": "你想查哪一天？",
+        "_completion_status": "needs_input", "tool_result": {"skills": [
+            {"skill": "query_day_courses", "result": {"error": "timeout"}}]}})
+    assert result["status"] == "needs_input"
+    assert result["answer"] == "你想查哪一天？"
+
+
+def test_empty_pending_answer_clears_task():
+    result = finalize({"intent": "SYNC_SCHEDULE", "answer": None,
+        "tool_result": {"ok": True, "state": "queued", "job_id": "job-1"}})
+    assert result["status"] == "failed" and result["task_id"] is None

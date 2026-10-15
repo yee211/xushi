@@ -76,6 +76,9 @@ class ScheduleTools:
         with self._connection() as db:
             row = db.execute("""
                 SELECT jsonb_build_object(
+                    'binding', (SELECT jsonb_build_object('student_id', b.student->>'id',
+                        'revision', b.revision, 'updated_at', b.updated_at)
+                        FROM academic_bindings b WHERE b.user_id=%s),
                     'schedules', COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id)
                         FROM schedules s WHERE s.user_id=%s), '[]'::jsonb),
                     'courses', COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id)
@@ -84,7 +87,7 @@ class ScheduleTools:
                         FROM course_adjustments a JOIN courses c ON c.id=a.course_id
                         JOIN schedules s ON s.id=c.schedule_id WHERE s.user_id=%s), '[]'::jsonb)
                 ) AS snapshot
-            """, (self.context.user_id,) * 3).fetchone()
+            """, (self.context.user_id,) * 4).fetchone()
         return hashlib.sha256(json.dumps(row["snapshot"], sort_keys=True, default=str,
                                          ensure_ascii=False).encode()).hexdigest()
 

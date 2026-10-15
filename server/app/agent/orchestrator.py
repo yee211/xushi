@@ -128,10 +128,15 @@ def _handle_message(message: str, tools: ScheduleTools, history: list | None = N
     from .sync import query_status, reply, requested, status_requested
     if requested(message):
         tools.sync_authorized = True
+        from .sync_followup import completed_reply, prepare
+        plan = prepare(message, tools.context.now)
         if tools.context.notification_target:
-            from .sync_followup import prepare
-            tools.sync_followup = prepare(message, tools.context.now)
-        return reply(tools.sync_schedule(), message)
+            tools.sync_followup = plan
+        result = tools.sync_schedule()
+        response = reply(result, message)
+        if result.get("ok") and result.get("state") == "succeeded" and plan:
+            response["answer"] = completed_reply(result, plan, tools)
+        return response
     if status_requested(message, history):
         return query_status(tools, message)
     llm_allowed = llm_configured() and llm_circuit_breaker.allow_request()
@@ -288,4 +293,5 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
         messages = {"OUTSIDE_TERM": "这个日期不在已导入课表的学期范围内。",
                     "AMBIGUOUS_SCHEDULE": error.message}
         return {"intent": intent.name, "answer": messages.get(error.code, error.message),
-                "error": {"code": error.code, "message": error.message}}
+                "error": {"code": error.code, "message": error.message,
+                          **({"candidates": error.candidates} if error.candidates else {})}}

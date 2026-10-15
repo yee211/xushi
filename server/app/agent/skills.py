@@ -98,7 +98,8 @@ def dispatch(skills: list[Skill], name: str, arguments_json: str) -> dict:
             return {"error": f"缺少必填参数：{'、'.join(missing)}"}
         return skill.handler(**arguments)
     except ScheduleQueryError as error:
-        return {"error": error.code, "message": error.message}
+        return {"error": error.code, "message": error.message,
+                **({"candidates": error.candidates} if error.candidates else {})}
     except (ValueError, TypeError) as error:
         return {"error": f"参数不合法：{error}"}
     except Exception:

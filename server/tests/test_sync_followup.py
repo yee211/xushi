@@ -18,6 +18,9 @@ NOW = datetime.now(ZoneInfo("Asia/Shanghai"))
     ("先同步课表，完成后看看明天下午有什么课", "day", 1, "afternoon"),
     ("更新课表后帮我查后天的课", "day", 2, "all"),
     ("同步课表，查下周课表", "week", None, "all"),
+    ("同步课表然后告诉我下周一什么课", "day", 4, "all"),
+    ("同步课表然后告诉我下周一有什么课", "day", 4, "all"),
+    ("同步课表后告诉我明天下午哪些课", "day", 1, "afternoon"),
 ])
 def test_freeze_supported_query_dates(monkeypatch, message, kind, offset, period):
     now = datetime(2026, 10, 15, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -32,6 +35,8 @@ def test_freeze_supported_query_dates(monkeypatch, message, kind, offset, period
     "同步课表，看看明天下不下雨", "同步课表，看看明天有没有高数课", "同步课表，别查明天的课",
     "同步课表，看看明天有什么课，再查天气", "同步课表，查下周三和周四的课",
     "同步课表，看看明天上午到下午有什么课", "同步课表，查下周上午有什么课",
+    "同步课表然后告诉我下周一什么课和天气",
+    "同步课表然后告诉我下周一什么课，别查课表",
 ])
 def test_unsupported_queries_never_promise_continuation(monkeypatch, message):
     assert sync_followup.prepare(message, NOW) is None
@@ -169,7 +174,11 @@ def test_graph_rejects_wrong_target_date():
         sync_followup.answer(sync_followup.FollowupPlan.model_validate(make_plan()), tools)
 
 
-def test_channel_entry_registers_query_atomically_before_promising(monkeypatch):
+@pytest.mark.parametrize("message, offset", [
+    ("同步一下课表，看看明天有什么课", 1),
+    ("同步课表然后告诉我下周一什么课", (7 - NOW.weekday()) % 7 or 7),
+])
+def test_channel_entry_registers_query_atomically_before_promising(monkeypatch, message, offset):
     from dataclasses import replace
 
     from app.agent import orchestrator
@@ -184,9 +193,9 @@ def test_channel_entry_registers_query_atomically_before_promising(monkeypatch):
     monkeypatch.setattr(academic_jobs, "enqueue", enqueue)
     model = MagicMock(side_effect=AssertionError("submission must not wait for model"))
     monkeypatch.setattr(orchestrator, "run_agent", model)
-    result = orchestrator.handle_message("同步一下课表，看看明天有什么课", tools)
+    result = orchestrator.handle_message(message, tools)
     frozen = enqueue.call_args.kwargs["notification_target"]["followup"]
-    assert frozen["target_date"] == (NOW + timedelta(days=1)).date().isoformat()
+    assert frozen["target_date"] == (NOW + timedelta(days=offset)).date().isoformat()
     assert "接着查询" in result["answer"]
     assert "followup" not in target
     model.assert_not_called()
@@ -207,3 +216,58 @@ def test_graph_does_not_fall_back_to_another_schedule():
     tools.get_courses_by_date.return_value = {"date": NOW.date().isoformat(), "schedule_id": 99, "courses": []}
     with pytest.raises(ValueError, match="schedule mismatch"):
         sync_followup.answer(sync_followup.FollowupPlan.model_validate(make_plan()), tools)
+
+
+@pytest.mark.parametrize("binding_current", [True, False])
+def test_completed_sync_immediately_answers_and_checks_current_role(monkeypatch, resumed, binding_current):
+    from dataclasses import replace
+    from app.agent import orchestrator
+    from tests.test_agent_loop import make_tools
+
+    db, query, row, job = resumed
+    tools = make_tools()
+    tools.context = replace(tools.context, now=NOW)
+    tools._connection = MagicMock(return_value=db)
+    tools.sync_schedule = MagicMock(return_value={
+        "ok": True, "job_id": "completed-job", "state": "succeeded", "result": job["result"],
+        "notification_registered": False, "followup_registered": False})
+    db.execute.return_value.fetchone.side_effect = [job, {"exists": 1} if binding_current else None]
+    model = MagicMock(side_effect=AssertionError("completed sync must query directly"))
+    monkeypatch.setattr(orchestrator, "run_agent", model)
+    result = orchestrator.handle_message("同步课表然后告诉我下周一什么课", tools)
+    assert "同步成功" in result["answer"]
+    assert "稍等" not in result["answer"]
+    assert result["status"] == "completed"
+    if binding_current:
+        assert "08:20–10:00" in result["answer"]
+        plan = query.call_args.args[0]
+        assert plan.target_date == (NOW + timedelta(days=7 - NOW.weekday())).date()
+        assert query.call_args.args[1].context.default_schedule_id == 12
+    else:
+        assert "绑定或课表已发生变化" in result["answer"]
+        query.assert_not_called()
+    model.assert_not_called()
+    sql, params = db.execute.call_args_list[0].args
+    assert "user_id=%s" in sql and params == ("completed-job", tools.context.user_id)
+
+
+def test_completed_sync_missing_job_does_not_read_courses(resumed):
+    db, query, row, job = resumed
+    tools = MagicMock()
+    tools.context.user_id = 7
+    tools._connection.return_value = db
+    db.execute.return_value.fetchone.return_value = None
+    text = sync_followup.completed_reply({"job_id": "missing", "state": "succeeded"}, make_plan(), tools)
+    assert "没有继续查询" in text
+    query.assert_not_called()
+
+
+def test_completed_sync_query_error_is_explicit_and_does_not_promise_work(resumed):
+    db, query, row, job = resumed
+    tools = MagicMock()
+    tools.context.user_id = 7
+    tools._connection.return_value = db
+    db.execute.return_value.fetchone.return_value = job
+    query.side_effect = TimeoutError("private")
+    text = sync_followup.completed_reply({"job_id": "job", "state": "succeeded"}, make_plan(), tools)
+    assert "查询暂时不可用" in text and "private" not in text and "稍等" not in text

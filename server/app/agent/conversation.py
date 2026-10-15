@@ -66,6 +66,10 @@ def load_history(user_id: int, provider: str, thread_key: str, schedule_version:
     for item in messages[-12:]:
         timestamp = item.get("created_at", "")
         resolved = item.get("resolved_context") or {}
+        # Active questions have their own scoped state. Never revive an expired
+        # or cancelled clarification through the longer general history TTL.
+        if resolved.get("awaiting_input"):
+            continue
         content = clean_message_content(item.get("content"))
         if schedule_version is not None and item.get("schedule_version") != schedule_version:
             if item.get("role") != "user":

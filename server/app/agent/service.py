@@ -1,10 +1,13 @@
 """Channel-independent entry point for a bound user's schedule agent."""
+import hashlib
 import re
+from dataclasses import replace
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from ..db import db_ctx
 from ..services.binding import BindingError, consume_binding_code, unbind_provider_identity
+from . import clarification
 from .conversation import append_turn, load_history, select_schedule, selected_schedule
 from .orchestrator import handle_message
 from .tools import AgentContext, ScheduleTools
@@ -45,8 +48,12 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
     now = received_at or datetime.now(timezone)
     # ScheduleTools 内部按需借还连接；在 handle_message 等待大模型网络响应时，零数据库连接占用
     user_id = row["user_id"]
+    scope = (user_id, provider, sender_id, account_id)
+    thread_key = (sender_id[:40] + "-" + hashlib.sha256(account_id.encode()).hexdigest()
+                  if account_id else sender_id)
+    selection_ack = None
     selection = re.fullmatch(r"使用课表\s*(\d+)", text)
-    schedule_id = int(selection.group(1)) if selection else selected_schedule(user_id, provider, sender_id)
+    schedule_id = int(selection.group(1)) if selection else selected_schedule(user_id, provider, thread_key)
     if schedule_id is not None:
         with db_ctx(db) as conn:
             chosen = conn.execute("SELECT id,name FROM schedules WHERE id=%s AND user_id=%s",
@@ -56,22 +63,71 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
                 return "没有找到这张课表，请确认课表编号。"
             schedule_id = None
         elif selection:
-            if not select_schedule(user_id, provider, sender_id, schedule_id):
+            if not select_schedule(user_id, provider, thread_key, schedule_id):
                 return "暂时无法保存课表选择，请稍后再试。"
-            return f"已选择“{chosen['name']}”，本渠道后续查询将优先使用它，选择保留 24 小时。"
+            selection_ack = f"已选择“{chosen['name']}”，本渠道后续查询将优先使用它，选择保留 24 小时。"
     target = ({"provider": provider, "sender_id": sender_id, "account_id": account_id,
                "message_id": message_id} if provider == "weixin_ilink" and account_id and message_id else None)
     tools = ScheduleTools(db, AgentContext(user_id, now, str(timezone), schedule_id, target))
     try:
-        version = f"{tools.schedule_version()}:{schedule_id or ''}"
-        history = load_history(user_id, provider, sender_id, version)
+        snapshot = tools.schedule_version()
+        version = f"{snapshot}:{schedule_id or ''}"
+        history = load_history(user_id, provider, thread_key, version)
     except Exception:
         # Never reuse unverifiable course facts when the snapshot cannot be read.
         import logging
         logging.getLogger(__name__).warning("Agent history snapshot unavailable", exc_info=True)
-        version, history = None, []
+        snapshot, version, history = None, None, []
+    pending = clarification.load(scope, snapshot, now)
+    original_text = text
+    if pending and text in {"取消", "算了", "不用了", "不查了", "取消查询", "取消追问"}:
+        clarification.clear(scope)
+        return "已取消刚才的待确认问题。你可以直接问新的问题。"
+    if selection_ack and not pending:
+        return selection_ack
+    if pending and not selection and clarification.is_new_request(text, now.date()):
+        clarification.clear(scope)
+        pending = None
+        history = []
+    if pending:
+        if pending.schedules:
+            choice = clarification.selected_choice(pending, text)
+            if choice is None:
+                return "请按刚才的候选回复“第几个”，或发送“使用课表 编号”。也可以回复“取消”。"
+            with db_ctx(db) as conn:
+                chosen = conn.execute("SELECT id,name FROM schedules WHERE id=%s AND user_id=%s",
+                                      (choice.id, user_id)).fetchone()
+            if not chosen:
+                clarification.clear(scope)
+                return "这张课表已不可用，请重新发送查询。"
+            if not select_schedule(user_id, provider, thread_key, choice.id):
+                return "暂时无法保存课表选择，请稍后再试。"
+            tools.context = replace(tools.context, default_schedule_id=choice.id)
+            version = f"{snapshot}:{choice.id}"
+            text = pending.original
+        else:
+            text = pending.original if selection else clarification.resume_text(pending, text)
+        history = pending.history()
     result = handle_message(text, tools, history=history)
-    append_turn(row["user_id"], provider, sender_id, text, result["answer"], now,
-                result.get("resolved_context") or {"intent": result.get("intent")}, version)
+    if result.get("status") == "needs_input" and snapshot is not None:
+        turns = (pending.turns + [(pending.question, original_text)]) if pending else []
+        if len(turns) > 3:
+            clarification.clear(scope)
+            result["answer"] = "还没能确认你的意思，请把日期、课程或课表选择与原问题一起重新发送。"
+        else:
+            waiting = clarification.PendingQuestion(
+                original=pending.original if pending else original_text,
+                question=result["answer"][:4000], version=snapshot,
+                created_at=pending.created_at if pending else now, turns=turns,
+                schedules=clarification.schedule_choices(result))
+            if not clarification.save(scope, waiting):
+                result["answer"] += "\n暂时无法保存这次追问，请将补充信息与原问题一起发送。"
+    else:
+        clarification.clear(scope)
+        if result.get("status") == "needs_input":
+            result["answer"] += "\n暂时无法保存这次追问，请将补充信息与原问题一起发送。"
+    append_turn(row["user_id"], provider, thread_key, original_text, result["answer"], now,
+                {**(result.get("resolved_context") or {"intent": result.get("intent")}),
+                 "awaiting_input": result.get("status") == "needs_input"}, version)
     return result["answer"]
 
