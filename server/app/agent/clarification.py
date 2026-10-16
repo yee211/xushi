@@ -106,9 +106,11 @@ def selected_choice(pending, text):
 
 
 def is_new_request(text, today):
-    from .orchestrator import parse_intent
+    from .orchestrator import is_date_only, parse_intent
     from .sync import requested, status_requested
 
+    if is_date_only(re.sub(r"\s+", "", text)):
+        return False
     return (
         requested(text)
         or status_requested(text)

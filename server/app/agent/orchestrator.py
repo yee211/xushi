@@ -75,6 +75,13 @@ def _course_query(text: str) -> str | None:
                 return candidate
     return None
 
+def is_date_only(text: str) -> bool:
+    return bool(re.fullmatch(
+        r"(?:那|那么)?(?:今天|今日|明天|明日|后天|"
+        r"(?:(?:下下|上|下|本|这)?(?:周|星期))[一二三四五六日天])"
+        r"(?:早上|上午|下午|晚上|晚间)?[呢啊呀吗吧?？!！。]*", text))
+
+
 def parse_intent(message: str, today: date) -> ParsedIntent:
     text = re.sub(r"\s+", "", str(message or ""))
     if not text:
@@ -96,7 +103,10 @@ def parse_intent(message: str, today: date) -> ParsedIntent:
         if 2 <= len(candidate) <= 12 and not any(character in candidate for character in HAS_COURSE_JUNK):
             return ParsedIntent("QUERY_COURSE_ON_DAY", target, period, course_name=candidate)
     # “今天”这类词也出现在闲聊里（如“今天天气怎么样”），仅当消息与课程相关时才按日期查询。
-    if target and any(x in text for x in ("课", "安排", "忙", "空")):
+    # 日期短句常用于回答日期澄清或连续追问，例如“今天”“下周一呢”。
+    # 完整匹配，避免把“下周一去吃饭”等普通聊天当成查课。
+    date_only = is_date_only(text)
+    if target and (date_only or any(x in text for x in ("课", "安排", "忙", "空"))):
         intent = "QUERY_AVAILABILITY" if any(
             x in text for x in ("有空", "空不空", "空闲", "忙不忙", "忙吗")) else "QUERY_DAY"
         return ParsedIntent(intent, target, period)

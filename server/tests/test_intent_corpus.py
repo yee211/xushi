@@ -120,3 +120,25 @@ def test_weekday_dates_resolve_to_expected_days():
     assert parse_intent("下周三下午有什么课", TODAY).target_date is not None
     assert parse_intent("下周三下午有什么课", TODAY).target_date.isoformat() == "2026-09-16"
     assert parse_intent("周日下午有什么课", TODAY).target_date.isoformat() == "2026-09-13"
+
+
+@pytest.mark.parametrize("phrase,expected", [
+    ("今天", date(2026, 10, 16)),
+    ("下周一呢", date(2026, 10, 19)),
+    ("下周二呢", date(2026, 10, 20)),
+    ("那下周三呢？", date(2026, 10, 21)),
+    ("下下星期天呢", date(2026, 11, 1)),
+])
+def test_date_only_schedule_questions(phrase, expected):
+    parsed = parse_intent(phrase, date(2026, 10, 16))
+    assert parsed.name == "QUERY_DAY"
+    assert parsed.target_date == expected
+
+
+def test_date_only_period_and_unrelated_chat():
+    parsed = parse_intent("下周一下午呢？", date(2026, 10, 16))
+    assert parsed.name == "QUERY_DAY"
+    assert parsed.period == "afternoon"
+    assert parsed.target_date == date(2026, 10, 19)
+    for phrase in ("下周一去吃饭", "今天很开心", "明天见", "下周二呢，帮我写篇作文"):
+        assert parse_intent(phrase, date(2026, 10, 16)).name == "HELP"
