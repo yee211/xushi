@@ -34,6 +34,15 @@ Page({
   inputKeyword(e) { this.setData({ keyword: e.detail.value }) },
   inputRemark(e) { this.setData({ remark: e.detail.value }) },
   changeTerm(e) { this.setData({ termIndex: Number(e.detail.value) }) },
+  cachePerson(person, remove = false) {
+    try {
+      const session = wx.getStorageSync('session_token')
+      const cached = wx.getStorageSync('other_schedules_cache')
+      const people = cached && cached.session === session && Array.isArray(cached.people) ? cached.people : []
+      const remaining = people.filter(p => p.student_id !== person.student_id)
+      wx.setStorageSync('other_schedules_cache', { session, people: remove ? remaining : [person, ...remaining] })
+    } catch (_) { /* Cache is optional; a committed save/delete remains successful. */ }
+  },
   async search() {
     if (this.data.busy || !this.data.keyword.trim()) return
     this.setData({ busy: true, error: '', selected: null, students: [], searched: false, saved: false })
@@ -51,7 +60,7 @@ Page({
     if (this.data.busy) return
     const student = this.data.students.find(s => s.id === e.currentTarget.dataset.id)
     if (!student) return
-    this.setData({ busy: true, selected: student, remark: '', saved: false, updatedText: '', error: '', scrollIntoView: '' })
+    this.setData({ busy: true, selected: student, remark: '', saved: false, updatedText: '', error: '', scrollIntoView: '', terms: student.default_term ? [student.default_term] : [], termIndex: 0 })
     this.setData({ scrollIntoView: 'selected-panel' })
     try {
       const result = await app.request('/api/academic/others')
@@ -59,15 +68,25 @@ Page({
       const person = people.find(p => p.student_id === student.id)
       if (person && !this.closed) this.setData({ saved: true, remark: person.remark || '', updatedText: person.updated_at ? new Date(person.updated_at).toLocaleString() : '' })
       await this.loadTerms(student, person && person.term)
-    } catch (e) { if (!this.closed) this.setData({ error: e.message }) }
-    finally { if (!this.closed) this.setData({ busy: false }) }
+    } catch (e) {
+      if (!this.closed) {
+        this.setData({ error: e.message })
+        await this.loadTerms(student)
+      }
+    } finally {
+      if (!this.closed && !this.data.terms.length) await this.loadTerms(student)
+      if (!this.closed) this.setData({ busy: false })
+    }
   },
   async loadTerms(student, preferred) {
     const fallback = preferred || student.default_term
     this.setData({ terms: fallback ? [fallback] : [], termIndex: 0 })
     try {
       const result = await app.request('/api/academic/students/' + encodeURIComponent(student.id) + '/terms', { timeout: 120000 })
-      if (!this.closed && result.terms && result.terms.length) this.setData({ terms: result.terms, termIndex: Math.max(0, result.terms.indexOf(fallback)) })
+      if (!this.closed && result.terms && result.terms.length) {
+        const terms = fallback && !result.terms.includes(fallback) ? [fallback, ...result.terms] : result.terms
+        this.setData({ terms, termIndex: Math.max(0, terms.indexOf(fallback)) })
+      }
     } catch (e) { if (!this.closed) this.setData({ error: '学期加载失败，可重试选择学生；有默认学期时仍可查看。' }) }
   },
   async preview() { await this.submit(false) },
@@ -79,7 +98,10 @@ Page({
     this.setData({ busy: true, error: '' })
     try {
       let person
-      if (save) person = await app.request('/api/academic/others', { method: 'PUT', data: { student_id: student.id, term, remark: this.data.remark }, timeout: 120000 })
+      if (save) {
+        person = await app.request('/api/academic/others', { method: 'PUT', data: { student_id: student.id, term, remark: this.data.remark }, timeout: 120000 })
+        this.cachePerson(person)
+      }
       else {
         const snapshot = await app.request('/api/academic/students/' + encodeURIComponent(student.id) + '/schedule', { data: { term }, timeout: 120000 })
         if (snapshot.stale || !snapshot.complete) throw new Error('学校暂不可用，请稍后重试')
@@ -110,6 +132,7 @@ Page({
         if (previous && previous.previewOther && previous.previewOther.student_id === this.data.selected.id) {
           previous.previewOther = null
         }
+        this.cachePerson({ student_id: this.data.selected.id }, true)
         if (!this.closed) wx.navigateBack()
       } catch (e) { if (!this.closed) this.setData({ error: e.message }) }
       finally { if (!this.closed) this.setData({ busy: false }) }

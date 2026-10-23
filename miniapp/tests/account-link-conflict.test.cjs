@@ -41,7 +41,7 @@ test('school conflict selection retries only after explicit overwrite confirmati
   await page.submitLinkCode()
   assert.equal(requests.length, 2)
   assert.equal(page.data.account.linked, true)
-  for (const key of ['schedules_cache', 'bound_student', 'latest_import_schedule_id']) assert.ok(removed.includes(key))
+  for (const key of ['schedules_cache', 'other_schedules_cache', 'bound_student', 'latest_import_schedule_id']) assert.ok(removed.includes(key))
   assert.equal(page.data.linking, false)
 })
 
@@ -70,7 +70,7 @@ test('unlink clears all previous account timetable and identity cache', async ()
   config.toast = () => {}
   config.loadStatus = () => {}
   await config.unlinkAccount()
-  for (const key of ['session_token', 'schedules_cache', 'bound_student', 'active_schedule_id', 'latest_import_schedule_id', 'academic_pending_task_id']) {
+  for (const key of ['session_token', 'schedules_cache', 'other_schedules_cache', 'bound_student', 'active_schedule_id', 'latest_import_schedule_id', 'academic_pending_task_id']) {
     assert.ok(removed.includes(key), key)
   }
 })

@@ -66,7 +66,7 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
                                  people: list[str] | None = None, include_me: bool = True) -> dict:
         return tools.check_group_availability(date_type.fromisoformat(date), period, people, bool(include_me))
 
-    def add_other_schedule(keyword: str = "", remark: str = "", term: str = "", student_id: str = "") -> dict:
+    def add_other_schedule(keyword: str = "", remark: str | None = None, term: str = "", student_id: str = "") -> dict:
         return tools.add_other_schedule(keyword, remark, term, student_id)
 
     return [

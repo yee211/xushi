@@ -2,11 +2,11 @@
 import json
 import re
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException
-
-from ..db import connect
+from ..db import connect, db_ctx
+from ..rate_limit import SlidingWindowLimiter
 from . import academic, academic_rate_limit
 from .schedule_query import (
     APP_TIMEZONE,
@@ -18,6 +18,15 @@ from .schedule_query import (
     teaching_week,
 )
 
+query_limiter = SlidingWindowLimiter(10, 60, prefix="xushi:ratelimit:other-schedules")
+MAX_SAVED_PEOPLE = 50
+
+
+def check_query_limit(user_id):
+    allowed, _ = query_limiter.hit(str(user_id))
+    if not allowed:
+        raise academic.AcademicError("too_many_queries", "查询过于频繁，请稍后重试", 429)
+
 
 def list_saved(user_id):
     with connect() as db:
@@ -25,7 +34,9 @@ def list_saved(user_id):
     return {"people": [dict(row) for row in rows]}
 
 
-def query(student_id, term, refresh=False):
+def query(student_id, term, refresh=False, user_id=None):
+    if user_id is not None:
+        check_query_limit(user_id)
     # Multi-request semester queries need more queue time than directory lookups.
     # Keep the shared one-request-per-second limit and the client's total deadline.
     with academic_rate_limit.query_wait(15):
@@ -37,21 +48,29 @@ def query(student_id, term, refresh=False):
                   "rate_limit_unavailable": 503}.get(code, 502)
         raise academic.AcademicError(code, (error.get("message") or "学校课表暂不可用") + "；已保存的课表保持不变", status)
     if not snapshot.get("complete"):
-        raise HTTPException(409, "学校未返回完整课表，已保存的课表保持不变，请稍后重试")
+        raise academic.AcademicError("snapshot_incomplete", "学校未返回完整课表，已保存的课表保持不变，请稍后重试", 409)
     return snapshot
 
 
 def _upsert_row(db, user_id, student_id, term, remark, snapshot):
+    db.execute("SELECT pg_advisory_xact_lock(%s)", (user_id,))
+    counts = db.execute("""SELECT COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE student_id=%s) AS present FROM academic_others WHERE user_id=%s""",
+        (student_id, user_id)).fetchone()
+    if counts["total"] >= MAX_SAVED_PEOPLE and not counts["present"]:
+        raise academic.AcademicError("saved_people_limit", "最多保存50位同学的课表，请先移除不需要的收藏", 409)
     row = db.execute("""INSERT INTO academic_others(user_id,student_id,term,remark,snapshot)
-        VALUES(%s,%s,%s,%s,%s::jsonb) ON CONFLICT(user_id,student_id) DO UPDATE
-        SET term=excluded.term,remark=excluded.remark,snapshot=excluded.snapshot,updated_at=CURRENT_TIMESTAMP
+        VALUES(%s,%s,%s,COALESCE(%s,''),%s::jsonb) ON CONFLICT(user_id,student_id) DO UPDATE
+        SET term=excluded.term,remark=CASE WHEN %s::text IS NULL THEN academic_others.remark ELSE excluded.remark END,
+        snapshot=excluded.snapshot,updated_at=CURRENT_TIMESTAMP
         RETURNING student_id,term,remark,snapshot,updated_at""",
-        (user_id, student_id, term, remark.strip(), json.dumps(snapshot, ensure_ascii=False))).fetchone()
+        (user_id, student_id, term, remark.strip() if remark is not None else None,
+         json.dumps(snapshot, ensure_ascii=False), remark)).fetchone()
     return dict(row)
 
 
-def save(user_id, student_id, term, remark=""):
-    snapshot = query(student_id, term)
+def save(user_id, student_id, term, remark=None):
+    snapshot = query(student_id, term, user_id=user_id)
     with connect() as db:
         return _upsert_row(db, user_id, student_id, term, remark, snapshot)
 
@@ -59,6 +78,22 @@ def save(user_id, student_id, term, remark=""):
 def remove(user_id, student_id):
     with connect() as db:
         db.execute("DELETE FROM academic_others WHERE user_id=%s AND student_id=%s", (user_id, student_id))
+
+
+def refresh_saved(user_id, student_id):
+    with connect() as db:
+        old = db.execute("SELECT * FROM academic_others WHERE user_id=%s AND student_id=%s", (user_id, student_id)).fetchone()
+    if not old:
+        raise academic.AcademicError("saved_person_changed", "此人的课表已被移除，请刷新列表", 409)
+    snapshot = query(student_id, old["term"], True, user_id)
+    with connect() as db:
+        row = db.execute("""UPDATE academic_others SET snapshot=%s::jsonb, updated_at=CURRENT_TIMESTAMP
+            WHERE user_id=%s AND student_id=%s AND term=%s AND updated_at=%s
+            RETURNING student_id,term,remark,snapshot,updated_at""",
+            (json.dumps(snapshot, ensure_ascii=False), user_id, student_id, old["term"], old["updated_at"])).fetchone()
+    if not row:
+        raise academic.AcademicError("saved_person_changed", "此人的课表已被修改或移除，未覆盖新数据，请刷新列表", 409)
+    return dict(row)
 
 
 def _person_meta(row: dict) -> dict:
@@ -79,6 +114,8 @@ def _person_meta(row: dict) -> dict:
         "term": str(row.get("term") or snapshot.get("term") or ""),
         "start_date": snapshot.get("start_date"),
         "end_date": snapshot.get("end_date"),
+        "updated_at": str(row.get("updated_at") or ""),
+        "fetched_at": snapshot.get("fetched_at"),
     }
 
 
@@ -96,7 +133,7 @@ def list_saved_summary(db, user_id: int) -> dict:
 
 
 def resolve_saved_person(rows: Sequence[dict], query_text: str) -> dict:
-    needle = "".join(str(query_text or "").lower().split())
+    needle = re.sub(r"[\s()（）·,，、:：\"'“”‘’]+", "", str(query_text or "").lower())
     if not rows:
         raise ScheduleQueryError(
             "NO_OTHER_SCHEDULES",
@@ -112,10 +149,10 @@ def resolve_saved_person(rows: Sequence[dict], query_text: str) -> dict:
     for row in rows:
         meta = _person_meta(row)
         sid = meta["student_id"].lower()
-        remark = "".join(meta["remark"].lower().split())
-        name = "".join(meta["name"].lower().split())
-        cls = "".join(meta["class_name"].lower().split())
-        display = "".join(meta["display_name"].lower().split())
+        remark = re.sub(r"[\s()（）·,，、:：\"'“”‘’]+", "", meta["remark"].lower())
+        name = re.sub(r"[\s()（）·,，、:：\"'“”‘’]+", "", meta["name"].lower())
+        cls = re.sub(r"[\s()（）·,，、:：\"'“”‘’]+", "", meta["class_name"].lower())
+        display = re.sub(r"[\s()（）·,，、:：\"'“”‘’]+", "", meta["display_name"].lower())
         if needle in {sid, remark, name, display} and needle:
             exact.append(row)
         elif any(needle in field or (field and field in needle) for field in (remark, name, cls, display)):
@@ -215,6 +252,8 @@ def check_group_availability(
                 selected_rows.append(matched)
     else:
         selected_rows = list(rows)
+    if not selected_rows:
+        raise ScheduleQueryError("NO_OTHER_SCHEDULES", "你还没有保存可比对的他人课表，请先添加同学的课表。")
 
     participants = []
     if include_me:
@@ -261,6 +300,9 @@ def check_group_availability(
         free_secs = sorted(all_sections - occupied)
         participants.append({
             "role": "other",
+            "term": meta["term"],
+            "updated_at": meta["updated_at"],
+            "fetched_at": meta["fetched_at"],
             "student_id": meta["student_id"],
             "display_name": meta["display_name"],
             "name": meta["name"],
@@ -298,23 +340,16 @@ def check_group_availability(
 
 
 def _default_term_for_user(db, user_id: int, student: dict) -> str:
-    try:
-        row = db.execute("SELECT last_synced_term FROM academic_bindings WHERE user_id=%s", (user_id,)).fetchone()
-        if row and row.get("last_synced_term") and re.fullmatch(r"\d{4}-\d{4}-[12]", str(row["last_synced_term"])):
-            return str(row["last_synced_term"])
-    except Exception:
-        pass
-    try:
-        scheds = db.execute("SELECT term FROM schedules WHERE user_id=%s ORDER BY id DESC", (user_id,)).fetchall()
-        for s in scheds:
-            if s.get("term") and re.fullmatch(r"\d{4}-\d{4}-[12]", str(s["term"])):
-                return str(s["term"])
-    except Exception:
-        pass
-    return str(student.get("default_term") or "2025-2026-2")
+    preferred = str(student.get("default_term") or "")
+    if re.fullmatch(r"\d{4}-\d{4}-[12]", preferred):
+        return preferred
+    today = datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+    start_year = today.year if today.month >= 8 else today.year - 1
+    return f"{start_year}-{start_year + 1}-{'1' if today.month >= 8 or today.month == 1 else '2'}"
 
 
-def search_and_save_other(db, user_id: int, keyword: str, remark: str = "", term: str = "", student_id: str = "") -> dict:
+def search_and_save_other(db_or_factory, user_id: int, keyword: str, remark: str | None = None, term: str = "", student_id: str = "") -> dict:
+    check_query_limit(user_id)
     sid = str(student_id or "").strip()
     kw = str(keyword or "").strip()
     chosen_student = None
@@ -325,11 +360,11 @@ def search_and_save_other(db, user_id: int, keyword: str, remark: str = "", term
             chosen_student = None
     if chosen_student is None:
         if not kw:
-            return {"ok": False, "status": "needs_input", "message": "请提供要添加同学的姓名、班级或关键词。"}
+            return {"ok": False, "error": "ADD_NEEDS_INPUT", "status": "needs_input", "message": "请提供要添加同学的姓名、班级或关键词。"}
         search_res = academic.search_keyword(kw)
         students = search_res.get("students") or []
         if not students:
-            return {"ok": False, "status": "not_found", "keyword": kw, "message": f"没有在学校名录中找到与“{kw}”匹配的学生。"}
+            return {"ok": False, "error": "STUDENT_NOT_FOUND", "status": "not_found", "keyword": kw, "message": f"没有在学校名录中找到与“{kw}”匹配的学生。"}
         if len(students) > 1:
             # Check if keyword exactly matches a single student_number_display or id
             exact_id = [s for s in students if s.get("id") == kw or s.get("student_number_display") == kw]
@@ -353,6 +388,7 @@ def search_and_save_other(db, user_id: int, keyword: str, remark: str = "", term
                 )
                 return {
                     "ok": False,
+                    "error": "AMBIGUOUS_PERSON",
                     "status": "ambiguous",
                     "keyword": kw,
                     "total_matches": len(students),
@@ -364,16 +400,17 @@ def search_and_save_other(db, user_id: int, keyword: str, remark: str = "", term
 
     target_term = str(term or "").strip()
     if not re.fullmatch(r"\d{4}-\d{4}-[12]", target_term):
-        target_term = _default_term_for_user(db, user_id, chosen_student)
+        target_term = _default_term_for_user(None, user_id, chosen_student)
 
     snapshot = query(chosen_student["id"], target_term)
-    saved_row = _upsert_row(db, user_id, chosen_student["id"], target_term, remark, snapshot)
+    with db_ctx(db_or_factory) as db:
+        saved_row = _upsert_row(db, user_id, chosen_student["id"], target_term, remark, snapshot)
     meta = _person_meta(saved_row)
     return {
         "ok": True,
         "status": "saved",
         "person": meta,
-        "course_count": len((saved_row.get("snapshot") or {}).get("courses") or []),
+        "course_count": len(snapshot.get("courses") or []),
         "message": f"已添加 {meta['display_name']}（{meta['class_name']}，{meta['term']} 学期）的课表。",
     }
 

@@ -16,11 +16,31 @@ class Db:
     def __init__(self):
         self.rows = {}
         self.calls = []
+        self.version = 0
     def execute(self, sql, params):
         self.calls.append(sql)
+        if "pg_advisory_xact_lock" in sql:
+            return Result(None)
+        if "COUNT(*) AS total" in sql:
+            sid, uid = params
+            return Result({"total": sum(k[0] == uid for k in self.rows), "present": int((uid, sid) in self.rows)})
+        if sql.startswith("SELECT * FROM academic_others"):
+            row = self.rows.get(tuple(params))
+            return Result(dict(row) if row else None)
+        if sql.startswith("UPDATE academic_others SET snapshot"):
+            snapshot, uid, sid, term, version = params
+            row = self.rows.get((uid, sid))
+            if not row or row['term'] != term or row['updated_at'] != version:
+                return Result(None)
+            self.version += 1
+            row.update(snapshot=json.loads(snapshot), updated_at=self.version)
+            return Result(dict(row))
         if sql.startswith("INSERT"):
-            uid, sid, term, remark, snapshot = params
-            row = dict(student_id=sid, term=term, remark=remark, snapshot=json.loads(snapshot))
+            uid, sid, term, remark, snapshot, _ = params
+            if remark is None:
+                remark = self.rows.get((uid, sid), {}).get("remark", "")
+            self.version += 1
+            row = dict(student_id=sid, term=term, remark=remark, snapshot=json.loads(snapshot), updated_at=self.version)
             self.rows[uid, sid] = row
             return Result(row)
         if sql.startswith("DELETE"):
@@ -34,6 +54,7 @@ def db(monkeypatch):
     @contextmanager
     def connect(): yield db
     monkeypatch.setattr(service, "connect", connect)
+    monkeypatch.setattr(service.query_limiter, "hit", lambda key: (True, 0))
     monkeypatch.setattr(service.academic, "get_schedule", lambda *args: {"complete": True, "courses": []})
     return db
 
@@ -221,6 +242,8 @@ def test_agent_query_other_courses_and_group_availability(db, monkeypatch):
 
     # 1. Direct tool verification: query_other_day_courses by remark "室友"
     other_day = tools.query_other_day_courses("室友", date(2026, 9, 9), "afternoon")
+    assert tools.query_other_day_courses("室友(李四)", date(2026, 9, 9), "afternoon")["person"]["name"] == "李四"
+    assert tools.query_other_day_courses("室友 · 李四", date(2026, 9, 9), "afternoon")["person"]["name"] == "李四"
     assert other_day["person"]["name"] == "李四"
     assert len(other_day["courses"]) == 1
     assert other_day["courses"][0]["name"] == "数据结构"

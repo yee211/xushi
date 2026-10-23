@@ -76,7 +76,7 @@ Page({
         }
       }
       // 账号关联可能替换课表归属，旧账号缓存不能继续展示。
-      for (const key of ['schedules_cache', 'bound_student', 'latest_import_schedule_id']) wx.removeStorageSync(key)
+      for (const key of ['schedules_cache', 'other_schedules_cache', 'bound_student', 'latest_import_schedule_id']) wx.removeStorageSync(key)
       if (result.school_conflict_resolved) {
         wx.removeStorageSync('active_schedule_id')
         wx.removeStorageSync('academic_pending_task_id')
@@ -104,7 +104,7 @@ Page({
     try {
       await app.request('/api/account/link', { method: 'DELETE' })
       // 服务端已吊销全部会话：清除本地令牌，下次请求静默重新登录为全新账号
-      for (const key of ['session_token', 'schedules_cache', 'bound_student', 'active_schedule_id', 'latest_import_schedule_id', 'academic_pending_task_id']) wx.removeStorageSync(key)
+      for (const key of ['session_token', 'schedules_cache', 'other_schedules_cache', 'bound_student', 'active_schedule_id', 'latest_import_schedule_id', 'academic_pending_task_id']) wx.removeStorageSync(key)
       this.setData({ account: { linked: false, email: '' } })
       this.toast('已解除绑定')
       this.loadStatus()

@@ -186,7 +186,7 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
             people = tools.list_other_people().get("people") or []
             other_scope = any(
                 str(person.get(key) or "").strip() in text
-                for person in people for key in ("name", "remark", "student_id")
+                for person in people for key in ("name", "remark", "student_id", "class_name", "display_name", "major_name")
                 if str(person.get(key) or "").strip()
             )
         except Exception:

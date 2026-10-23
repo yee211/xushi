@@ -217,7 +217,7 @@ def refresh_directory(admin=Depends(require_superadmin)):
 class OtherScheduleIn(BaseModel):
     student_id: str = Field(min_length=8, max_length=200)
     term: str = Field(pattern=r"^\d{4}-\d{4}-[12]$")
-    remark: str = Field(default="", max_length=40)
+    remark: str | None = Field(default=None, max_length=40)
 
 
 @router.get("/api/academic/others")
@@ -230,7 +230,7 @@ def other_schedules(user=Depends(get_current_user)):
 def other_preview(student_id: str, term: str = Query(pattern=r"^\d{4}-\d{4}-[12]$"),
                   refresh: bool = False, user=Depends(get_current_user)):
     from ..services import academic_others
-    return invoke(academic_others.query, student_id, term, refresh)
+    return invoke(academic_others.query, student_id, term, refresh, user["id"])
 
 
 @router.put("/api/academic/others")
@@ -243,3 +243,9 @@ def save_other(payload: OtherScheduleIn, user=Depends(get_current_user)):
 def delete_other(student_id: str, user=Depends(get_current_user)):
     from ..services import academic_others
     academic_others.remove(user["id"], student_id)
+
+
+@router.post("/api/academic/others/{student_id}/refresh")
+def refresh_other(student_id: str, user=Depends(get_current_user)):
+    from ..services import academic_others
+    return invoke(academic_others.refresh_saved, user["id"], student_id)

@@ -80,17 +80,23 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
         snapshot, version, history = None, None, []
     pending = clarification.load(scope, snapshot, now)
     original_text = text
+    person_choice = None
     if pending and text in {"取消", "算了", "不用了", "不查了", "取消查询", "取消追问"}:
         clarification.clear(scope)
         return "已取消刚才的待确认问题。你可以直接问新的问题。"
     if selection_ack and not pending:
         return selection_ack
-    if pending and not selection and clarification.is_new_request(text, now.date()):
+    if pending and pending.people:
+        person_choice = clarification.selected_person(pending, text)
+    if pending and not selection and not person_choice and clarification.is_new_request(text, now.date()):
         clarification.clear(scope)
         pending = None
         history = []
     if pending:
-        if pending.schedules:
+        if pending.people:
+            if person_choice is None:
+                return "请按刚才的候选回复第几位、班级或学号，也可以回复“取消”。"
+        elif pending.schedules:
             choice = clarification.selected_choice(pending, text)
             if choice is None:
                 return "请按刚才的候选回复“第几个”，或发送“使用课表 编号”。也可以回复“取消”。"
@@ -108,18 +114,28 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
         else:
             text = pending.original if selection else clarification.resume_text(pending, text)
         history = pending.history()
-    result = handle_message(text, tools, history=history)
+    if person_choice:
+        import json
+
+        from .completion import finalize
+        args = {**pending.person_request, "student_id": person_choice.student_id}
+        item = tools.add_other_schedule(**args)
+        result = finalize({"intent": "AGENT_LOOP", "answer": item.get("message", ""), "tool_result": {
+            "skills": [{"skill": "add_other_schedule", "arguments": json.dumps(args), "result": item}]}})
+    else:
+        result = handle_message(text, tools, history=history)
     if result.get("status") == "needs_input" and snapshot is not None:
         turns = (pending.turns + [(pending.question, original_text)]) if pending else []
         if len(turns) > 3:
             clarification.clear(scope)
             result["answer"] = "还没能确认你的意思，请把日期、课程或课表选择与原问题一起重新发送。"
         else:
+            people, person_request = clarification.person_choices(result)
             waiting = clarification.PendingQuestion(
                 original=pending.original if pending else original_text,
                 question=result["answer"][:4000], version=snapshot,
                 created_at=pending.created_at if pending else now, turns=turns,
-                schedules=clarification.schedule_choices(result))
+                schedules=clarification.schedule_choices(result), people=people, person_request=person_request)
             if not clarification.save(scope, waiting):
                 result["answer"] += "\n暂时无法保存这次追问，请将补充信息与原问题一起发送。"
     else:

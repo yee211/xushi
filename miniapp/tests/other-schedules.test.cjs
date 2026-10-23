@@ -14,6 +14,80 @@ function harness(request = async () => ({ people: [] })) {
   return { page, storage }
 }
 const person = { student_id: 'other123', term: '2026-2027-1', snapshot: { student: { name: '同学' }, courses: [] } }
+
+function searchHarness(request = async () => ({ terms: ['2026-2027-1'] }), failCache = false) {
+  let page
+  let navigated = 0
+  const storage = new Map([['session_token', 'current-session']])
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/others/others.js'), 'utf8'), {
+    getApp: () => ({ request }), Page: p => { page = p }, getCurrentPages: () => [page],
+    wx: { getStorageSync: k => storage.get(k), setStorageSync: (k, v) => { if (failCache) throw new Error('quota'); storage.set(k, v) },
+      navigateBack() { navigated++ }, showModal(opts) { page.removal = opts.success({ confirm: true }) } }
+  })
+  page.setData = v => Object.assign(page.data, v)
+  return { page, storage, navigated: () => navigated }
+}
+
+test('missing preferred term remains selected instead of overwriting another term', async () => {
+  const { page } = searchHarness()
+  await page.loadTerms({ id: 'student123' }, '2025-2026-2')
+  assert.equal(page.data.terms[page.data.termIndex], '2025-2026-2')
+  assert.equal(page.data.terms.length, 2)
+})
+
+test('selecting student clears old terms even when favorites request fails', async () => {
+  const { page } = searchHarness(async url => {
+    if (url.endsWith('/others')) throw new Error('offline')
+    return { terms: ['2026-2027-1'] }
+  })
+  page.setData({ terms: ['2025-2026-1'], students: [{ id: 'new-person' }] })
+  await page.choose({ currentTarget: { dataset: { id: 'new-person' } } })
+  assert.equal(page.data.selected.id, 'new-person')
+  assert.equal(page.data.terms[0], '2026-2027-1')
+})
+
+test('cache quota failure cannot turn a committed save or deletion into an error', async () => {
+  const { page, navigated } = searchHarness(async () => person, true)
+  page.setData({ selected: { id: person.student_id }, terms: [person.term] })
+  await page.save()
+  assert.equal(page.data.error, '')
+  assert.equal(navigated(), 1)
+  page.setData({ saved: true })
+  page.remove()
+  await page.removal
+  assert.equal(page.data.error, '')
+  assert.equal(navigated(), 2)
+})
+
+test('saving creates a cache under the current session and discards prior session data', async () => {
+  const { page, storage } = searchHarness(async () => person)
+  page.setData({ selected: { id: person.student_id }, terms: [person.term] })
+  await page.save()
+  assert.equal(storage.get('other_schedules_cache').session, 'current-session')
+  storage.set('other_schedules_cache', { session: 'old-session', people: [{ student_id: 'old-person' }] })
+  await page.save()
+  assert.equal(storage.get('other_schedules_cache').people.length, 1)
+  assert.equal(storage.get('other_schedules_cache').people[0].student_id, person.student_id)
+})
+
+test('refresh uses a conditional server update and blocks conflicting navigation', async () => {
+  let resolveRefresh
+  const calls = []
+  const { page } = harness((url, options) => {
+    calls.push({ url, method: options.method })
+    return new Promise(resolve => { resolveRefresh = resolve })
+  })
+  page.setData({ scheduleScope: 'others', otherPeople: [person], otherPerson: person })
+  const refreshing = page.refreshOther()
+  page.manageOther()
+  await page.switchScheduleScope('mine')
+  assert.equal(page.data.scheduleScope, 'others')
+  resolveRefresh(person)
+  await refreshing
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].method, 'POST')
+  assert.match(calls[0].url, /\/others\/other123\/refresh$/)
+})
 test('viewing and refreshing others cannot select or overwrite personal timetable', async () => {
   const { page, storage } = harness(async () => { throw new Error('offline') })
   page.setData({ scheduleScope: 'others', otherPeople: [person] })
@@ -101,7 +175,7 @@ test('refreshing saved other person updates local cache for offline fallback', a
   const updatedCourse = { name: '新课程', weekday: 1, start_section: 1, end_section: 2, weeks: [1] }
   const { page, storage } = harness(async (url, opts) => {
     if (url.includes('/schedule')) return { student: { name: '同学', class_name: '1班' }, courses: [updatedCourse], complete: true }
-    if (url.endsWith('/others') && opts && opts.method === 'PUT') return { ...person, snapshot: { student: { name: '同学', class_name: '1班' }, courses: [updatedCourse] } }
+    if (url.endsWith('/refresh') && opts && opts.method === 'POST') return { ...person, snapshot: { student: { name: '同学', class_name: '1班' }, courses: [updatedCourse] } }
     return { people: [] }
   })
   storage.set('session_token', 'sess-1')

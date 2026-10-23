@@ -212,6 +212,21 @@ def test_unknown_query_does_not_claim_expiry(monkeypatch):
     assert mail.outbox()["attempts"] == 0
 
 
+def test_persistent_unknown_query_eventually_alerts_without_claiming_expiry(monkeypatch):
+    calls = smtp(monkeypatch)
+    configured()
+    data = mail.outbox()
+    data["detected_at"] = (datetime.now(UTC) - timedelta(minutes=31)).isoformat()
+    mail.save_outbox(data)
+    monkeypatch.setattr(mail, "verify_query_connection", lambda: "unknown")
+    mail.process_one()
+    assert len(calls) == 1
+    assert "无法确认查询状态" in calls[0]["Subject"]
+    assert "请重新登录" not in calls[0]["Subject"]
+    mail.process_one()
+    assert len(calls) == 1
+
+
 def test_persistent_maintenance_alert_is_distinct_and_deduplicated(monkeypatch):
     calls = smtp(monkeypatch)
     configured()

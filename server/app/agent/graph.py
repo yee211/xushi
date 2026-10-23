@@ -17,6 +17,7 @@ from langsmith import tracing_context
 from . import loop
 from .completion import COMPLETION_PROMPT, Completion, promises_work
 from .course_reply import CourseComment, course_facts, render_courses
+from .other_reply import contextual_question, mentions_others, mixed_people, render_other_facts
 
 
 class QueryState(TypedDict, total=False):
@@ -34,17 +35,64 @@ class QueryRun:
         self.tools = tools
         self.question = question
         self.history = history
+        self.scope_question = contextual_question(question, history)
         self.base_url, self.api_key, self.model_name = credentials or loop.agent_config()
         self.config = loop.get_llm_config("agent")
         self.skills = loop.build_skills(tools)
         # Recovery snapshot belongs only to this invocation, never a module global.
         self.facts = []
+        self._people = None
+
+    def other_scope(self):
+        if mentions_others(self.scope_question):
+            return True
+        if self._people is None:
+            self._people = self.tools.list_other_people().get("people") or []
+        return mentions_others(self.scope_question, self._people)
+
+    def scope_complete(self, facts):
+        if not self.other_scope():
+            return True
+        called = {f["skill"] for f in facts}
+        if re.search(r"有空|空闲|空档|忙不忙|忙吗|空不空", self.scope_question):
+            results = [f["result"] for f in facts if f["skill"] == "check_group_availability"]
+            return any(r.get("error") or (
+                any(p["role"] == "other" for p in r.get("participants", [])) and
+                (not mixed_people(self.scope_question) or any(p["role"] == "me" for p in r["participants"]))) for r in results)
+        if re.search(r"课|安排", self.scope_question) and not re.search(r"添加|加一下|保存|绑定|名单|列表", self.scope_question):
+            return "query_other_day_courses" in called and (not mixed_people(self.scope_question) or "query_day_courses" in called)
+        return True
+
+    def other_error(self, facts):
+        names = {"query_other_day_courses", "check_group_availability", "add_other_schedule"}
+        if any(f["skill"] in names for f in facts):
+            names.add("query_day_courses")
+        relevant = [f for f in facts if f["skill"] in names]
+        # A later retry of the same operation may recover an earlier error.
+        latest = {}
+        for fact in relevant:
+            latest[(fact["skill"], str(fact.get("arguments")))] = fact["result"]
+        for item in latest.values():
+            if item.get("error") and item.get("message"):
+                answer = self.answer(facts, item["message"])
+                answer["_completion_status"] = "needs_input" if item["error"] in {
+                    "AMBIGUOUS_PERSON", "AMBIGUOUS_SCHEDULE", "ADD_NEEDS_INPUT", "NO_OTHER_SCHEDULES", "PERSON_NOT_FOUND"} else "failed"
+                return answer
+        return None
 
     def answer(self, facts, content):
         return {"answer": content, "skills": [f["skill"] for f in facts],
                 "tool_result": {"skills": facts}, "resolved_context": loop._extract_context_entities(facts)}
 
     def saved_answer(self, facts):
+        error = self.other_error(facts)
+        if error:
+            return error
+        if not self.scope_complete(facts):
+            return None
+        rendered = render_other_facts(facts, self.tools.context.now.date())
+        if rendered:
+            return self.answer(facts, rendered)
         bundle = course_facts(facts, self.question)
         if bundle is None:
             return None
@@ -66,7 +114,7 @@ class QueryRun:
                    "max_tokens": int(self.config.get("max_tokens") or loop.MAX_TOKENS),
                    "messages": state["messages"], "tools": loop.openai_tools(self.skills), "tool_choice": "auto",
                    "response_format": {"type": "json_object"}}
-        if course_facts(state["facts"], self.question) is not None:
+        if self.scope_complete(state["facts"]) and course_facts(state["facts"], self.question) is not None:
             payload["messages"] = state["messages"] + [{"role": "system", "content":
                 '课程列表由服务端使用工具事实生成。只输出 JSON 对象 {"closing":"一句可选的自然提醒"}。'
                 '不要输出日期、课程列表或同步状态；没有适合的提醒就返回 {"closing":""}。'}]
@@ -117,11 +165,15 @@ class QueryRun:
 
     def validate(self, state: QueryState) -> dict:
         facts = state["facts"]
+        error = self.other_error(facts)
+        if error:
+            return {"answer": error, "route": "done"}
         content = str(state["reply"].get("content") or "").strip()
         content = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", content, flags=re.DOTALL).strip()
         content = content.replace("😂", "").strip()
         completion_status = None
-        bundle = course_facts(facts, self.question)
+        complete_scope = self.scope_complete(facts)
+        bundle = course_facts(facts, self.question) if complete_scope else None
         # Preserve verified courses even if the optional model comment is malformed.
         # Older providers may return plain text; the same execution checks still apply.
         if bundle is None and content.startswith(("{", "[")):
@@ -142,6 +194,11 @@ class QueryRun:
                 answer = self.answer(facts, content)
                 answer["_completion_status"] = "needs_input"
                 return {"answer": answer, "route": "done"}
+        if not complete_scope:
+            return self.unfinished(state)
+        rendered = render_other_facts(facts, self.tools.context.now.date())
+        if rendered:
+            return {"answer": self.answer(facts, rendered), "route": "done"}
         if bundle is not None:
             try:
                 comment = CourseComment.model_validate_json(content).closing

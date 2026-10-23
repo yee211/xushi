@@ -10,9 +10,9 @@
     <view class="control-wrap" wx:if="{{schedule}}">
       <view class="control-card card">
         <view class="term-week-bar">
-          <view class="term-picker" hover-class="term-picker-hover" hover-stay-time="80" bindtap="onTermPickerTap" aria-label="切换课表">
+          <view class="term-picker" hover-class="term-picker-hover" hover-stay-time="80" bindtap="onTermPickerTap" aria-label="切换人员或查找他人课表">
             <text class="term-title-text">{{scheduleScope === 'others' && otherPerson ? ((otherPerson.remark || otherPerson.snapshot.student.name) + ' · ' + (schedule.term || schedule.name)) : (schedule.term || schedule.name)}}</text>
-            <text class="term-chevron">▾</text>
+            <text class="term-chevron">换人 ▾</text>
           </view>
           <view class="week-inline">
             <view class="week-chip" hover-class="week-chip-hover" hover-stay-time="100" bindtap="toggleWeekPicker" aria-label="选择周数">

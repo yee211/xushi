@@ -19,6 +19,14 @@ class Choice(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class PersonChoice(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    student_id: str
+    name: str = ""
+    class_name: str = ""
+    student_number_display: str = ""
+
+
 class PendingQuestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
     original: str = Field(min_length=1, max_length=500)
@@ -27,6 +35,8 @@ class PendingQuestion(BaseModel):
     created_at: datetime
     turns: list[tuple[str, str]] = Field(default_factory=list, max_length=3)
     schedules: list[Choice] = Field(default_factory=list, max_length=30)
+    people: list[PersonChoice] = Field(default_factory=list, max_length=8)
+    person_request: dict = Field(default_factory=dict)
 
     def history(self):
         result = [HumanMessage(content=self.original + "\n[消息时间：" + self.created_at.isoformat() + "]")]
@@ -89,6 +99,30 @@ def schedule_choices(result):
         if item.get("code", item.get("error")) == "AMBIGUOUS_SCHEDULE":
             return [Choice.model_validate(c) for c in item.get("candidates", [])][:30]
     return []
+
+
+def person_choices(result):
+    import json
+    for fact in reversed((result.get("tool_result") or {}).get("skills", [])):
+        item = fact.get("result") or {}
+        if fact.get("skill") == "add_other_schedule" and item.get("status") == "ambiguous":
+            args = fact.get("arguments") or {}
+            args = json.loads(args) if isinstance(args, str) else args
+            return ([PersonChoice.model_validate(c) for c in item["candidates"][:8]],
+                    {k: v for k, v in args.items() if k in {"keyword", "remark", "term"}})
+    return [], {}
+
+
+def selected_person(pending, text):
+    text = text.strip(" ，,。！!？?")
+    ordinal = re.fullmatch(r"第?([一二三四五六七八]|\d+)(?:个|位|名)?", text)
+    if ordinal:
+        value = ordinal[1]
+        index = int(value) if value.isdigit() else "一二三四五六七八".index(value) + 1
+        return pending.people[index - 1] if 1 <= index <= len(pending.people) else None
+    matches = [p for p in pending.people if text in {
+        p.student_id, p.name, p.class_name, p.student_number_display, p.class_name + "那个"}]
+    return matches[0] if len(matches) == 1 else None
 
 
 def selected_choice(pending, text):

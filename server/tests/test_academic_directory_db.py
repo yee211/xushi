@@ -74,6 +74,17 @@ def test_search_truncation_and_grade_prefix(database):
     assert academic.search_keyword('24级计算机')['source'] == 'directory'
 
 
+def test_number_and_composite_search(database):
+    student = dict(record(name='张三'), class_name='软件1班', student_number_display='2024012345')
+    seed(database, [student])
+    for keyword in ('2024012345', '24级软件1班张三', '软件1班 张三'):
+        assert academic.search_keyword(keyword)['students'][0]['id'] == student['id']
+    # Old published search_text omitted student numbers; payload fallback works.
+    with database() as db:
+        db.execute("UPDATE academic_directory_students SET search_text='张三 软件1班 2024'")
+    assert academic.search_keyword('2024012345')['students'][0]['id'] == student['id']
+
+
 def test_upstream_failure_preserves_snapshot(database, monkeypatch):
     seed(database)
     def fail(progress):

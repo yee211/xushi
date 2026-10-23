@@ -243,7 +243,11 @@ function displayCourses(schedule, week, count, colorMap, rowHeight = ROW_HEIGHT)
 }
 
 Page({
+  cacheOtherPeople(people) {
+    try { wx.setStorageSync('other_schedules_cache', { session: wx.getStorageSync('session_token'), people }) } catch (_) {}
+  },
   async switchScheduleScope(e) {
+    if (this.otherBusy) return
     const scope = (e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.scope) || (typeof e === 'string' ? e : 'mine')
     if (scope === this.data.scheduleScope) return
     if (scope === 'others') {
@@ -265,6 +269,7 @@ Page({
     }
   },
   openOtherSearch() {
+    if (this.otherBusy) return
     this.setData({ scheduleCenterOpen: false, termSheetOpen: false })
     wx.navigateTo({ url: '/pages/others/others' })
   },
@@ -281,6 +286,7 @@ Page({
     }
   },
   async onTermPickerTap() {
+    if (this.otherBusy) return
     if (this._openingTermPicker) return
     this._openingTermPicker = true
     try {
@@ -291,7 +297,7 @@ Page({
           if (this.closed) return
           if (res && Array.isArray(res.people)) {
             this.otherSession = wx.getStorageSync('session_token')
-            wx.setStorageSync('other_schedules_cache', { session: this.otherSession, people: res.people })
+            this.cacheOtherPeople(res.people)
             people = res.people.map(p => ({ ...p, displayName: (p.remark ? p.remark + ' · ' : '') + p.snapshot.student.name + ' · ' + (p.snapshot.student.class_name || '') }))
             this.setData({ otherPeople: people })
           }
@@ -343,7 +349,7 @@ Page({
       const result = await app.request('/api/academic/others')
       if (this.closed || revision !== this.otherLoadRevision || this.data.scheduleScope !== 'others') return
       this.otherSession = wx.getStorageSync('session_token')
-      wx.setStorageSync('other_schedules_cache', { session: this.otherSession, people: result.people || [] })
+      this.cacheOtherPeople(result.people || [])
       this.setData({ cacheNotice: '' })
       this.setData({ otherPeople: (result.people || []).map(p => ({ ...p, displayName: (p.remark ? p.remark + ' · ' : '') + p.snapshot.student.name + ' · ' + (p.snapshot.student.class_name || '') })), loading: false })
       const current = this.data.otherPerson
@@ -355,7 +361,7 @@ Page({
       const cache = wx.getStorageSync('other_schedules_cache')
       if (cache && cache.session === wx.getStorageSync('session_token') && ![401, 403].includes(e.statusCode)) {
         const people = cache.people || []
-        this.setData({ otherPeople: people.map(p => ({ ...p, displayName: (p.remark || p.snapshot.student.name) + ' · ' + (p.snapshot.student.class_name || '') })), cacheNotice: '离线课表 · 显示上次保存的他人课表' })
+        this.setData({ otherPeople: people.map(p => ({ ...p, displayName: (p.remark ? p.remark + ' · ' : '') + p.snapshot.student.name + ' · ' + (p.snapshot.student.class_name || '') })), cacheNotice: '离线课表 · 显示上次保存的他人课表' })
         const current = this.data.otherPerson
         this.showOtherPerson(this.previewOther || people.find(p => current && p.student_id === current.student_id) || people[0] || null)
         this.previewOther = null
@@ -370,23 +376,28 @@ Page({
       scheduleActive: schedule ? isScheduleActiveToday(schedule) : false, statusText: '他人课表 · 只读' })
     this.applyWeek(termWeek(schedule))
   },
-  chooseOtherPerson(e) { this.showOtherPerson(this.data.otherPeople[Number(e.detail.value)]) },
+  chooseOtherPerson(e) { if (!this.otherBusy) this.showOtherPerson(this.data.otherPeople[Number(e.detail.value)]) },
   async refreshOther() {
     const person = this.data.otherPerson
     if (!person || this.otherBusy) return
     this.otherBusy = true
+    const session = wx.getStorageSync('session_token')
     this.setData({ otherBusy: true })
     try {
-      const snapshot = await app.request('/api/academic/students/' + encodeURIComponent(person.student_id) + '/schedule', { data: { term: person.term, refresh: true }, timeout: 120000 })
-      if (snapshot.stale || !snapshot.complete) throw new Error('学校暂不可用，保留原课表')
-      let updated = { ...person, snapshot }
-      if (this.data.otherPeople.some(p => p.student_id === person.student_id)) {
-        updated = await app.request('/api/academic/others', { method: 'PUT', data: { student_id: person.student_id, term: person.term, remark: person.remark || '' }, timeout: 120000 })
+      const saved = this.data.otherPeople.some(p => p.student_id === person.student_id)
+      let updated
+      if (saved) {
+        updated = await app.request('/api/academic/others/' + encodeURIComponent(person.student_id) + '/refresh', { method: 'POST', timeout: 120000 })
+      } else {
+        const snapshot = await app.request('/api/academic/students/' + encodeURIComponent(person.student_id) + '/schedule', { data: { term: person.term, refresh: true }, timeout: 120000 })
+        if (snapshot.stale || !snapshot.complete) throw new Error('学校暂不可用，保留原课表')
+        updated = { ...person, snapshot }
       }
+      if (this.closed || this.data.otherPerson !== person || this.data.scheduleScope !== 'others' || wx.getStorageSync('session_token') !== session) return
       if (!this.closed && this.data.scheduleScope === 'others' && this.data.otherPerson === person) {
         const nextPeople = this.data.otherPeople.map(p => p.student_id === updated.student_id ? { ...updated, displayName: (updated.remark ? updated.remark + ' · ' : '') + updated.snapshot.student.name + ' · ' + (updated.snapshot.student.class_name || '') } : p)
         this.setData({ otherPeople: nextPeople })
-        wx.setStorageSync('other_schedules_cache', { session: wx.getStorageSync('session_token'), people: nextPeople })
+        this.cacheOtherPeople(nextPeople)
         this.showOtherPerson(updated)
         this.toast('课表已更新', 'success')
       }
@@ -394,6 +405,7 @@ Page({
     finally { this.otherBusy = false; if (!this.closed) this.setData({ otherBusy: false }) }
   },
   manageOther() {
+    if (this.otherBusy) return
     const person = this.data.otherPerson
     if (!person) return
     wx.navigateTo({ url: '/pages/others/others?studentId=' + encodeURIComponent(person.student_id) })
@@ -404,6 +416,7 @@ Page({
   chooseCenterImport() { this.setData({ scheduleCenterOpen: false }); this.openFileImportModal() },
 
   switchTab(e) {
+    if (this.otherBusy) return
     const tab = (e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.tab) || 'home'
     if (this.data.currentTab === tab) return
     if (tab === 'mine' && this.data.scheduleScope === 'others') this.switchScheduleScope({ currentTarget: { dataset: { scope: 'mine' } } })

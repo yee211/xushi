@@ -21,6 +21,20 @@ class AccountLinkError(RuntimeError):
         self.code, self.message, self.details = code, message, details
 
 
+def _move_other_schedules(db, source_id, target_id):
+    """Newest snapshot wins; transfer ownership without leaving stale copies."""
+    db.execute(
+        """INSERT INTO academic_others(user_id, student_id, term, remark, snapshot, updated_at)
+           SELECT %s, student_id, term, remark, snapshot, updated_at
+           FROM academic_others WHERE user_id=%s
+           ON CONFLICT(user_id, student_id) DO UPDATE SET
+             term=excluded.term, remark=excluded.remark, snapshot=excluded.snapshot, updated_at=excluded.updated_at
+           WHERE excluded.updated_at >= academic_others.updated_at""",
+        (target_id, source_id),
+    )
+    db.execute("DELETE FROM academic_others WHERE user_id=%s", (source_id,))
+
+
 def create_link_code(db, user_id: int, ttl_seconds: int = 300) -> tuple[str, datetime]:
     """为邮箱账号生成小程序绑定码；已绑定微信的账号需先解绑。"""
     row = db.execute("SELECT openid FROM users WHERE id=%s", (user_id,)).fetchone()
@@ -158,6 +172,10 @@ def link_wechat_account(db, code: str, wx_user: dict, school_choice=None, confli
                 occupied.append(dict(schedule))
                 schedules_moved += 1
 
+    # Merge newest snapshots. On unlink these collections move with WeChat,
+    # so deleted favorites cannot reappear from an abandoned App-side copy.
+    _move_other_schedules(db, wx_id, target_id)
+
     # openid 带 UNIQUE 约束：先删小程序侧账号腾出 openid，再写到目标账号。
     # 有意不随迁的 users 外键表（行随本 DELETE 级联清除）：
     # daily_push_logs（晨推去重日志，纯运行记录，目标账号自有日志不受影响）、
@@ -244,6 +262,8 @@ def unlink_wechat(db, user_id: int) -> dict:
                            FROM courses WHERE schedule_id=%s""",
                         (new_sched["id"], sched["id"])
                     )
+
+        _move_other_schedules(db, user_id, wx_id)
 
     # 5. 吊销原账号的小程序会话（小程序下次请求凭 openid 登录进入 wx_id）
     revoked_sessions = db.execute("SELECT token_hash FROM sessions WHERE user_id=%s", (user_id,)).fetchall()

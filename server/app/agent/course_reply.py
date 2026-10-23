@@ -95,6 +95,8 @@ class CourseList(BaseModel):
 
 
 def course_facts(facts: list[dict], message: str) -> CourseList | None:
+    if any(f.get("skill") in {"query_other_day_courses", "check_group_availability"} for f in facts):
+        return None
     if not list_question(message):
         return None
     import json

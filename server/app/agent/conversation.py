@@ -75,7 +75,7 @@ def load_history(user_id: int, provider: str, thread_key: str, schedule_version:
             if item.get("role") != "user":
                 continue
             resolved = {key: value for key, value in resolved.items()
-                        if key in {"intent", "target_date", "period", "weekday", "course_name"}}
+                        if key in {"intent", "target_date", "period", "weekday", "course_name", "person"}}
             content += "\n[课表已更新：历史消息仅用于理解追问，课程事实必须重新查询]"
         if item.get("role") == "user":
             suffix = f"\n[消息时间：{timestamp}；已解析上下文：{json.dumps(resolved, ensure_ascii=False)}]"

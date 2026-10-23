@@ -39,7 +39,7 @@ SYSTEM_PROMPT = """你是课表小程序「序时」的课表助手，身份是�
   用户用简称或口语时先 list_course_catalog 对照出完整课程名再查；
 - 天气、会不会下雨、要不要带伞用 get_weather；要结合课程给带伞建议时，同时调用
   query_day_courses 和 get_weather，按上课时段给出结论；
-- 问有没有空/空档用 query_day_courses 的结果自行推导。
+- 只问自己有没有空/空档用 query_day_courses；涉及他人、谁有空或共同空闲必须用 check_group_availability。
 - 问同步进度、数据是否更新、学校绑定或没有导入课表，用 get_schedule_status；只有 sync_schedule 返回成功才可宣称已提交；排队或运行中不能说已完成。
 - 多课表冲突如实列出工具返回的候选，提示用户发送“使用课表 编号”，不要替用户选择。
 - 历史回答不是当前事实，涉及课表和天气的追问也必须重新查询。工具不可用与没有课是两种不同结果。
@@ -100,6 +100,21 @@ def _grounded(content: str, context: str) -> bool:
 
 
 def _facts_grounded(content: str, facts: list[dict], question: str) -> bool:
+    from datetime import date
+
+    from .other_reply import mentions_others, render_other_facts
+    errors = [f.get("result") or {} for f in facts if (f.get("result") or {}).get("error")]
+    if errors and all((f.get("result") or {}).get("error") for f in facts) and any(
+            content.strip() == error.get("message") for error in errors):
+        return True
+    other_answer = render_other_facts(facts, date.today())
+    if other_answer is not None:
+        # These replies have a deterministic layout, including per-person and
+        # intersection conclusions. Never validate them against a union of times.
+        return content.strip() == other_answer
+    if mentions_others(question) and re.search(r"有空|空闲|没课|没有课|有.{0,12}课", content) and not any(
+            f.get("skill") in {"query_other_day_courses", "check_group_availability"} for f in facts):
+        return False
     successful = [f for f in facts if isinstance(f.get("result"), dict) and not f["result"].get("error")]
     sync_states = [(f["result"].get("sync_job") or {}).get("state")
                    for f in successful if f["skill"] == "get_schedule_status"]

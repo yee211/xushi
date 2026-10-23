@@ -90,14 +90,13 @@ class ScheduleTools:
             return check_group_availability(db, self.context.user_id, target_date, period,
                                             people, include_me, self.context.default_schedule_id)
 
-    def add_other_schedule(self, keyword: str = "", remark: str = "",
+    def add_other_schedule(self, keyword: str = "", remark: str | None = None,
                            term: str = "", student_id: str = "") -> dict:
         from fastapi import HTTPException
 
         from ..services import academic
         try:
-            with self._connection() as db:
-                return search_and_save_other(db, self.context.user_id, keyword, remark, term, student_id)
+            return search_and_save_other(self._connection, self.context.user_id, keyword, remark, term, student_id)
         except academic.AcademicError as error:
             return {"ok": False, "error": error.code, "message": error.message}
         except HTTPException as error:
@@ -109,6 +108,8 @@ class ScheduleTools:
         with self._connection() as db:
             row = db.execute("""
                 SELECT jsonb_build_object(
+                    'others', COALESCE((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.student_id)
+                        FROM academic_others o WHERE o.user_id=%s), '[]'::jsonb),
                     'binding', (SELECT jsonb_build_object('student_id', b.student->>'id',
                         'revision', b.revision, 'updated_at', b.updated_at)
                         FROM academic_bindings b WHERE b.user_id=%s),
@@ -120,7 +121,7 @@ class ScheduleTools:
                         FROM course_adjustments a JOIN courses c ON c.id=a.course_id
                         JOIN schedules s ON s.id=c.schedule_id WHERE s.user_id=%s), '[]'::jsonb)
                 ) AS snapshot
-            """, (self.context.user_id,) * 4).fetchone()
+            """, (self.context.user_id,) * 5).fetchone()
         return hashlib.sha256(json.dumps(row["snapshot"], sort_keys=True, default=str,
                                          ensure_ascii=False).encode()).hexdigest()
 

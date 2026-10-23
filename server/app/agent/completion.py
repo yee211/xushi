@@ -9,7 +9,7 @@ ARCHIVE_TOOLS = {
     "query_day_courses", "query_week_courses", "get_next_course", "find_course",
     "query_other_day_courses", "check_group_availability", "list_other_people", "add_other_schedule",
 }
-AMBIGUOUS_ERRORS = {"AMBIGUOUS_SCHEDULE", "AMBIGUOUS_PERSON"}
+AMBIGUOUS_ERRORS = {"AMBIGUOUS_SCHEDULE", "AMBIGUOUS_PERSON", "ADD_NEEDS_INPUT", "NO_OTHER_SCHEDULES", "PERSON_NOT_FOUND"}
 OTHER_SCHEDULES_PROMPT = (
     "\n- 查询已保存的他人（室友、同学、搭子）某天课程用 query_other_day_courses，查询已保存他人列表用 list_other_people；"
     "\n- 询问某个时段“谁有空”或“我和某人/室友什么时候都有空（共同空闲）”用 check_group_availability；"
@@ -74,6 +74,10 @@ def finalize(result: dict) -> dict:
     if isinstance(data, dict):
         for fact in reversed(data.get("skills") or []):
             item = fact.get("result") or {}
+            if fact.get("skill") == "add_other_schedule" and item.get("ok") is False:
+                result["answer"] = item.get("message") or "未能保存他人课表，请重试。"
+                reported_status = "needs_input" if item.get("status") in {"ambiguous", "needs_input"} else "failed"
+                break
             if item.get("error") in AMBIGUOUS_ERRORS and item.get("candidates"):
                 result["error"] = {"code": item["error"], "message": item["message"],
                                    "candidates": item["candidates"]}
@@ -84,7 +88,8 @@ def finalize(result: dict) -> dict:
                 break
             if fact.get("skill") in ARCHIVE_TOOLS and not item.get("error"):
                 break
-    reported_status = result.pop("_completion_status", None) or reported_status
+    model_status = result.pop("_completion_status", None)
+    reported_status = reported_status or model_status
     if reported_status in {"failed", "needs_input"}:
         status = reported_status
     if result.get("error"):

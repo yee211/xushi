@@ -152,7 +152,7 @@ def process_one():
         # A transient probe failure is not evidence that login expired. Keep
         # monitoring without consuming the SMTP retry budget.
         age = (datetime.now(UTC) - datetime.fromisoformat(current["detected_at"])).total_seconds()
-        if query_state == "unknown" or (query_state == "available" and age < MAINTENANCE_ALERT_SECONDS):
+        if query_state in {"unknown", "available"} and age < MAINTENANCE_ALERT_SECONDS:
             current.update(status="pending", attempts=current["attempts"] - 1,
                            query_checks=current.get("query_checks", 0) + 1,
                            next_attempt_at=time.time() + QUERY_RECHECK_SECONDS)
@@ -162,7 +162,9 @@ def process_one():
     message = EmailMessage()
     message["From"] = saved["sender"]
     message["To"] = saved["recipient"]
-    message["Subject"] = "序时：学校查询连接不可用，请重新登录" if query_state == "unavailable" else "序时：学校自动维护持续异常，当前查询正常"
+    message["Subject"] = {"unavailable": "序时：学校查询连接不可用，请重新登录",
+                          "available": "序时：学校自动维护持续异常，当前查询正常",
+                          "unknown": "序时：学校维护持续异常，无法确认查询状态"}[query_state]
     message["Date"] = format_datetime(datetime.now(UTC))
     message["Message-ID"] = f"<xushi-school-{incident}@{saved['sender'].split('@')[1]}>"
     descriptions = {
