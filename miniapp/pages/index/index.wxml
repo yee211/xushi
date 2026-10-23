@@ -10,9 +10,14 @@
     <view class="control-wrap" wx:if="{{schedule}}">
       <view class="control-card card">
         <view class="term-week-bar">
-          <view class="term-picker" hover-class="term-picker-hover" hover-stay-time="80" bindtap="onTermPickerTap" aria-label="切换人员或查找他人课表">
+          <view class="term-picker {{scheduleScope === 'mine' && (!schedules || schedules.length === 1 || schedules.length === 0) ? 'static' : ''}}"
+                hover-class="{{scheduleScope === 'others' || (schedules && schedules.length > 1) ? 'term-picker-hover' : ''}}"
+                hover-stay-time="80"
+                bindtap="onTermPickerTap"
+                aria-label="{{scheduleScope === 'others' ? '切换人员或返回我的课表' : (schedules && schedules.length > 1 ? '切换学期' : '当前学期')}}">
             <text class="term-title-text">{{scheduleScope === 'others' && otherPerson ? ((otherPerson.remark || otherPerson.snapshot.student.name) + ' · ' + (schedule.term || schedule.name)) : (schedule.term || schedule.name)}}</text>
-            <text class="term-chevron">换人 ▾</text>
+            <text class="term-chevron" wx:if="{{scheduleScope === 'others'}}">换人 ▾</text>
+            <text class="term-chevron" wx:elif="{{schedules && schedules.length > 1}}">▾</text>
           </view>
           <view class="week-inline">
             <view class="week-chip" hover-class="week-chip-hover" hover-stay-time="100" bindtap="toggleWeekPicker" aria-label="选择周数">
@@ -25,14 +30,18 @@
       </view>
       <view class="other-banner card" wx:if="{{scheduleScope === 'others' && otherPerson}}">
         <view class="other-banner-left" bindtap="onTermPickerTap" hover-class="term-picker-hover">
-          <text class="other-banner-tag">{{otherPerson.updated_at ? '他人只读' : '预览只读'}}</text>
+          <text class="other-banner-tag" wx:if="{{!otherPerson.updated_at}}">预览</text>
           <text class="other-banner-name">{{otherPerson.remark ? otherPerson.remark + '（' + otherPerson.snapshot.student.name + '）' : otherPerson.snapshot.student.name}} · {{otherPerson.snapshot.student.class_name}}</text>
         </view>
         <view class="other-banner-actions">
           <text class="other-banner-btn" hover-class="other-action-chip-hover" bindtap="manageOther">学期/备注</text>
-          <text class="other-banner-btn {{otherBusy ? 'disabled' : ''}}" hover-class="other-action-chip-hover" bindtap="refreshOther">{{otherBusy ? '更新中' : '更新'}}</text>
+          <text class="other-banner-btn {{otherBusy ? 'disabled' : ''}}" hover-class="other-action-chip-hover" bindtap="openOtherUpdateMenu">{{otherBusy ? '更新中' : (otherSyncActive ? ('同步中 ' + otherSyncTask.done + '/' + otherSyncTask.total) : '更新')}}</text>
           <text class="other-banner-btn primary" hover-class="other-action-chip-hover" data-scope="mine" bindtap="switchScheduleScope">返回我的</text>
         </view>
+      </view>
+      <view class="other-sync-status card" wx:if="{{scheduleScope === 'others' && otherSyncText}}" bindtap="openOtherUpdateMenu">
+        <text class="other-sync-text">{{otherSyncText}}</text>
+        <text class="other-sync-close" wx:if="{{!otherSyncActive}}" catchtap="dismissOtherSyncStatus" aria-label="关闭同步结果">✕</text>
       </view>
       <view class="popover-mask" wx:if="{{weekOpen}}" bindtap="toggleWeekPicker"></view>
       <view class="week-panel glass-card" wx:if="{{weekOpen}}">
@@ -255,21 +264,6 @@
           <text class="service-arrow">›</text>
         </view>
       </view>
-
-      <!-- 模块 4：问题反馈（已隐藏） -->
-      <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openFeedback" wx:if="{{false}}">
-        <view class="service-icon-box icon-emerald">
-          <text class="service-emoji">💬</text>
-        </view>
-        <view class="service-text-col">
-          <text class="service-title">问题反馈</text>
-          <text class="service-desc">向作者直接反馈体验问题或功能建议</text>
-        </view>
-        <view class="service-right-group">
-          <text class="service-tag tag-emerald">直连作者</text>
-          <text class="service-arrow">›</text>
-        </view>
-      </view>
     </view>
 
     <view class="bottom-safe"></view>
@@ -407,7 +401,7 @@
   <view class="actionsheet-dialog" catchtap="noop">
     <view class="actionsheet-handle"></view>
     <view class="actionsheet-list">
-      <view class="actionsheet-item {{item.danger ? 'danger-item' : ''}}" wx:for="{{actionSheet.itemList}}" wx:key="index" data-index="{{index}}" bindtap="onActionSheetSelect">
+      <view class="actionsheet-item {{item.danger ? 'danger-item' : ''}}" wx:for="{{actionSheet.itemList}}" wx:key="text" data-index="{{index}}" bindtap="onActionSheetSelect">
         <text>{{item.text || item}}</text>
       </view>
     </view>
@@ -490,7 +484,7 @@
         <view class="opt-content">
           <view class="opt-title-row">
             <text class="opt-title">他人课表</text>
-            <text class="opt-tag tag-purple">只读收藏</text>
+            <text class="opt-tag tag-purple">独立收藏</text>
           </view>
           <text class="opt-desc">查找并收藏多位同学的课表，与自己的课表独立管理</text>
         </view>

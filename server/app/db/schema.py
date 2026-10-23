@@ -281,6 +281,9 @@ def init_db():
             snapshot JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(user_id,student_id))""")
         _seed_demo(db)
+        from ..services.academic_other_jobs import SCHEMA as OTHER_JOBS_SCHEMA
+        for sql in OTHER_JOBS_SCHEMA:
+            db.execute(sql)
 
 
 def _seed_demo(db):

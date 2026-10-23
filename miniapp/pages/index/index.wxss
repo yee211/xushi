@@ -2087,4 +2087,35 @@ button.empty-button::after { display:none !important; }
   color: #38bdf8;
 }
 .other-action-chip-hover { opacity: 0.65; }
+.other-sync-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 16rpx 24rpx;
+  margin: 12rpx 0;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+.other-sync-text { flex: 1; }
+.other-sync-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44rpx;
+  height: 44rpx;
+  font-size: 26rpx;
+  line-height: 1;
+  color: #94a3b8;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.other-sync-close:active {
+  background: rgba(148, 163, 184, 0.2);
+  color: #475569;
+}
+.night .other-sync-close:active {
+  background: rgba(255, 255, 255, 0.15);
+  color: #f1f5f9;
+}
 .opt-others .opt-title { color: #7356bd; }

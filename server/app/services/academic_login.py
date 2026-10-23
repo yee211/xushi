@@ -25,6 +25,8 @@ SCHOOL_LOGIN = "https://tls.ccsut.cn/admin/login"
 SCHOOL_HOME = "https://tls.ccsut.cn/admin/?loginType=1"
 GATEWAY_RECOVERY_SECONDS = 20
 GATEWAY_TIMEOUT_SECONDS = 60
+LANDING_SETTLE_SECONDS = 3
+MAX_TIMETABLE_REDIRECTS = 2
 _lock = threading.RLock()
 _commands = queue.Queue(maxsize=8)
 _thread = None
@@ -334,6 +336,24 @@ def continue_school_login(page):
     return True
 
 
+def _has_school_account_cookie(context, worker):
+    try:
+        cookies = context.cookies([worker.ENTRY])
+        return any(item.get("name") == "username" and item.get("value") for item in cookies)
+    except Exception:
+        return False
+
+
+def _verify_and_mark_connected(context, page, worker, account):
+    worker.export_verified(context, page, account)
+    save_browser_session(context)
+    verified_at = datetime.now(UTC).isoformat()
+    save_maintenance(last_verified_at=verified_at)
+    update("connected", "学校已连接，自动维护运行中", visible=False,
+           last_verified_at=verified_at, next_retry_at=None, retry_attempt=0,
+           error_type=None, diagnostic=False, verified_this_attempt=True)
+
+
 def run(job, visible=False):
     try:
         from playwright.sync_api import sync_playwright
@@ -368,6 +388,8 @@ def run(job, visible=False):
                 submitted = False
                 portal_attempts = 0
                 gateway_since, gateway_recovered = None, False
+                landing_path, landing_since = None, None
+                timetable_redirects = 0
                 if visible:
                     update("manual_waiting", "已在桌面弹出浏览器窗口，请在窗口中登录（支持密码/验证码/微信扫码）", visible=True)
                 while True:
@@ -387,23 +409,24 @@ def run(job, visible=False):
                         update("checking", "正在检查学校会话")
                         ready = False
                         deadline = time.monotonic() + 600
-                        page.goto(SCHOOL_HOME, wait_until="domcontentloaded", timeout=45000)
+                        timetable_redirects = 0
+                        landing_path, landing_since = None, None
+                        page.goto(worker.ENTRY, wait_until="domcontentloaded", timeout=45000)
                     location = urlsplit(page.url)
+                    current_path = location.path.rstrip("/") or "/"
                     if location.hostname != "tls.ccsut.cn" or ready:
                         gateway_since, gateway_recovered = None, False
+                        landing_path, landing_since = None, None
+                        if location.hostname != "tls.ccsut.cn":
+                            timetable_redirects = 0
                     with _lock:
-                        _state.update(page_host=location.hostname)
+                        _state.update(page_host=location.hostname, page_path=current_path)
                     if (location.hostname == "tls.ccsut.cn" and page.locator("#xm").count()
                             and page.locator(".list_sslct").count()):
                         if not ready or time.monotonic() >= next_check:
-                            worker.export_verified(context, page, saved.get("account", ""))
-                            save_browser_session(context)
-                            verified_at = datetime.now(UTC).isoformat()
-                            save_maintenance(last_verified_at=verified_at)
+                            _verify_and_mark_connected(context, page, worker, saved.get("account", ""))
                             portal_attempts = 0
-                            update("connected", "学校已连接，自动维护运行中", visible=False,
-                                   last_verified_at=verified_at, next_retry_at=None, retry_attempt=0,
-                                   error_type=None, diagnostic=False, verified_this_attempt=True)
+                            timetable_redirects = 0
                             ready, next_check = True, time.monotonic() + 600
                             if visible:
                                 page.wait_for_timeout(2000)
@@ -425,18 +448,34 @@ def run(job, visible=False):
                         now = time.monotonic()
                         if gateway_since is None:
                             gateway_since = now
+                        if current_path != landing_path:
+                            landing_path, landing_since = current_path, now
+                        entry_path = urlsplit(worker.ENTRY).path.rstrip("/")
                         if not visible and now - gateway_since >= GATEWAY_TIMEOUT_SECONDS:
+                            if _has_school_account_cookie(context, worker) and hasattr(worker, "export_verified"):
+                                try:
+                                    _verify_and_mark_connected(context, page, worker, saved.get("account", ""))
+                                    portal_attempts = 0
+                                    timetable_redirects = 0
+                                    ready, next_check = True, time.monotonic() + 600
+                                    continue
+                                except (AcademicError, ValueError):
+                                    raise
+                                except Exception:
+                                    pass
                             capture_login_page(page)
-                            update("error", "教务系统页面加载超时，正在等待自动恢复；尚未确认查询连接失效", diagnostic=True, error_type="gateway_timeout")
+                            error_type = "gateway_timeout" if current_path in {"/admin", "/admin/login", entry_path} else "unexpected_landing"
+                            update("error", f"教务系统页面加载超时（{current_path}），正在等待自动恢复；尚未确认查询连接失效",
+                                   diagnostic=True, error_type=error_type, page_path=current_path)
                             break
-                        if (not visible and not gateway_recovered and location.path.rstrip("/") == "/admin"
+                        if (not visible and not gateway_recovered and current_path == "/admin"
                                 and now - gateway_since >= GATEWAY_RECOVERY_SECONDS):
                             gateway_recovered = True
                             update("continuing", "教务系统首页加载较慢，正在尝试直接验证课表连接")
                             page.goto(worker.ENTRY, wait_until="domcontentloaded", timeout=30000)
                             continue
                         # Handle the school gateway in every phase, including profile recovery.
-                        if location.path.rstrip("/") == "/admin":
+                        if current_path == "/admin":
                             # The gateway initially renders a loading document. Wait for the
                             # authenticated dashboard marker before navigating away from it.
                             if (page.locator("iframe").count()
@@ -444,7 +483,7 @@ def run(job, visible=False):
                                 update("checking", "已进入教务系统，正在验证课表连接")
                                 page.goto(worker.ENTRY, wait_until="domcontentloaded", timeout=45000)
                                 continued = 0
-                        elif location.path.rstrip("/") == "/admin/login":
+                        elif current_path == "/admin/login":
                             if not continued or time.monotonic() - continued >= 10:
                                 if continue_school_login(page):
                                     continued = time.monotonic()
@@ -453,6 +492,20 @@ def run(job, visible=False):
                             # Leave the login page's navigation alone until it reaches the school.
                             page.goto(worker.ENTRY, wait_until="domcontentloaded", timeout=45000)
                             continued = 0
+                        elif current_path != entry_path and now - landing_since >= LANDING_SETTLE_SECONDS:
+                            if timetable_redirects < MAX_TIMETABLE_REDIRECTS:
+                                timetable_redirects += 1
+                                landing_since = now
+                                update("checking", "已进入教务系统，正在跳转课表页面验证连接")
+                                page.goto(worker.ENTRY, wait_until="domcontentloaded", timeout=45000)
+                            elif _has_school_account_cookie(context, worker) and hasattr(worker, "export_verified"):
+                                _verify_and_mark_connected(context, page, worker, saved.get("account", ""))
+                                portal_attempts = 0
+                                timetable_redirects = 0
+                                ready, next_check = True, time.monotonic() + 600
+                                if visible:
+                                    page.wait_for_timeout(2000)
+                                    return "handoff"
                     elif status()["state"] in ("submitting", "continuing", "manual_waiting"):
                         error = page_error(page)
                         if (not visible and not submitted and location.hostname == "auth.ccsut.cn"

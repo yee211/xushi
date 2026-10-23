@@ -3,6 +3,11 @@ const days = ['周一','周二','周三','周四','周五','周六','周日']
 const dayShortNames = ['一','二','三','四','五','六','日']
 const ROW_HEIGHT = 112
 const DEFAULT_COLOR = '#5B8DEF'
+// 他人课表批量同步：轮询 2s 一次，最多 150 次（约 5 分钟）；完成横幅仅在完成后 10 分钟内展示
+const OTHER_SYNC_MAX_POLLS = 150
+const OTHER_SYNC_SLOW_POLLS = 40
+const OTHER_SYNC_SLOW_DELAY = 15000
+const OTHER_SYNC_RESULT_WINDOW_MS = 10 * 60 * 1000
 const sections = [
   { number: 1, start: '08:20', end: '09:05' },
   { number: 2, start: '09:15', end: '10:00' },
@@ -180,13 +185,6 @@ function scheduleMeta(schedule) {
   }, 0)
   return { unique: new Set(courses.map(item => courseKey(item.name))).size, lessons }
 }
-function scheduleStatus(schedule) {
-  if (!isScheduleActiveToday(schedule)) {
-    const start = localDate(schedule && schedule.start_date)
-    return start && new Date(isoDate(start)) > new Date(isoDate(new Date())) ? '未开学' : '往期'
-  }
-  return `进行中 · 第${termWeek(schedule)}周`
-}
 function sectionCountFor(schedule) {
   const ends = (schedule && schedule.courses || []).map(item => Number(item.end_section) || 0)
   return Math.min(12, Math.max(10, ...ends, 10))
@@ -260,7 +258,9 @@ Page({
       this.setData({ scheduleScope: 'others', cacheNotice: '', detailOpen: false, weekOpen: false, loading: !initialPerson, schedule: initialPerson ? this.data.schedule : null })
       if (initialPerson) this.showOtherPerson(initialPerson)
       await this.loadOtherPeople()
+      this.resumeOtherSyncStatus()
     } else {
+      this.stopOtherSyncPoll()
       const cachedMine = wx.getStorageSync('schedules_cache')
       const hasMine = Array.isArray(cachedMine) && cachedMine.length > 0
       this.setData({ scheduleScope: 'mine', cacheNotice: '', detailOpen: false, weekOpen: false, loading: !hasMine, schedule: hasMine ? this.data.schedule : null })
@@ -270,23 +270,28 @@ Page({
   },
   openOtherSearch() {
     if (this.otherBusy) return
-    this.setData({ scheduleCenterOpen: false, termSheetOpen: false })
+    this.setData({ scheduleCenterOpen: false })
     wx.navigateTo({ url: '/pages/others/others' })
   },
-  async openOtherFromMine() {
-    this.setData({ currentTab: 'home', scheduleCenterOpen: false, termSheetOpen: false })
-    if (wx.setNavigationBarTitle) wx.setNavigationBarTitle({ title: '序时课表' })
-    if (this.data.scheduleScope !== 'others') {
-      await this.switchScheduleScope('others')
-    } else {
-      await this.loadOtherPeople()
-    }
-    if (!this.data.otherPeople || !this.data.otherPeople.length) {
-      this.openOtherSearch()
-    }
-  },
+  openOtherFromMine() { this.openOtherSearch() },
   async onTermPickerTap() {
     if (this.otherBusy) return
+    if (this.data.scheduleScope === 'mine') {
+      const schedules = (this.data.schedules || []).filter(item => item.variant_type !== 'adjusted')
+      if (schedules.length <= 1) return
+      const currentId = this.data.schedule && this.data.schedule.id
+      const items = schedules.map(s => ({
+        text: `${s.id === currentId ? '✓ ' : '📅 '}${s.term || s.name}`
+      }))
+      const { tapIndex } = await this.actionSheet(items)
+      if (tapIndex >= 0 && tapIndex < schedules.length) {
+        const chosen = schedules[tapIndex]
+        if (chosen.id !== currentId) {
+          this.applySchedules(schedules, chosen.id)
+        }
+      }
+      return
+    }
     if (this._openingTermPicker) return
     this._openingTermPicker = true
     try {
@@ -303,34 +308,22 @@ Page({
           }
         } catch (e) {}
       }
-      const items = []
-      if (this.data.scheduleScope === 'others') {
-        items.push({ text: '📅 返回我的课表' })
-      }
+      const items = [{ text: '📅 返回我的课表' }]
       people.forEach(p => {
-        const isCurrent = this.data.scheduleScope === 'others' && this.data.otherPerson && this.data.otherPerson.student_id === p.student_id
+        const isCurrent = this.data.otherPerson && this.data.otherPerson.student_id === p.student_id
         const label = (p.remark ? `${p.remark}（${p.snapshot.student.name}）` : p.snapshot.student.name) + (p.snapshot.student.class_name ? ` · ${p.snapshot.student.class_name}` : '')
         items.push({ text: `${isCurrent ? '✓ ' : '👤 '}${label}` })
       })
       items.push({ text: '＋ 查找 / 添加他人课表' })
       const { tapIndex } = await this.actionSheet(items)
       if (tapIndex < 0) return
-      let idx = tapIndex
-      if (this.data.scheduleScope === 'others') {
-        if (idx === 0) {
-          await this.switchScheduleScope('mine')
-          return
-        }
-        idx -= 1
+      if (tapIndex === 0) {
+        await this.switchScheduleScope('mine')
+        return
       }
+      const idx = tapIndex - 1
       if (idx < people.length) {
-        const chosen = people[idx]
-        if (this.data.scheduleScope !== 'others') {
-          this.previewOther = chosen
-          await this.switchScheduleScope('others')
-        } else {
-          this.showOtherPerson(chosen)
-        }
+        this.showOtherPerson(people[idx])
       } else {
         this.openOtherSearch()
       }
@@ -372,12 +365,126 @@ Page({
     const snapshot = person && person.snapshot
     const schedule = snapshot ? { ...snapshot, id: 'other:' + person.student_id, name: snapshot.student.name + '的课表', term: person.term,
       courses: (snapshot.courses || []).map((c, i) => ({ ...c, id: 'other-course:' + i })) } : null
-    this.setData({ otherPerson: person, otherUpdatedText: person && person.updated_at ? new Date(person.updated_at).toLocaleString() : '', schedule, loading: false, detailOpen: false, weekOpen: false,
-      scheduleActive: schedule ? isScheduleActiveToday(schedule) : false, statusText: '他人课表 · 只读' })
+    this.setData({
+      otherPerson: person,
+      schedule,
+      loading: false,
+      detailOpen: false,
+      weekOpen: false,
+      scheduleActive: schedule ? isScheduleActiveToday(schedule) : false,
+    })
     this.applyWeek(termWeek(schedule))
   },
   chooseOtherPerson(e) { if (!this.otherBusy) this.showOtherPerson(this.data.otherPeople[Number(e.detail.value)]) },
+  async openOtherUpdateMenu() {
+    if (this.otherBusy || this._openingOtherUpdateMenu) return
+    if (this.data.otherSyncActive) { this.toast(this.data.otherSyncText); return }
+    this._openingOtherUpdateMenu = true
+    try {
+      const items = [{ text: '更新当前课表' }, { text: `同步全部已保存课表（共 ${this.data.otherPeople.length} 人）` }]
+      if (this.data.otherSyncTask && this.data.otherSyncTask.failed) items.push({ text: `重试失败项（${this.data.otherSyncTask.failed} 人）` })
+      const { tapIndex } = await this.actionSheet(items)
+      if (this.closed) return
+      if (tapIndex === 0) await this.refreshOther()
+      else if (tapIndex === 1) await this.startOtherSync(false)
+      else if (tapIndex === 2) await this.startOtherSync(true)
+    } finally { this._openingOtherUpdateMenu = false }
+  },
+  async startOtherSync(retry = false) {
+    if (this._startingOtherSync || this.data.otherSyncActive) return
+    this._startingOtherSync = true
+    this.stopOtherSyncPoll()
+    const session = wx.getStorageSync('session_token')
+    try {
+      const data = retry && this.data.otherSyncTask ? { retry_of: this.data.otherSyncTask.id } : {}
+      const task = await app.request('/api/academic/others/sync/tasks', { method: 'POST', data })
+      if (this.closed || wx.getStorageSync('session_token') !== session) return
+      this._otherSyncPolls = 0
+      this.applyOtherSyncTask(task)
+      this.scheduleOtherSyncPoll()
+    } catch (e) { if (!this.closed) this.toast(e.message) }
+    finally { this._startingOtherSync = false }
+  },
+  applyOtherSyncTask(task) {
+    this._otherSyncSession = wx.getStorageSync('session_token')
+    const active = !!task && ['queued', 'running'].includes(task.state)
+    if (active) this._otherSyncSeenActive = task.id
+    let text = ''
+    if (active) text = `同步中 ${task.done}/${task.total} · 离开页面后仍会继续`
+    else if (task && this.shouldShowOtherSyncResult(task)) {
+      const failedOnly = task.failed && !task.updated && !task.skipped
+      text = `${failedOnly ? '同步失败' : '同步完成'}：成功 ${task.updated} 人，失败 ${task.failed} 人，跳过 ${task.skipped} 人${task.failed ? ' · 点更新可重试失败项' : ''}`
+    }
+    this.setData({ otherSyncTask: task || null, otherSyncActive: active, otherSyncText: text })
+  },
+  // /latest 返回的是最近一次任务（可能是几天前的）：完成横幅只在本页亲眼看到它跑完，
+  // 或完成后 10 分钟内展示；用户手动关闭过的任务不再展示。
+  shouldShowOtherSyncResult(task) {
+    let dismissed = ''
+    try { dismissed = wx.getStorageSync('other_sync_dismissed') } catch (_) {}
+    if (dismissed && dismissed === task.id) return false
+    if (this._otherSyncSeenActive === task.id) return true
+    const finishedAt = Date.parse(task.updated_at || '')
+    return !isNaN(finishedAt) && Date.now() - finishedAt < OTHER_SYNC_RESULT_WINDOW_MS
+  },
+  dismissOtherSyncStatus() {
+    const task = this.data.otherSyncTask
+    if (!task || this.data.otherSyncActive) return
+    try { wx.setStorageSync('other_sync_dismissed', task.id) } catch (_) {}
+    this._otherSyncSeenActive = null
+    this.setData({ otherSyncText: '' })
+  },
+  stopOtherSyncPoll() {
+    this._otherSyncRevision = (this._otherSyncRevision || 0) + 1
+    if (this._otherSyncTimer && typeof clearTimeout === 'function') clearTimeout(this._otherSyncTimer)
+    this._otherSyncTimer = null
+  },
+  scheduleOtherSyncPoll(delay = 2000) {
+    if (this.closed || this._otherSyncHidden || this.data.scheduleScope !== 'others' || !this.data.otherSyncActive || typeof setTimeout !== 'function') return
+    // 服务端每人间隔 6~10 秒，50 人批次约 5 分钟；快速轮询后转慢速兜底，
+    // 不在批次完成前直接停掉。服务端会在 15 分钟后回收僵死任务。
+    this._otherSyncPolls = (this._otherSyncPolls || 0) + 1
+    let nextDelay = delay
+    if (this._otherSyncPolls > OTHER_SYNC_MAX_POLLS) {
+      if (this._otherSyncPolls > OTHER_SYNC_MAX_POLLS + OTHER_SYNC_SLOW_POLLS) {
+        this.setData({ otherSyncText: '进度查询已暂停，可下拉刷新确认结果' })
+        return
+      }
+      nextDelay = OTHER_SYNC_SLOW_DELAY
+      if (this._otherSyncPolls === OTHER_SYNC_MAX_POLLS + 1) {
+        this.setData({ otherSyncText: '后台仍在同步，可下拉刷新确认结果' })
+      }
+    }
+    if (this._otherSyncTimer) clearTimeout(this._otherSyncTimer)
+    this._otherSyncTimer = setTimeout(() => { this._otherSyncTimer = null; this.loadOtherSyncStatus() }, nextDelay)
+  },
+  // 用户主动进入/返回他人课表时：重置轮询额度；名单刚由调用方加载过，首次状态查询不必再拉一次
+  resumeOtherSyncStatus() {
+    this._otherSyncPolls = 0
+    return this.loadOtherSyncStatus({ peopleFresh: true })
+  },
+  async loadOtherSyncStatus(options = {}) {
+    const revision = this._otherSyncRevision = (this._otherSyncRevision || 0) + 1
+    const session = wx.getStorageSync('session_token')
+    try {
+      const result = await app.request('/api/academic/others/sync/tasks/latest')
+      if (this.closed || revision !== this._otherSyncRevision || wx.getStorageSync('session_token') !== session) return
+      const before = this.data.otherSyncTask
+      const task = result && result.task
+      this.applyOtherSyncTask(task)
+      const changed = !!task && (!before || before.id !== task.id
+        || before.updated_at !== task.updated_at || before.updated !== task.updated)
+      if (task && task.updated && changed && !options.peopleFresh && this.data.scheduleScope === 'others') await this.loadOtherPeople()
+      this.scheduleOtherSyncPoll()
+    } catch (e) {
+      if (!this.closed && revision === this._otherSyncRevision && this.data.otherSyncActive) {
+        this.setData({ otherSyncText: '暂时无法获取进度，后台仍会继续同步' })
+        this.scheduleOtherSyncPoll(10000)
+      }
+    }
+  },
   async refreshOther() {
+    if (this.data.otherSyncActive) { this.toast(this.data.otherSyncText); return }
     const person = this.data.otherPerson
     if (!person || this.otherBusy) return
     this.otherBusy = true
@@ -410,7 +517,7 @@ Page({
     if (!person) return
     wx.navigateTo({ url: '/pages/others/others?studentId=' + encodeURIComponent(person.student_id) })
   },
-  openAcademicQuery() { this.setData({ scheduleScope: 'mine', scheduleCenterOpen: false, termSheetOpen: false }); wx.navigateTo({ url: '/pages/academic/academic' }) },
+  openAcademicQuery() { this.setData({ scheduleScope: 'mine', scheduleCenterOpen: false }); wx.navigateTo({ url: '/pages/academic/academic' }) },
   openImportModal() { this.setData({ scheduleCenterOpen: true }) },
   closeScheduleCenter() { this.setData({ scheduleCenterOpen: false }) },
   chooseCenterImport() { this.setData({ scheduleCenterOpen: false }); this.openFileImportModal() },
@@ -436,20 +543,19 @@ Page({
   },
   data: {
     scheduleScope: 'mine', otherPeople: [], otherPerson: null, otherBusy: false,
+    otherSyncTask: null, otherSyncActive: false, otherSyncText: '',
     currentTab: 'home', // 'home' | 'mine'
     refreshing: false,
-    syncing: false,
-    cacheNotice: '', loading: true, schedules: [], schedule: null, scheduleNames: [], scheduleIndex: 0,
-    week: 1, weekCount: 20, currentWeekRange: '', weekOpen: false, weekOptions: [],
-    weekDays: [], monthLabel: '', gridCourses: [], sections, days, shownSections: sections.slice(0, 10),
-    sectionCount: 10, sectionOptions: Array.from({ length: 10 }, (_, index) => `第 ${index + 1} 节`),
-    gridHeight: 10 * ROW_HEIGHT, backgroundPath: '', scheduleActive: false, statusText: '',
+    cacheNotice: '', loading: true, schedules: [], schedule: null,
+    week: 1, weekCount: 20, weekOpen: false, weekOptions: [],
+    weekDays: [], monthLabel: '', gridCourses: [], shownSections: sections.slice(0, 10),
+    rowHeightRpx: ROW_HEIGHT,
+    gridHeight: 10 * ROW_HEIGHT, backgroundPath: '', scheduleActive: false,
     detailOpen: false, selectedCourse: null,
-    scheduleCenterOpen: false, importOpen: false, importTab: 'excel', importStage: 'setup', importFile: null, semesterName: '', startDate: '', endDate: '', uploading: false,
-    importElapsed: 0, importProgressText: '',
+    scheduleCenterOpen: false, importOpen: false, importFile: null, semesterName: '', startDate: '', endDate: '', uploading: false,
+    importProgressText: '',
     semesterOpen: false, semesterForm: {}, semesterWeeks: 20, semesterSaving: false,
-    semesterStatusText: '', semesterStatusClass: 'unset', semesterOriginal: '', semesterChanged: false, calculatedNotice: '',
-    termSheetOpen: false, scheduleList: [],
+    semesterStatusText: '', semesterStatusClass: 'unset', semesterChanged: false, calculatedNotice: '',
     nightMode: false, privacyOpen: false,
     confirmModal: { visible: false, title: '', content: '', confirmText: '确定', cancelText: '取消', danger: false },
     boundStudent: null,
@@ -465,6 +571,7 @@ Page({
   },
   onShow() {
     this.closed = false
+    this._otherSyncHidden = false
     this.setData({
       backgroundPath: wx.getStorageSync('schedule_background') || '',
       nightMode: wx.getStorageSync('night_mode') === true,
@@ -474,15 +581,16 @@ Page({
     this.hookPrivacyAuthorization()
     const cachedOthers = wx.getStorageSync('other_schedules_cache')
     const currentSession = wx.getStorageSync('session_token')
+    if (this._otherSyncSession && this._otherSyncSession !== currentSession) this.applyOtherSyncTask(null)
     if (cachedOthers && cachedOthers.session === currentSession && Array.isArray(cachedOthers.people)) {
       this.setData({ otherPeople: cachedOthers.people.map(p => ({ ...p, displayName: (p.remark ? p.remark + ' · ' : '') + p.snapshot.student.name + ' · ' + (p.snapshot.student.class_name || '') })) })
     } else if (cachedOthers && cachedOthers.session !== currentSession) {
       this.setData({ otherPeople: [] })
     }
-    if (this.data.scheduleScope === 'others') { this.loadOtherPeople(); return }
+    if (this.data.scheduleScope === 'others') { this.loadOtherPeople(); this.resumeOtherSyncStatus(); return }
     // 账号关联/解除会清除缓存；回到课表页时同步清除旧账号画面。
     if (!Array.isArray(wx.getStorageSync('schedules_cache'))) {
-      this.setData({ schedule: null, schedules: [], scheduleList: [] })
+      this.setData({ schedule: null, schedules: [] })
     }
     this.load()
     this.fetchBoundStudent()
@@ -501,10 +609,6 @@ Page({
     const scheduleId = this.data.schedule && this.data.schedule.id
     wx.navigateTo({ url: `/pages/agent/agent${scheduleId ? `?scheduleId=${scheduleId}` : ''}` })
   },
-  openFeedback() {
-    const scheduleId = this.data.schedule && this.data.schedule.id
-    wx.navigateTo({ url: `/pages/feedback/feedback${scheduleId ? `?scheduleId=${scheduleId}` : ''}` })
-  },
   // 主题入口：更换背景 / 切换日夜间（原先顶部的两个图标按钮收敛于此）
   async openThemeSheet() {
     const { tapIndex } = await this.actionSheet([
@@ -513,10 +617,6 @@ Page({
     ])
     if (tapIndex === 0) this.chooseBackground()
     if (tapIndex === 1) this.toggleNightMode()
-  },
-  openSemesterFromSheet() {
-    this.setData({ termSheetOpen: false })
-    this.openSemester()
   },
   // 隐私接口被拦截时弹出自定义指引弹窗（open-type=agreePrivacyAuthorization），不依赖微信默认弹窗
   hookPrivacyAuthorization() {
@@ -528,8 +628,10 @@ Page({
     }
     wx.onNeedPrivacyAuthorization(this._privacyHandler)
   },
+  onHide() { this._otherSyncHidden = true; this.stopOtherSyncPoll() },
   onUnload() {
     this.closed = true
+    this.stopOtherSyncPoll()
     this.stopImportTimer()
     if (this._privacyResolve) this._privacyResolve({ event: 'disagree' })
     if (this._privacyHandler && wx.offNeedPrivacyAuthorization) wx.offNeedPrivacyAuthorization(this._privacyHandler)
@@ -612,14 +714,10 @@ Page({
     const schedule = schedules[index] || null
     if (schedule) wx.setStorageSync('active_schedule_id', schedule.id)
     else wx.removeStorageSync('active_schedule_id')
-    const activeId = schedule ? schedule.id : 0
-    const scheduleList = schedules.map(item => this.decorateScheduleItem(item, activeId))
     this.setData({
-      schedules, schedule, scheduleIndex: index,
-      scheduleNames: schedules.map(item => this.scheduleOptionText(item)),
-      scheduleList,
+      schedules,
+      schedule,
       scheduleActive: schedule ? isScheduleActiveToday(schedule) : false,
-      statusText: schedule ? scheduleStatus(schedule) : '',
       loading: false,
     })
     const preserveWeek = previous && schedule && previous.id === schedule.id && previous.start_date === schedule.start_date && sameDay
@@ -629,20 +727,14 @@ Page({
   async onRefresh() {
     this.setData({ refreshing: true })
     try {
-      if (this.data.scheduleScope === 'others') await this.refreshOther()
+      if (this.data.scheduleScope === 'others') {
+        // 批量同步进行中（含轮询已暂停）时，下拉 = 重新确认进度并恢复轮询
+        if (this.data.otherSyncActive) { this._otherSyncPolls = 0; await this.loadOtherSyncStatus() }
+        else await this.refreshOther()
+      }
       else await this.load(this.data.schedule && this.data.schedule.id, true)
     }
     finally { this.setData({ refreshing: false }) }
-  },
-  scheduleOptionText(schedule) {
-    const meta = scheduleMeta(schedule)
-    let range = ''
-    if (schedule.start_date) {
-      const start = String(schedule.start_date).slice(5, 10).replace('-', '.')
-      const end = schedule.end_date ? String(schedule.end_date).slice(5, 10).replace('-', '.') : '?'
-      range = ` · ${start}-${end}`
-    }
-    return `${schedule.term || schedule.name}${range} · ${scheduleStatus(schedule)} · ${meta.unique}门 ${meta.lessons}课时`
   },
   // 与母版一致：行高按可视区高度均分，整张课表一屏放下（10~12 节自适应）
   computeRowHeight(sectionCount) {
@@ -671,13 +763,10 @@ Page({
       week: safeWeek,
       weekCount: count,
       weekIsCurrent: !!this.data.schedule && !!this.data.scheduleActive && safeWeek === termWeek(this.data.schedule),
-      currentWeekRange: dates.range,
       weekOptions: buildWeekOptions(this.data.schedule, count, safeWeek),
       weekDays: dates.weekDays,
       monthLabel: dates.monthLabel,
-      sectionCount,
       shownSections: sections.slice(0, sectionCount),
-      sectionOptions: Array.from({ length: sectionCount }, (_, index) => `第 ${index + 1} 节`),
       rowHeightRpx: rowHeight,
       gridHeight: sectionCount * rowHeight,
       gridCourses: displayCourses(this.data.schedule, safeWeek, sectionCount, buildColorMap(this.data.schedule && this.data.schedule.courses), rowHeight),
@@ -714,96 +803,6 @@ Page({
     this.setData({ weekOpen: false })
     this.applyWeek(week)
   },
-  changeSchedule(event) {
-    const index = Number(event.detail.value), schedule = this.data.schedules[index]
-    if (!schedule) return
-    wx.setStorageSync('active_schedule_id', schedule.id)
-    const activeId = schedule.id
-    const scheduleList = this.data.schedules.map(item => this.decorateScheduleItem(item, activeId))
-    this.setData({ schedule, scheduleIndex: index, weekOpen: false,
-      scheduleActive: isScheduleActiveToday(schedule), statusText: scheduleStatus(schedule), scheduleList })
-    this.applyWeek(termWeek(schedule))
-  },
-  openTermSheet() {
-    if (!this.data.schedules || !this.data.schedules.length) return
-    const activeId = this.data.schedule && this.data.schedule.id
-    const scheduleList = this.data.schedules.map(item => this.decorateScheduleItem(item, activeId))
-    this.setData({ termSheetOpen: true, scheduleList })
-  },
-  closeTermSheet() {
-    this.setData({ termSheetOpen: false })
-  },
-  selectScheduleItem(event) {
-    const id = Number(event.currentTarget.dataset.id)
-    const index = this.data.schedules.findIndex(item => item.id === id)
-    if (index < 0) return
-    const schedule = this.data.schedules[index]
-    wx.setStorageSync('active_schedule_id', schedule.id)
-    const activeId = schedule.id
-    const scheduleList = this.data.schedules.map(item => this.decorateScheduleItem(item, activeId))
-    this.setData({
-      schedule,
-      scheduleIndex: index,
-      weekOpen: false,
-      termSheetOpen: false,
-      scheduleActive: isScheduleActiveToday(schedule),
-      statusText: scheduleStatus(schedule),
-      scheduleList,
-    })
-    this.applyWeek(termWeek(schedule))
-    this.toast(`已切换至：${schedule.term || schedule.name}`)
-  },
-  openImportFromSheet() {
-    this.closeTermSheet()
-    this.onImportTap()
-  },
-  async syncSchedules() {
-    if (this.data.scheduleScope === 'others') { await this.refreshOther(); return }
-    if (this.data.syncing) return
-    this.closeTermSheet()
-    this.setData({ syncing: true })
-    const prevWeek = this.data.week
-    try {
-      const ok = await this.load(this.data.schedule && this.data.schedule.id, true)
-      if (ok) {
-        if (prevWeek > 0 && prevWeek <= this.data.weekCount) {
-          this.applyWeek(prevWeek)
-        }
-        wx.showToast({ title: '课表已刷新', icon: 'success', duration: 1800 })
-      }
-    } catch (error) {
-      wx.showToast({ title: error.message || '同步失败，请稍后重试', icon: 'none', duration: 2000 })
-    } finally {
-      this.setData({ syncing: false })
-    }
-  },
-
-  decorateScheduleItem(item, activeId) {
-    const meta = scheduleMeta(item)
-    const active = isScheduleActiveToday(item)
-    const status = scheduleStatus(item)
-    let dateRange = ''
-    if (item.start_date) {
-      const start = String(item.start_date).slice(5, 10).replace('-', '.')
-      const end = item.end_date ? String(item.end_date).slice(5, 10).replace('-', '.') : '?'
-      dateRange = `${start} - ${end}`
-    }
-    let statusType = 'past'
-    if (active) statusType = 'active'
-    else if (status === '未开学') statusType = 'future'
-
-    return {
-      ...item,
-      displayName: item.term || item.name,
-      dateRange,
-      statusText: status,
-      statusType,
-      uniqueCount: meta.unique,
-      lessonCount: meta.lessons,
-      isSelected: item.id === activeId,
-      isAdjusted: item.variant_type === 'adjusted',
-    }
-  },
 
   buildDetailCourse(course) {
     const start = sections[(course.start_section || 1) - 1]
@@ -837,8 +836,9 @@ Page({
       name: schedule.name || '', term: schedule.term || '',
       start_date: (schedule.start_date || '').slice(0, 10), end_date: (schedule.end_date || '').slice(0, 10),
     }
+    this._semesterOriginal = JSON.stringify(form)
     this.setData({ semesterOpen: true, semesterWeeks: weekCount(schedule), semesterForm: form,
-      semesterOriginal: JSON.stringify(form), semesterChanged: false, calculatedNotice: '' })
+      semesterChanged: false, calculatedNotice: '' })
     this.updateSemesterStatus()
   },
   // 状态卡四态：未设置 / 未开学 / 进行中 / 历史学期，对齐源项目 SemesterModal
@@ -861,7 +861,7 @@ Page({
       }
     }
     this.setData({ semesterStatusText: statusText, semesterStatusClass: statusClass,
-      semesterChanged: JSON.stringify(form) !== this.data.semesterOriginal })
+      semesterChanged: JSON.stringify(form) !== this._semesterOriginal })
   },
   closeSemester() { if (!this.data.semesterSaving) this.setData({ semesterOpen: false }) },
   semesterField(event) {
@@ -1020,7 +1020,7 @@ Page({
   },
   // ===== 导入（Excel 课表导入）=====
   openFileImportModal() {
-    this.setData({ importOpen: true, importTab: 'excel' })
+    this.setData({ importOpen: true })
   },
   onImportTap() {
     this.openImportModal()
@@ -1045,8 +1045,6 @@ Page({
     const end = guessed ? guessed.end : isoDate(new Date(new Date(start).getTime() + (20 * 7 - 1) * 86400000))
     this.setData({
       importOpen: true,
-      importTab: 'excel',
-      importStage: 'setup',
       importFile: { name, path },
       semesterName: defaultTermName(start),
       startDate: String(start).slice(0,10),
@@ -1058,14 +1056,16 @@ Page({
   setEndDate(event) { this.setData({ endDate: event.detail.value }) },
   // 导入进度：分段计时文案，对齐源项目 ImporterModal 的等待体验
   startImportTimer() {
-    this.setData({ importElapsed: 0, importProgressText: '正在安全读取工作簿…' })
+    this.importElapsed = 0
+    this.setData({ importProgressText: '正在安全读取工作簿…' })
     this.stopImportTimer()
     this.importTimer = setInterval(() => {
-      const elapsed = (this.data.importElapsed || 0) + 1
+      this.importElapsed = (this.importElapsed || 0) + 1
+      const elapsed = this.importElapsed
       const text = elapsed < 5 ? '正在安全读取工作簿…'
         : elapsed < 45 ? `正在识别课程信息… ${elapsed} 秒`
         : '服务器仍在解析，请稍候；若超时可下拉刷新确认结果。'
-      this.setData({ importElapsed: elapsed, importProgressText: text })
+      this.setData({ importProgressText: text })
     }, 1000)
   },
   stopImportTimer() {
@@ -1074,7 +1074,7 @@ Page({
   closeImport() {
     if (this.data.uploading) return
     this.stopImportTimer()
-    this.setData({ importOpen: false, importStage: 'setup', importFile: null })
+    this.setData({ importOpen: false, importFile: null })
   },
   async confirmImportOverwrite(name) {
     const result = await this.modal({
@@ -1121,7 +1121,7 @@ Page({
         result = await submit(true)
       }
       if (result.imported) {
-        this.setData({ importOpen: false, importStage: 'setup', importFile: null }); await this.load(result.schedule_id)
+        this.setData({ importOpen: false, importFile: null }); await this.load(result.schedule_id)
         // 与“切换课表”口径一致：同名的多时段/单双周记录只计 1 门课。
         const importedCount = scheduleMeta(this.data.schedule).unique
         this.toast(result.replaced ? `已覆盖当前学期，共 ${importedCount} 门课程`

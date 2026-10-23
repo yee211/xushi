@@ -35,20 +35,20 @@ test('old adjusted copy cannot remain the selected timetable', () => {
   assert.equal(storage.get('active_schedule_id'), 1)
 })
 
-test('school update remains accessible and closes both menus', () => {
+test('school update remains accessible and closes schedule center', () => {
   const { page, navigations } = harness()
-  page.setData({ scheduleCenterOpen: true, termSheetOpen: true })
+  page.setData({ scheduleCenterOpen: true })
   page.openAcademicQuery()
   assert.equal(page.data.scheduleCenterOpen, false)
-  assert.equal(page.data.termSheetOpen, false)
   assert.deepEqual(navigations, ['/pages/academic/academic'])
 })
 
 test('retired write and clone methods are removed; backup import remains usable', () => {
   const { page } = harness()
-  for (const name of ['addCourse', 'editSelectedCourse', 'openAdjustment', 'startMoveMode', 'cellTap', 'openRecords', 'openShareModal', 'openShareImportModal']) {
+  for (const name of ['addCourse', 'editSelectedCourse', 'openAdjustment', 'startMoveMode', 'cellTap', 'openRecords', 'openShareModal', 'openShareImportModal', 'openTermSheet', 'openSemesterFromSheet', 'syncSchedules']) {
     assert.equal(page[name], undefined, name)
   }
+  assert.equal(page.data.termSheetOpen, undefined)
   page.chooseCenterImport()
   assert.equal(page.data.importOpen, true)
   assert.equal(typeof page.prepareImport, 'function')

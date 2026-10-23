@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+from datetime import date
 
 from ..services.llm_config import get_llm_config as get_llm_config
 from .budget import execution
@@ -99,20 +100,19 @@ def _grounded(content: str, context: str) -> bool:
 
 
 
-def _facts_grounded(content: str, facts: list[dict], question: str) -> bool:
-    from datetime import date
-
-    from .other_reply import mentions_others, render_other_facts
+def _facts_grounded(content: str, facts: list[dict], question: str, today: date | None = None) -> bool:
+    from .other_reply import group_request, mentions_others, render_other_facts
     errors = [f.get("result") or {} for f in facts if (f.get("result") or {}).get("error")]
     if errors and all((f.get("result") or {}).get("error") for f in facts) and any(
             content.strip() == error.get("message") for error in errors):
         return True
-    other_answer = render_other_facts(facts, date.today())
+    other_answer = render_other_facts(facts, today or date.today())
     if other_answer is not None:
         # These replies have a deterministic layout, including per-person and
         # intersection conclusions. Never validate them against a union of times.
         return content.strip() == other_answer
-    if mentions_others(question) and re.search(r"有空|空闲|没课|没有课|有.{0,12}课", content) and not any(
+    if (mentions_others(question) or group_request(question)) and re.search(
+            r"有空|空闲|没课|没有课|有.{0,12}课", content) and not any(
             f.get("skill") in {"query_other_day_courses", "check_group_availability"} for f in facts):
         return False
     successful = [f for f in facts if isinstance(f.get("result"), dict) and not f["result"].get("error")]

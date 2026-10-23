@@ -76,6 +76,7 @@ jobs:
           node --check pages/academic/academic.js
           node --check pages/agent/agent.js
           node --check pages/feedback/feedback.js
+          node --check pages/others/others.js
         working-directory: miniapp
       - name: Miniapp regressions
         run: node --test tests/*.test.cjs

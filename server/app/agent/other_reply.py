@@ -6,12 +6,21 @@ from .course_reply import DayCourses, render_day
 
 OTHER_TOOLS = {"query_other_day_courses", "check_group_availability"}
 PERSON_FIELDS = ("name", "remark", "student_id", "class_name", "display_name", "major_name")
+STRONG_OTHER = re.compile(r"他人|室友|同学|搭子|舍友|共同|谁.{0,8}(?:有空|空闲)|我和|我与|和我|与我")
+WEAK_GROUP = re.compile(r"我们|咱们")
+GROUP_HINT = re.compile(r"都|一起|共同|几个|大家|谁|一块")
 
 
 def mentions_others(text, people=()):
     text = re.sub(r"\s+", "", text)
-    return bool(re.search(r"他人|室友|同学|搭子|舍友|我们|咱们|共同|谁.{0,8}(?:有空|空闲)|我和|我与|和我|与我", text)) or any(
+    return bool(STRONG_OTHER.search(text)) or any(
         str(p.get(k) or "").strip() in text for p in people for k in PERSON_FIELDS if str(p.get(k) or "").strip())
+
+
+def group_request(text):
+    """“我们/咱们”本身常指自己；只有带多人语义时才进入共同空闲范围。"""
+    text = re.sub(r"\s+", "", text)
+    return bool(WEAK_GROUP.search(text) and GROUP_HINT.search(text))
 
 
 def mixed_people(text):

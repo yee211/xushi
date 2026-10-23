@@ -17,7 +17,7 @@ from langsmith import tracing_context
 from . import loop
 from .completion import COMPLETION_PROMPT, Completion, promises_work
 from .course_reply import CourseComment, course_facts, render_courses
-from .other_reply import contextual_question, mentions_others, mixed_people, render_other_facts
+from .other_reply import contextual_question, group_request, mentions_others, mixed_people, render_other_facts
 
 
 class QueryState(TypedDict, total=False):
@@ -48,7 +48,9 @@ class QueryRun:
             return True
         if self._people is None:
             self._people = self.tools.list_other_people().get("people") or []
-        return mentions_others(self.scope_question, self._people)
+        if not self._people:
+            return False
+        return mentions_others(self.scope_question, self._people) or group_request(self.scope_question)
 
     def scope_complete(self, facts):
         if not self.other_scope():
@@ -189,7 +191,8 @@ class QueryRun:
             completion_status = completion.status
         if completion_status == "needs_input" and not promises_work(content):
             context = json.dumps([f["result"] for f in facts], ensure_ascii=False, default=str)
-            if loop._grounded(content, context) and loop._facts_grounded(content, facts, ""):
+            if loop._grounded(content, context) and loop._facts_grounded(
+                    content, facts, "", today=self.tools.context.now.date()):
                 loop.llm_circuit_breaker.record_success()
                 answer = self.answer(facts, content)
                 answer["_completion_status"] = "needs_input"
@@ -209,7 +212,8 @@ class QueryRun:
             candidate = render_courses(bundle, self.tools.context.now.date(), comment)
             if comment and not (loop._grounded(candidate, json.dumps([f["result"] for f in facts],
                                                                      ensure_ascii=False, default=str))
-                                and loop._facts_grounded(candidate, facts, self.question)):
+                                and loop._facts_grounded(candidate, facts, self.question,
+                                                         today=self.tools.context.now.date())):
                 candidate = render_courses(bundle, self.tools.context.now.date())
             loop.llm_circuit_breaker.record_success()
             return {"answer": self.answer(facts, candidate), "route": "done"}
@@ -222,11 +226,14 @@ class QueryRun:
                     "QUERY_NEXT": {"get_next_course"}, "FIND_COURSE": {"find_course"}, "QUERY_WEATHER": {"get_weather"}}
         expected_skills = required.get(intent.name)
         missing = bool(expected_skills) and not any(f["skill"] in expected_skills for f in facts)
-        if promises_work(content) or (missing and loop._facts_grounded(content, facts, self.question) and not re.search(r"[？?]|无法|暂时|失败|不可用|未绑定|未导入", content)):
+        if promises_work(content) or (missing and loop._facts_grounded(
+                content, facts, self.question, today=self.tools.context.now.date())
+                and not re.search(r"[？?]|无法|暂时|失败|不可用|未绑定|未导入", content)):
             return self.unfinished(state)
         context = json.dumps([f["result"] for f in facts if not f["result"].get("error")],
                              ensure_ascii=False, default=str) + " " + self.tools.context.now.strftime("%H:%M")
-        if content and loop._grounded(content, context) and loop._facts_grounded(content, facts, self.question):
+        if content and loop._grounded(content, context) and loop._facts_grounded(
+                content, facts, self.question, today=self.tools.context.now.date()):
             loop.llm_circuit_breaker.record_success()
             answer = self.answer(facts, content)
             if completion_status in {"failed", "needs_input"}:

@@ -243,3 +243,28 @@ def test_directory_search_splits_composite_terms(query, expected):
 def test_date_followup_preserves_other_person_scope(isolated_engine):
     runtime = graph.QueryRun(make_tools(), "明天呢", [{"role": "user", "content": "今天我和室友有什么课"}])
     assert not runtime.scope_complete([fact("query_day_courses", day())])
+
+
+def test_we_self_query_stays_personal(isolated_engine):
+    runtime = graph.QueryRun(make_tools(), "我们今天有什么课", [])
+    assert not runtime.other_scope()
+    assert runtime.scope_complete([fact("query_day_courses", day())])
+    reply = runtime.saved_answer([fact("query_day_courses", day())])
+    assert reply and "数据结构" in reply["answer"]
+
+
+def test_we_group_query_requires_saved_people(isolated_engine):
+    tools = make_tools()
+    tools.list_other_people = Mock(return_value={"people": [{"name": "李四", "remark": "室友"}]})
+    runtime = graph.QueryRun(tools, "我们都有空吗", [])
+    assert runtime.other_scope()
+    assert not runtime.scope_complete([fact("query_day_courses", day())])
+    assert not graph.QueryRun(make_tools(), "我们都有空吗", []).other_scope()
+
+
+def test_we_self_query_survives_deterministic_fallback():
+    tools = make_tools()
+    tools.list_other_people = Mock(return_value={"people": []})
+    result = orchestrator._fallback_reply("我们今天有课吗", tools, allow_llm=False)
+    assert not result.get("error")
+    assert "2026-09-08" in result["answer"]

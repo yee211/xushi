@@ -180,15 +180,12 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
                 content = item.get("content", "") if isinstance(item, dict) else item.content
                 text += re.sub(r"\s+", "", str(content).split("[消息时间", 1)[0])
                 break
-    other_scope = bool(re.search(r"他人|室友|同学|搭子|舍友|我们|咱们|共同|谁.{0,8}(?:有空|空闲)|(?:我和|我与|和我|与我)", text))
+    from .other_reply import group_request, mentions_others
+    other_scope = mentions_others(text)
     if not other_scope:
         try:
             people = tools.list_other_people().get("people") or []
-            other_scope = any(
-                str(person.get(key) or "").strip() in text
-                for person in people for key in ("name", "remark", "student_id", "class_name", "display_name", "major_name")
-                if str(person.get(key) or "").strip()
-            )
+            other_scope = bool(people) and (mentions_others(text, people) or group_request(text))
         except Exception:
             return {"intent": "HELP", "answer": "暂时无法确认查询对象，请稍后重试。",
                     "error": {"code": "service_unavailable", "message": "无法读取已保存的他人课表名单"}}
