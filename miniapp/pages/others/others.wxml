@@ -1,0 +1,116 @@
+<view class="others-page {{nightMode ? 'night' : ''}} {{backgroundPath ? 'has-wallpaper' : ''}}">
+  <block wx:if="{{backgroundPath}}">
+    <image class="page-wallpaper" src="{{backgroundPath}}" mode="aspectFill"></image>
+    <view class="page-wallpaper-tint"></view>
+  </block>
+  <view class="ambient" wx:else aria-hidden="true">
+    <view class="orb orb-a"></view>
+    <view class="orb orb-b"></view>
+    <view class="orb orb-c"></view>
+  </view>
+
+  <scroll-view class="others-scroll" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{scrollIntoView}}" scroll-with-animation>
+    <view class="others-content">
+      <!-- 顶部 Hero -->
+      <view class="others-hero">
+        <view class="hero-badge-box">
+          <text class="hero-badge-icon">👥</text>
+        </view>
+        <text class="hero-title">查找他人课表</text>
+        <text class="hero-desc">支持保存多位室友或同学的课表，与自己的身份和课表完全独立管理。</text>
+      </view>
+
+      <!-- 搜索学生卡片 -->
+      <view class="card others-card">
+        <text class="form-card-title">搜索学生档案</text>
+        <view class="others-field-group">
+          <view class="field-item">
+            <text class="field-item-label">姓名、专业、班级或年级</text>
+            <input class="field-input" value="{{keyword}}" maxlength="80" disabled="{{busy}}" placeholder="如：李四、软件工程、24软工2班" placeholder-class="field-placeholder" bindinput="inputKeyword" bindconfirm="search" confirm-type="search"/>
+          </view>
+        </view>
+        <button class="btn primary search-btn" disabled="{{busy || !keyword}}" loading="{{busy}}" bindtap="search">搜索学生</button>
+
+        <view wx:if="{{notice}}" class="others-notice">{{notice}}</view>
+        <view class="others-alert info-alert" wx:if="{{busy && !error && !selected}}">
+          <view class="alert-spinner mini"></view>
+          <text class="alert-text">正在查找学生信息，请稍候…</text>
+        </view>
+      </view>
+
+      <!-- 搜索无结果空状态 -->
+      <view class="card others-card empty-card" wx:if="{{searched && !students.length && !busy}}">
+        <text class="empty-icon">🔍</text>
+        <text class="empty-title">未找到匹配学生</text>
+        <text class="empty-desc">请补充姓名或班级的部分文字后重试。</text>
+      </view>
+
+      <!-- 搜索结果列表 -->
+      <view class="card others-card students-card" wx:if="{{students.length}}">
+        <text class="form-card-title">匹配结果</text>
+        <text class="form-card-subtitle">点击选择要查看或保存的同学：</text>
+        <view class="students-list">
+          <view wx:for="{{students}}" wx:key="id" class="student-item-card {{selected && selected.id === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="choose" hover-class="student-item-hover">
+            <view class="student-avatar-glyph">{{item.name[0] || '同'}}</view>
+            <view class="student-info">
+              <text class="student-name">{{item.name}} · {{item.class_name}}</text>
+              <text class="student-meta">{{item.major_name}} · {{item.student_number_display}}</text>
+            </view>
+            <view class="student-arrow-wrap">
+              <text class="student-arrow">{{selected && selected.id === item.id ? '✓' : '›'}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 选中学生的配置与保存面板 -->
+      <view id="selected-panel" wx:if="{{selected}}" class="card others-card manage-card">
+        <view class="manage-head">
+          <view class="manage-user-badge">
+            <view class="student-avatar-glyph">{{selected.name[0] || '同'}}</view>
+            <view class="manage-user-text">
+              <view class="manage-user-title-row">
+                <text class="manage-user-name">{{selected.name}}</text>
+                <text class="manage-user-class">{{selected.class_name}}</text>
+              </view>
+              <text class="others-hint">{{saved ? '已保存在他人课表列表中，再次保存将更新学期和课表。' : '可先预览课表，或直接保存到他人课表列表。'}}</text>
+            </view>
+          </view>
+          <text wx:if="{{updatedText}}" class="bound-sync-time">最近更新：{{updatedText}}</text>
+        </view>
+
+        <view class="others-field-group">
+          <view class="field-item">
+            <text class="field-item-label">选择学期</text>
+            <picker range="{{terms}}" value="{{termIndex}}" disabled="{{busy}}" bindchange="changeTerm">
+              <view class="field-picker">
+                <text>{{terms[termIndex] || '暂无可用学期'}}</text>
+                <text class="picker-arrow">▾</text>
+              </view>
+            </picker>
+          </view>
+          <view class="field-item">
+            <text class="field-item-label">备注名称（可选）</text>
+            <input class="field-input" value="{{remark}}" maxlength="40" disabled="{{busy}}" bindinput="inputRemark" placeholder="如：室友、搭档、学长" placeholder-class="field-placeholder"/>
+          </view>
+        </view>
+
+        <view class="manage-actions">
+          <view class="manage-btn-row">
+            <button class="btn" bindtap="preview" disabled="{{busy || !terms.length}}">预览课表</button>
+            <button class="btn primary" bindtap="save" disabled="{{busy || !terms.length}}" loading="{{busy}}">{{saved ? '更新保存' : '保存并查看'}}</button>
+          </view>
+          <button wx:if="{{saved}}" class="btn danger-button" bindtap="remove" disabled="{{busy}}">移除此人课表</button>
+        </view>
+      </view>
+
+      <!-- 错误提示警示框 -->
+      <view class="others-alert error-alert" wx:if="{{error}}">
+        <text class="alert-icon">⚠️</text>
+        <text class="alert-text">{{error}}</text>
+      </view>
+
+      <view class="bottom-safe"></view>
+    </view>
+  </scroll-view>
+</view>

@@ -26,6 +26,8 @@ class FakeAgentDb:
         self.schedule_query_user_ids = []
 
     def execute(self, sql, params=None):
+        if "FROM academic_others" in sql:
+            return FakeResult([])
         if "FROM identity_binding_codes" in sql and "FOR UPDATE" in sql:
             return FakeResult([self.binding_row] if self.binding_row else [])
         if sql.startswith("UPDATE identity_binding_codes"):

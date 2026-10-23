@@ -25,8 +25,8 @@ def requested(message: str) -> bool:
 
 def status_requested(message: str, history: list | None = None) -> bool:
     text = re.sub(r"\s+", "", message)
-    # A mixed course/weather question still goes through the query agent.
-    if re.search(r"有(?:什么|啥|几节|多少|几门)课|(?:课|课程).{0,8}(?:在哪|教室|几点)|教室|带伞|天气|有没有.*课", text):
+    # A mixed course/weather question or adding someone's schedule still goes through the query agent.
+    if re.search(r"有(?:什么|啥|几节|多少|几门)课|(?:课|课程).{0,8}(?:在哪|教室|几点)|教室|带伞|天气|有没有.*课|(?:添加|加一下|保存|绑定).*课表", text):
         return False
     if re.search(r"同步|旧课表|学校绑定|课表.{0,8}(?:更新|刷新|最新)|(?:需要|要不要).{0,4}(?:更新|刷新)课表|(?:更新|刷新).{0,6}(?:好了吗|好了没|完成|进度|状态)", text):
         return True

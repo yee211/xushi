@@ -158,10 +158,13 @@ class QueryRun:
             return {"answer": self.answer(facts, candidate), "route": "done"}
         from .orchestrator import parse_intent
         intent = parse_intent(self.question, self.tools.context.now.date())
-        required = {"QUERY_DAY": "query_day_courses", "QUERY_AVAILABILITY": "query_day_courses",
-                    "QUERY_COURSE_ON_DAY": "query_day_courses", "QUERY_WEEK": "query_week_courses",
-                    "QUERY_NEXT": "get_next_course", "FIND_COURSE": "find_course", "QUERY_WEATHER": "get_weather"}
-        missing = required.get(intent.name) and not any(f["skill"] == required[intent.name] for f in facts)
+        required = {"QUERY_DAY": {"query_day_courses", "query_other_day_courses"},
+                    "QUERY_AVAILABILITY": {"query_day_courses", "query_other_day_courses", "check_group_availability"},
+                    "QUERY_COURSE_ON_DAY": {"query_day_courses", "query_other_day_courses"},
+                    "QUERY_WEEK": {"query_week_courses"},
+                    "QUERY_NEXT": {"get_next_course"}, "FIND_COURSE": {"find_course"}, "QUERY_WEATHER": {"get_weather"}}
+        expected_skills = required.get(intent.name)
+        missing = bool(expected_skills) and not any(f["skill"] in expected_skills for f in facts)
         if promises_work(content) or (missing and loop._facts_grounded(content, facts, self.question) and not re.search(r"[？?]|无法|暂时|失败|不可用|未绑定|未导入", content)):
             return self.unfinished(state)
         context = json.dumps([f["result"] for f in facts if not f["result"].get("error")],

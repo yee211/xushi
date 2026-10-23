@@ -241,6 +241,7 @@ button::after { border: 0; }
 .page.has-wallpaper,
 .page-root.has-wallpaper,
 .academic-page.has-wallpaper,
+.others-page.has-wallpaper,
 .feedback-page.has-wallpaper,
 .editor-page.has-wallpaper {
   background: transparent !important;
@@ -249,6 +250,7 @@ button::after { border: 0; }
 .page.night.has-wallpaper,
 .page-root.night.has-wallpaper,
 .academic-page.night.has-wallpaper,
+.others-page.night.has-wallpaper,
 .feedback-page.night.has-wallpaper,
 .editor-page.night.has-wallpaper {
   background: #070d19 !important;
@@ -258,6 +260,7 @@ button::after { border: 0; }
 .has-wallpaper .notice,
 .has-wallpaper .academic-status-card,
 .has-wallpaper .academic-form-card,
+.has-wallpaper .others-card,
 .has-wallpaper .students-card,
 .has-wallpaper .manage-card,
 .has-wallpaper .empty-card,
@@ -273,6 +276,7 @@ button::after { border: 0; }
 .has-wallpaper.night .notice,
 .has-wallpaper.night .academic-status-card,
 .has-wallpaper.night .academic-form-card,
+.has-wallpaper.night .others-card,
 .has-wallpaper.night .students-card,
 .has-wallpaper.night .manage-card,
 .has-wallpaper.night .empty-card,

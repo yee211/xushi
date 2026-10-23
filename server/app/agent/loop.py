@@ -132,7 +132,10 @@ def _facts_grounded(content: str, facts: list[dict], question: str) -> bool:
         if not any(state == "succeeded" if completed else state in {"queued", "running", "succeeded"}
                    for state in states):
             return False
-    course_tools = {"query_day_courses", "query_week_courses", "get_next_course", "find_course"}
+    course_tools = {
+        "query_day_courses", "query_week_courses", "get_next_course", "find_course",
+        "query_other_day_courses", "check_group_availability", "list_other_people", "add_other_schedule",
+    }
     queried = [f for f in successful if f["skill"] in course_tools]
     status_question = bool(re.search(r"同步|学校绑定|课表.*更新|旧课表", question))
     course_question = not status_question and bool(re.search(
@@ -152,25 +155,39 @@ def _facts_grounded(content: str, facts: list[dict], question: str) -> bool:
             return False
     if queried:
         rows = []
+        has_other_meta = False
         for fact in queried:
             result = fact["result"]
             rows.extend(result.get("courses") or [])
             rows.extend(result.get("occurrences") or [])
             if result.get("course"):
                 rows.append(result["course"])
+            for participant in result.get("participants") or []:
+                rows.extend(participant.get("courses") or [])
+            if fact["skill"] in {"add_other_schedule", "list_other_people"}:
+                has_other_meta = True
             # find_course uses an integer days horizon; weekly queries return a list.
             days = result.get("days")
             for day in days if isinstance(days, list) else []:
                 rows.extend(day.get("courses") or [])
         positive = re.sub(r"没有[^，。！？\n]*|没课|不用上课", "", content)
-        if not rows and re.search(r"有.{0,16}课(?!表)|正在上|下一节是", positive):
+        if not rows and not has_other_meta and re.search(r"有.{0,16}课(?!表)|正在上|下一节是", positive):
             return False
         # A single-day result cannot be rewritten as a blanket no-class conclusion.
         day_results = [f["result"] for f in queried if f["skill"] == "query_day_courses"]
         if len(day_results) == 1 and day_results[0].get("courses") and re.search(
                 r"(?:今天|明天|后天|当天)?(?:没有课|没课|全天无课|没有任何课)", content):
             return False
+        # Allow room/class/student codes from courses, candidates, and person metadata.
         allowed_rooms = {str(row.get("room") or "") for row in rows}
+        for fact in successful:
+            res = fact["result"]
+            for cand in (res.get("candidates") or []):
+                if isinstance(cand, dict):
+                    allowed_rooms.update(str(cand.get(k) or "") for k in ("class_name", "student_number_display", "student_id"))
+            person = res.get("person")
+            if isinstance(person, dict):
+                allowed_rooms.update(str(person.get(k) or "") for k in ("class_name", "student_id"))
         for room in re.findall(r"(?<![A-Za-z0-9])[A-Z][A-Za-z]*-?\d{2,5}(?![A-Za-z0-9])", content):
             if not any(room in allowed for allowed in allowed_rooms):
                 return False
@@ -234,6 +251,8 @@ def _extract_context_entities(facts: list[dict]) -> dict:
                 resolved["period"] = str(args["period"])
             if "name" in args and "course_name" not in resolved and args["name"]:
                 resolved["course_name"] = str(args["name"])
+            if "person" in args and "person" not in resolved and args["person"]:
+                resolved["person"] = str(args["person"])
     return resolved
 
 

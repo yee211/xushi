@@ -2,10 +2,24 @@
 import threading
 import time
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from redis.exceptions import RedisError
 
 from ..redis import get_redis
+
+_query_wait = ContextVar("academic_query_queue_wait", default=2)
+
+
+@contextmanager
+def query_wait(seconds):
+    token = _query_wait.set(seconds)
+    try:
+        yield
+    finally:
+        _query_wait.reset(token)
+
 
 _lock = threading.Lock()
 _next = 0.0
@@ -15,7 +29,7 @@ def acquire(deadline):
     global _next
     from .academic import AcademicError
     interactive = threading.current_thread().name == "AnyIO worker thread"
-    deadline = min(deadline, time.monotonic() + 2) if interactive else deadline
+    deadline = min(deadline, time.monotonic() + _query_wait.get()) if interactive else deadline
     client = get_redis()
     if client is not None:
         while time.monotonic() < deadline:

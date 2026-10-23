@@ -33,6 +33,8 @@ class FakeDb:
     def __init__(self, schedules, courses): self.schedules, self.courses = schedules, courses
 
     def execute(self, sql, params):
+        if "FROM academic_others" in sql:
+            return FakeResult([])
         if "FROM schedules" in sql:
             return FakeResult([item for item in self.schedules if teaching_week(item, params[1]) is not None])
         if "FROM courses" in sql:
