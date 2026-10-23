@@ -1,34 +1,132 @@
 const app = getApp()
 Page({
-  data: { nightMode: false, backgroundPath: '', keyword: '', students: [], selected: null, terms: [], termIndex: 0, remark: '', busy: false, error: '', notice: '', searched: false, saved: false, updatedText: '', scrollIntoView: '' },
+  data: { nightMode: false, backgroundPath: '', keyword: '', students: [], selected: null, terms: [], termIndex: 0, remark: '', busy: false, error: '', notice: '', searched: false, saved: false, updatedText: '', scrollIntoView: '', savedPeople: [], loadingSaved: false, savedError: '' },
   onShow() {
     const nightMode = typeof wx.getStorageSync === 'function' && wx.getStorageSync('night_mode') === true
     const backgroundPath = (typeof wx.getStorageSync === 'function' && wx.getStorageSync('schedule_background')) || ''
     this.setData({ nightMode, backgroundPath })
+    if (this._loaded) this.loadSavedPeople()
     if (wx.setNavigationBarColor) {
-      wx.setNavigationBarColor({
-        frontColor: (nightMode || backgroundPath) ? '#ffffff' : '#000000',
-        backgroundColor: nightMode ? '#070d19' : (backgroundPath ? '#000000' : '#f3f6fb')
-      }).catch(() => {})
+      try {
+        const pending = wx.setNavigationBarColor({
+          frontColor: (nightMode || backgroundPath) ? '#ffffff' : '#000000',
+          backgroundColor: nightMode ? '#070d19' : (backgroundPath ? '#000000' : '#f3f6fb')
+        })
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {})
+      } catch (_) {}
     }
   },
   async onLoad(options) {
-    if (!options || !options.studentId) return
-    this.setData({ busy: true })
+    const people = await this.loadSavedPeople()
+    this._loaded = true
+    if (!options || !options.studentId || this.closed) return
+    const pages = getCurrentPages()
+    const previous = pages[pages.length - 2]
+    const preview = previous && previous.data.otherPerson
+    const person = people.find(p => p.student_id === options.studentId) || (preview && preview.student_id === options.studentId ? preview : null)
+    if (person) await this.selectSavedPerson(person, people.some(p => p.student_id === person.student_id))
+  },
+  async loadSavedPeople() {
+    const session = wx.getStorageSync('session_token')
+    const revision = this._savedRevision = (this._savedRevision || 0) + 1
+    const current = () => !this.closed && revision === this._savedRevision && session === wx.getStorageSync('session_token')
+    this.setData({ loadingSaved: true, savedError: '' })
     try {
       const result = await app.request('/api/academic/others')
       const people = (result && Array.isArray(result.people)) ? result.people : []
-      const pages = getCurrentPages()
-      const previous = pages[pages.length - 2]
-      const preview = previous && previous.data.otherPerson
-      const saved = people.find(p => p.student_id === options.studentId)
-      const person = saved || (preview && preview.student_id === options.studentId ? preview : null)
-      if (person && !this.closed) {
-        this.setData({ selected: person.snapshot.student, remark: person.remark || '', saved: !!saved, updatedText: person.updated_at ? new Date(person.updated_at).toLocaleString() : '' })
-        await this.loadTerms(person.snapshot.student, person.term)
-      }
-    } catch (e) { this.setData({ error: e.message }) }
+      if (!current()) return []
+      this.setData({ savedPeople: people })
+      try { wx.setStorageSync('other_schedules_cache', { session, people }) } catch (_) {}
+      return people
+    } catch (e) {
+      if (!current()) return []
+      if (!this.closed) this.setData({ savedError: e.message })
+      try {
+        const cache = wx.getStorageSync('other_schedules_cache')
+        if (![401, 403].includes(e.statusCode) && cache && cache.session === wx.getStorageSync('session_token') && Array.isArray(cache.people)) {
+          if (!this.closed) this.setData({ savedPeople: cache.people, savedError: '暂时离线，显示上次保存的名单' })
+          return cache.people
+        }
+      } catch (_) {}
+      this.setData({ savedPeople: [] })
+      return []
+    } finally { if (current()) this.setData({ loadingSaved: false }) }
+  },
+  async selectSavedPerson(person, saved = true) {
+    if (this.data.busy) return
+    const student = {
+      ...(person.snapshot && person.snapshot.student),
+      id: (person.snapshot && person.snapshot.student && person.snapshot.student.id) || person.student_id
+    }
+    this.setData({ busy: true, selected: student, remark: person.remark || '', saved, error: '', scrollIntoView: 'selected-panel', updatedText: person.updated_at ? new Date(person.updated_at).toLocaleString() : '' })
+    try { await this.loadTerms(student, person.term) }
     finally { if (!this.closed) this.setData({ busy: false }) }
+  },
+  chooseSaved(e) {
+    const person = this.data.savedPeople.find(p => p.student_id === e.currentTarget.dataset.id)
+    if (person) return this.selectSavedPerson(person)
+  },
+  viewSaved(e) {
+    if (this.data.busy) return
+    const person = this.data.savedPeople.find(p => p.student_id === e.currentTarget.dataset.id)
+    if (person) this.showOnHome(person)
+  },
+  removeSaved(e) {
+    if (this.data.busy || this._confirmingRemove) return
+    const id = e.currentTarget.dataset.id
+    const person = this.data.savedPeople.find(p => p.student_id === id)
+    if (!person) return
+    const name = (person.snapshot && person.snapshot.student && person.snapshot.student.name) || person.remark || '此人'
+    this._confirmingRemove = true
+    wx.showModal({
+      title: '移除保存的课表？',
+      content: `确定移除 ${name} 的课表吗？只移除你保存的此人课表。`,
+      confirmColor: '#dc2626',
+      complete: () => { this._confirmingRemove = false },
+      success: async answer => {
+        if (!answer.confirm || this.closed || this.data.busy) return
+        this.setData({ busy: true, error: '' })
+        try {
+          await app.request('/api/academic/others/' + encodeURIComponent(id), { method: 'DELETE' })
+          const pages = getCurrentPages()
+          const previous = pages[pages.length - 2]
+          if (previous && previous.previewOther && previous.previewOther.student_id === id) {
+            previous.previewOther = null
+          }
+          this.cachePerson({ student_id: id }, true)
+          const nextPeople = this.data.savedPeople.filter(p => p.student_id !== id)
+          const updates = { savedPeople: nextPeople }
+          const activeId = this.data.selected && (this.data.selected.id || this.data.selected.student_id)
+          if (activeId === id) {
+            updates.selected = null
+            updates.saved = false
+            updates.remark = ''
+            updates.updatedText = ''
+            updates.terms = []
+            updates.termIndex = 0
+          }
+          if (!this.closed) {
+            this.setData(updates)
+            if (typeof wx.showToast === 'function') wx.showToast({ title: '已移除', icon: 'success' })
+          }
+        } catch (e) {
+          if (!this.closed) this.setData({ error: e.message })
+        } finally {
+          if (!this.closed) this.setData({ busy: false })
+        }
+      }
+    })
+  },
+  showOnHome(person) {
+    const pages = getCurrentPages()
+    const previous = pages[pages.length - 2]
+    if (previous && typeof previous.showOtherPerson === 'function') {
+      previous.previewOther = person
+      previous.setData({ currentTab: 'home', scheduleScope: 'others' })
+      previous.showOtherPerson(person)
+      if (wx.setNavigationBarTitle) wx.setNavigationBarTitle({ title: '序时课表' })
+    }
+    wx.navigateBack()
   },
   onUnload() { this.closed = true },
   inputKeyword(e) { this.setData({ keyword: e.detail.value }) },
@@ -108,14 +206,7 @@ Page({
         person = { student_id: student.id, term, remark: this.data.remark, snapshot }
       }
       if (this.closed) return
-      const pages = getCurrentPages()
-      const previous = pages[pages.length - 2]
-      if (previous && typeof previous.showOtherPerson === 'function') {
-        previous.previewOther = person
-        previous.setData({ scheduleScope: 'others' })
-        previous.showOtherPerson(person)
-      }
-      wx.navigateBack()
+      this.showOnHome(person)
     } catch (e) { if (!this.closed) this.setData({ error: e.message }) }
     finally { if (!this.closed) this.setData({ busy: false }) }
   },
@@ -133,7 +224,11 @@ Page({
           previous.previewOther = null
         }
         this.cachePerson({ student_id: this.data.selected.id }, true)
-        if (!this.closed) wx.navigateBack()
+        const nextPeople = this.data.savedPeople.filter(p => p.student_id !== this.data.selected.id)
+        if (!this.closed) {
+          this.setData({ savedPeople: nextPeople, selected: null, saved: false })
+          wx.navigateBack()
+        }
       } catch (e) { if (!this.closed) this.setData({ error: e.message }) }
       finally { if (!this.closed) this.setData({ busy: false }) }
     } })

@@ -10,7 +10,14 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from ..db import connect
-from . import academic, academic_binding, academic_runtime, academic_sync_notifications, academic_sync_requests
+from . import (
+    academic,
+    academic_binding,
+    academic_other_jobs,
+    academic_runtime,
+    academic_sync_notifications,
+    academic_sync_requests,
+)
 
 logger = logging.getLogger(__name__)
 SHANGHAI = timezone(timedelta(hours=8))
@@ -43,7 +50,7 @@ _notification_thread = None
 
 def init_schema():
     with connect() as db:
-        for sql in (*SCHEMA, *academic_sync_notifications.SCHEMA):
+        for sql in (*SCHEMA, *academic_sync_notifications.SCHEMA, *academic_other_jobs.SCHEMA):
             db.execute(sql)
         db.execute(academic_sync_requests.BACKFILL)
 
@@ -211,6 +218,7 @@ def run():
         try:
             with connect() as db:
                 worked = process_one(db)
+            worked = academic_other_jobs.process_one() or worked
         except Exception:
             logger.exception("School sync worker unavailable")
             worked = False

@@ -16,8 +16,28 @@
         <view class="hero-badge-box">
           <text class="hero-badge-icon">👥</text>
         </view>
-        <text class="hero-title">查找他人课表</text>
+        <text class="hero-title">他人课表</text>
         <text class="hero-desc">支持保存多位室友或同学的课表，与自己的身份和课表完全独立管理。</text>
+      </view>
+
+      <view class="card others-card" wx:if="{{loadingSaved || savedPeople.length || savedError}}">
+        <text class="form-card-title">已保存 {{savedPeople.length}} 人</text>
+        <text class="form-card-subtitle">点击姓名管理学期、备注；可直接查看或移除。</text>
+        <text class="others-hint" wx:if="{{loadingSaved}}">正在读取已保存名单…</text>
+        <view class="others-notice" wx:if="{{savedError}}">{{savedError}}</view>
+        <view class="students-list">
+          <view wx:for="{{savedPeople}}" wx:key="student_id" class="student-item-card" data-id="{{item.student_id}}" bindtap="chooseSaved" hover-class="student-item-hover">
+            <view class="student-avatar-glyph">{{item.snapshot.student.name[0] || '同'}}</view>
+            <view class="student-info">
+              <text class="student-name">{{item.remark || item.snapshot.student.name}}{{item.remark ? ' · ' + item.snapshot.student.name : ''}}</text>
+              <text class="student-meta">{{item.snapshot.student.class_name}} · {{item.term}}</text>
+            </view>
+            <view class="saved-item-actions">
+              <button class="saved-view-btn" size="mini" data-id="{{item.student_id}}" catchtap="viewSaved" disabled="{{busy}}">查看</button>
+              <button class="saved-remove-btn" size="mini" data-id="{{item.student_id}}" catchtap="removeSaved" disabled="{{busy}}">移除</button>
+            </view>
+          </view>
+        </view>
       </view>
 
       <!-- 搜索学生卡片 -->

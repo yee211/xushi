@@ -1,4 +1,51 @@
 /* ===== 查找他人课表页面：真正液态毛玻璃设计规范 ===== */
+.saved-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex-shrink: 0;
+}
+.saved-view-btn,
+.saved-remove-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 54rpx !important;
+  min-height: 54rpx !important;
+  line-height: 54rpx !important;
+  margin: 0 !important;
+  padding: 0 22rpx !important;
+  font-size: 23rpx !important;
+  font-weight: 650 !important;
+  border-radius: var(--radius-pill) !important;
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  transition: all .16s ease !important;
+}
+.saved-view-btn {
+  background: rgba(14, 165, 233, 0.12) !important;
+  color: #0284c7 !important;
+  border: 1.5rpx solid rgba(14, 165, 233, 0.28) !important;
+}
+.saved-view-btn::after { border: none !important; }
+.night .saved-view-btn {
+  color: #7dd3fc !important;
+  background: rgba(56, 189, 248, 0.16) !important;
+  border-color: rgba(56, 189, 248, 0.35) !important;
+}
+.saved-remove-btn {
+  background: rgba(239, 68, 68, 0.08) !important;
+  color: #dc2626 !important;
+  border: 1.5rpx solid rgba(239, 68, 68, 0.25) !important;
+}
+.saved-remove-btn::after { border: none !important; }
+.night .saved-remove-btn {
+  color: #f87171 !important;
+  background: rgba(239, 68, 68, 0.16) !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
 page {
   width: 100%;
   height: 100%;
@@ -193,8 +240,9 @@ page {
   display: flex;
   flex-direction: column;
   gap: 14rpx;
-  max-height: 540rpx;
+  max-height: 720rpx;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .student-item-card {
   display: flex;
@@ -239,17 +287,24 @@ page {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4rpx;
+  gap: 6rpx;
+  justify-content: center;
 }
 .student-name {
-  font-size: 29rpx;
+  font-size: 28rpx;
   font-weight: 750;
   color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .night .student-name { color: #f8fafc; }
 .student-meta {
-  font-size: 23rpx;
+  font-size: 22rpx;
   color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .night .student-meta { color: #94a3b8; }
 .student-arrow-wrap {
@@ -407,6 +462,7 @@ page {
 
 .others-notice {
   margin-top: 18rpx;
+  margin-bottom: 18rpx;
   padding: 18rpx 22rpx;
   border-radius: 16rpx;
   color: #52677e;

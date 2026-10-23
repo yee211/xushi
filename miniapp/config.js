@@ -2,7 +2,7 @@
 // 上线前把 PROD_API_BASE_URL 改为真实域名，并在微信公众平台加入 request 与 uploadFile 合法域名。
 // 统一后端与网页版共用同一个服务（默认本地端口 8000）；生产环境把
 // PROD_API_BASE_URL 与网页端 VITE_API_BASE_URL 指向同一个域名即可。
-const DEV_API_BASE_URL = 'http://127.0.0.1:8001'
+const DEV_API_BASE_URL = 'http://127.0.0.1:8000'
 const PROD_API_BASE_URL = 'https://wx-api.tanzeng.xyz'
 const platform = typeof wx !== 'undefined' && wx.getDeviceInfo
   ? wx.getDeviceInfo().platform

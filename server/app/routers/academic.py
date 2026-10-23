@@ -249,3 +249,25 @@ def delete_other(student_id: str, user=Depends(get_current_user)):
 def refresh_other(student_id: str, user=Depends(get_current_user)):
     from ..services import academic_others
     return invoke(academic_others.refresh_saved, user["id"], student_id)
+
+
+class OtherBatchIn(BaseModel):
+    retry_of: UUID | None = None
+
+
+@router.post("/api/academic/others/sync/tasks", status_code=202)
+def start_other_batch(payload: OtherBatchIn, user=Depends(get_current_user)):
+    from ..services import academic_other_jobs
+    return invoke(academic_other_jobs.enqueue, user["id"], payload.retry_of)
+
+
+@router.get("/api/academic/others/sync/tasks/latest")
+def latest_other_batch(user=Depends(get_current_user)):
+    from ..services import academic_other_jobs
+    return {"task": academic_other_jobs.read(user["id"])}
+
+
+@router.get("/api/academic/others/sync/tasks/{job_id}")
+def read_other_batch(job_id: UUID, user=Depends(get_current_user)):
+    from ..services import academic_other_jobs
+    return academic_other_jobs.read(user["id"], job_id)

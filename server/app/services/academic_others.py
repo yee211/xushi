@@ -53,7 +53,7 @@ def query(student_id, term, refresh=False, user_id=None):
 
 
 def _upsert_row(db, user_id, student_id, term, remark, snapshot):
-    db.execute("SELECT pg_advisory_xact_lock(%s)", (user_id,))
+    db.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"{user_id}:academic-others",))
     counts = db.execute("""SELECT COUNT(*) AS total,
         COUNT(*) FILTER (WHERE student_id=%s) AS present FROM academic_others WHERE user_id=%s""",
         (student_id, user_id)).fetchone()
@@ -80,11 +80,13 @@ def remove(user_id, student_id):
         db.execute("DELETE FROM academic_others WHERE user_id=%s AND student_id=%s", (user_id, student_id))
 
 
-def refresh_saved(user_id, student_id):
+def refresh_saved(user_id, student_id, *, expected=None):
     with connect() as db:
         old = db.execute("SELECT * FROM academic_others WHERE user_id=%s AND student_id=%s", (user_id, student_id)).fetchone()
     if not old:
         raise academic.AcademicError("saved_person_changed", "此人的课表已被移除，请刷新列表", 409)
+    if expected and (old["term"] != expected["term"] or str(old["updated_at"]) != expected["updated_at"]):
+        raise academic.AcademicError("saved_person_changed", "课表已被修改，已跳过本次同步", 409)
     snapshot = query(student_id, old["term"], True, user_id)
     with connect() as db:
         row = db.execute("""UPDATE academic_others SET snapshot=%s::jsonb, updated_at=CURRENT_TIMESTAMP

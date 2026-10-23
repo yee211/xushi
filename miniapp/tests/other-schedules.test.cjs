@@ -5,15 +5,116 @@ const vm = require('node:vm')
 const path = require('node:path')
 function harness(request = async () => ({ people: [] })) {
   let page
+  let timer = null
   const storage = new Map([['active_schedule_id', 42], ['bound_student', { id: 'mine' }]])
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/index/index.js'), 'utf8'), {
     getApp: () => ({ request }), Page: p => { page = p },
-    wx: { getStorageSync: k => storage.get(k), setStorageSync: (k,v) => storage.set(k,v), removeStorageSync: k => storage.delete(k), getWindowInfo: () => ({ windowHeight: 800 }), showToast() {} }
+    setTimeout: fn => { timer = fn; return 1 },
+    clearTimeout: () => { timer = null },
+    Date,
+    wx: { getStorageSync: k => storage.get(k), setStorageSync: (k,v) => storage.set(k,v), removeStorageSync: k => storage.delete(k), getWindowInfo: () => ({ windowHeight: 800 }), showToast() {}, navigateTo(opts) { page.lastNavigation = opts.url } }
   })
   page.setData = values => Object.assign(page.data, values)
-  return { page, storage }
+  page.actionSheet = async () => ({ tapIndex: -1 })
+  return { page, storage, runTimer: () => { const t = timer; timer = null; if (t) t() }, hasTimer: () => !!timer }
 }
 const person = { student_id: 'other123', term: '2026-2027-1', snapshot: { student: { name: '同学' }, courses: [] } }
+
+test('profile peer entry always opens management even with existing saved people', () => {
+  const { page } = harness()
+  page.setData({ currentTab: 'mine', otherPeople: [person] })
+  page.openOtherFromMine()
+  assert.equal(page.lastNavigation, '/pages/others/others')
+  assert.equal(page.data.currentTab, 'mine')
+  assert.equal(page.data.scheduleScope, 'mine')
+})
+
+test('management opens with a saved list without automatically opening a person', async () => {
+  const { page, navigated } = searchHarness(async () => ({ people: [person] }))
+  await page.onLoad({})
+  assert.equal(page.data.savedPeople.length, 1)
+  assert.equal(page.data.selected, null)
+  assert.equal(navigated(), 0)
+})
+
+test('saved-list management selects a person without leaving the page', async () => {
+  const { page, navigated } = searchHarness(async url => url.endsWith('/others') ? { people: [person] } : { terms: [person.term] })
+  await page.onLoad({})
+  await page.chooseSaved({ currentTarget: { dataset: { id: person.student_id } } })
+  assert.equal(page.data.selected.name, '同学')
+  assert.equal(page.data.saved, true)
+  assert.equal(navigated(), 0)
+})
+
+test('saved-list remove option directly deletes saved peer without navigating away', async () => {
+  let deletedId = ''
+  const { page, storage, navigated } = searchHarness(async (url, options) => {
+    if (options && options.method === 'DELETE') {
+      deletedId = url.split('/').pop()
+      return { ok: true }
+    }
+    return url.endsWith('/others') ? { people: [person] } : { terms: [person.term] }
+  })
+  await page.onLoad({})
+  assert.equal(page.data.savedPeople.length, 1)
+  page.removeSaved({ currentTarget: { dataset: { id: person.student_id } } })
+  await page.removal
+  assert.equal(deletedId, person.student_id)
+  assert.equal(page.data.savedPeople.length, 0)
+  assert.equal(navigated(), 0)
+  assert.equal(storage.get('other_schedules_cache').people.length, 0)
+})
+
+test('saved-list remove option clears active form selection if the removed peer was selected', async () => {
+  const { page } = searchHarness(async (url, options) => {
+    if (options && options.method === 'DELETE') return { ok: true }
+    return url.endsWith('/others') ? { people: [person] } : { terms: [person.term] }
+  })
+  await page.onLoad({})
+  await page.chooseSaved({ currentTarget: { dataset: { id: person.student_id } } })
+  assert.equal(page.data.selected.name, '同学')
+  assert.equal(page.data.saved, true)
+  page.removeSaved({ currentTarget: { dataset: { id: person.student_id } } })
+  await page.removal
+  assert.equal(page.data.selected, null)
+  assert.equal(page.data.saved, false)
+})
+
+test('update menu offers current and all, plus failed-item retry', async () => {
+  const { page } = harness()
+  page.setData({ otherPeople: [person], otherSyncTask: { id: 'batch', failed: 1 } })
+  let menu
+  let retry
+  page.actionSheet = async items => { menu = items; return { tapIndex: 2 } }
+  page.startOtherSync = async value => { retry = value }
+  await page.openOtherUpdateMenu()
+  assert.equal(menu.length, 3)
+  assert.match(menu[1].text, /共 1 人/)
+  assert.equal(retry, true)
+})
+
+test('batch start deduplicates taps and stores server progress', async () => {
+  let resolveStart
+  let calls = 0
+  const { page } = harness(() => { calls++; return new Promise(resolve => { resolveStart = resolve }) })
+  const start = page.startOtherSync()
+  await page.startOtherSync()
+  resolveStart({ id: 'batch', state: 'queued', done: 0, total: 3, updated: 0, failed: 0, skipped: 0 })
+  await start
+  assert.equal(calls, 1)
+  assert.equal(page.data.otherSyncActive, true)
+  assert.match(page.data.otherSyncText, /0\/3/)
+})
+
+test('reopening resumes progress; stale polls cannot revive a hidden-page result', async () => {
+  let resolvePoll
+  const { page } = harness(() => new Promise(resolve => { resolvePoll = resolve }))
+  const polling = page.loadOtherSyncStatus()
+  page.onHide()
+  resolvePoll({ task: { id: 'old', state: 'running', done: 1, total: 3 } })
+  await polling
+  assert.equal(page.data.otherSyncTask, null)
+})
 
 function searchHarness(request = async () => ({ terms: ['2026-2027-1'] }), failCache = false) {
   let page
@@ -149,7 +250,7 @@ test('preview and save share the isolated other-person flow', async () => {
       if (url.endsWith('/others')) return { people: [] }
       return { terms: [person.term] }
     } }),
-    Page: p => { searchPage = p }, getCurrentPages: () => [previous, searchPage], wx: { navigateBack() {} }
+    Page: p => { searchPage = p }, getCurrentPages: () => [previous, searchPage], wx: { navigateBack() {}, getStorageSync() { return 'session' }, setStorageSync() {} }
   })
   searchPage.setData = v => Object.assign(searchPage.data, v)
   await searchPage.onLoad({ studentId: person.student_id })
@@ -196,4 +297,84 @@ test('switching to others with cached person renders immediately without loading
   assert.equal(page.data.schedule.id, 'other:other123')
   resolveNetwork({ people: [person] })
   await switching
+})
+
+test('other-sync polling switches to slow mode before stopping and refresh resumes it', async () => {
+  const { page, hasTimer } = harness(async () => ({ task: { id: 'task-1', state: 'running', done: 0, total: 2, updated: 0, failed: 0, skipped: 0 } }))
+  page.setData({ scheduleScope: 'others', otherSyncActive: true })
+  page._otherSyncPolls = 150
+  page.scheduleOtherSyncPoll()
+  assert.equal(hasTimer(), true)
+  assert.match(page.data.otherSyncText, /后台仍在同步/)
+
+  page.stopOtherSyncPoll()
+  page._otherSyncPolls = 190
+  page.scheduleOtherSyncPoll()
+  assert.equal(hasTimer(), false)
+  assert.match(page.data.otherSyncText, /进度查询已暂停/)
+
+  // 下拉刷新恢复快速轮询
+  await page.onRefresh()
+  assert.equal(page._otherSyncPolls, 1)
+  assert.equal(hasTimer(), true)
+})
+
+test('completion banner is suppressed when task is older than 10 minutes unless witnessed active', async () => {
+  const tenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString()
+  const { page } = harness(async () => ({ task: { id: 'old-task', state: 'completed', done: 1, total: 1, updated: 1, failed: 0, skipped: 0, updated_at: tenMinutesAgo } }))
+  page.setData({ scheduleScope: 'others' })
+  await page.loadOtherSyncStatus()
+  assert.equal(page.data.otherSyncText, '')
+
+  // 若在此次页面访问中曾见证过 running，则显示完成横幅
+  page._otherSyncSeenActive = 'old-task'
+  page.applyOtherSyncTask({ id: 'old-task', state: 'completed', done: 1, total: 1, updated: 1, failed: 0, skipped: 0, updated_at: tenMinutesAgo })
+  assert.match(page.data.otherSyncText, /同步完成/)
+})
+
+test('completion banner can be dismissed and does not reappear on revisit', async () => {
+  const recent = new Date().toISOString()
+  const task = { id: 'fresh-task', state: 'completed', done: 1, total: 1, updated: 1, failed: 0, skipped: 0, updated_at: recent }
+  const { page, storage } = harness(async () => ({ task }))
+  page.setData({ scheduleScope: 'others' })
+  await page.loadOtherSyncStatus()
+  assert.match(page.data.otherSyncText, /同步完成/)
+
+  page.dismissOtherSyncStatus()
+  assert.equal(page.data.otherSyncText, '')
+  assert.equal(storage.get('other_sync_dismissed'), 'fresh-task')
+
+  // 再次获取进度时不应重新弹出
+  await page.loadOtherSyncStatus()
+  assert.equal(page.data.otherSyncText, '')
+})
+
+test('entering others scope avoids redundant loadOtherPeople call', async () => {
+  let loadPeopleCalls = 0
+  const { page } = harness(async url => {
+    if (url.endsWith('/others')) { loadPeopleCalls++; return { people: [person] } }
+    if (url.endsWith('/latest')) return { task: { id: 'task-1', state: 'completed', done: 1, total: 1, updated: 1, failed: 0, skipped: 0 } }
+    return {}
+  })
+  page.setData({ scheduleScope: 'others', otherPeople: [person] })
+  await page.resumeOtherSyncStatus()
+  assert.equal(loadPeopleCalls, 0)
+})
+
+test('term picker switches schedules in mine scope when multiple exist', async () => {
+  const { page } = harness()
+  const sched1 = { id: 101, term: '2025-2026-2', courses: [] }
+  const sched2 = { id: 102, term: '2026-2027-1', courses: [] }
+  page.setData({ scheduleScope: 'mine', schedules: [sched1, sched2], schedule: sched1 })
+
+  let actionItems = []
+  page.actionSheet = async items => {
+    actionItems = items
+    return { tapIndex: 1 }
+  }
+  await page.onTermPickerTap()
+  assert.equal(actionItems.length, 2)
+  assert.match(actionItems[0].text, /✓ 2025-2026-2/)
+  assert.match(actionItems[1].text, /📅 2026-2027-1/)
+  assert.equal(page.data.schedule.id, 102)
 })

@@ -3,13 +3,14 @@ const config = require('../../config')
 
 Page({
   data: { loading: true, code: '', codeProvider: '', expiresAt: '', generating: false,
-    connecting: false, loginSession: '', qrDataUrl: '', loginStatus: '', needVerifyCode: false,
+    connecting: false, qrDataUrl: '', loginStatus: '', needVerifyCode: false,
     verifyCode: '', claw: { bound: false }, wecom: { bound: false },
     account: { linked: false, email: '' }, linkCode: '', linking: false,
     nightMode: false, backgroundPath: '',
     confirmModal: { visible: false, title: '', content: '', confirmText: '确定', cancelText: '取消', danger: false } },
   onLoad(options) {
     this.scheduleId = Number(options && options.scheduleId) || 0
+    this.loginSession = ''
   },
   onShow() {
     const nightMode = wx.getStorageSync('night_mode') === true
@@ -24,7 +25,7 @@ Page({
     this.pollCancelled = false
     this.loadStatus()
     // 离开页面（如长按识别二维码跳去微信）会中断轮询链，返回时若有进行中的扫码会话则恢复
-    if (this.data.loginSession && this.data.connecting) this.pollLogin('')
+    if (this.loginSession && this.data.connecting) this.pollLogin('')
   },
   onHide() { this.pollCancelled = true },
   onUnload() { this.pollCancelled = true },
@@ -127,14 +128,16 @@ Page({
     this.setData({ connecting: true, loginStatus: '正在生成二维码…', needVerifyCode: false })
     try {
       const result = await app.request('/api/integrations/weixin/login', { method: 'POST' })
-      this.setData({ loginSession: result.session_id,
+      this.loginSession = result.session_id
+      this.setData({
         qrDataUrl: `${app.globalData.apiBaseUrl}${result.qrcode_path}`,
         loginStatus: '长按二维码识别，或点按放大后识别' })
       this.pollLogin('')
       // 直接进全屏预览：微信预览态长按即可「识别图中二维码」，省掉「保存到相册→扫一扫→选图」三步
       this.previewQrcode()
     } catch (error) {
-      this.setData({ connecting: false, qrDataUrl: '', loginSession: '', loginStatus: '' }); this.toast(error.message)
+      this.loginSession = ''
+      this.setData({ connecting: false, qrDataUrl: '', loginStatus: '' }); this.toast(error.message)
     }
   },
   previewQrcode() {
@@ -155,14 +158,15 @@ Page({
     } finally { this.saving = false }
   },
   async pollLogin(verifyCode = '') {
-    if (this.pollCancelled || !this.data.loginSession) return
+    if (this.pollCancelled || !this.loginSession) return
     // 每次启动/恢复轮询都递增令牌，使旧轮询链的定时器自动失效，避免 onShow 恢复后出现双链路
     const token = (this.pollToken = (this.pollToken || 0) + 1)
     try {
-      const result = await app.request(`/api/integrations/weixin/login/${this.data.loginSession}/poll`,
+      const result = await app.request(`/api/integrations/weixin/login/${this.loginSession}/poll`,
         { method: 'POST', data: { verify_code: verifyCode } })
       if (result.connected) {
-        this.setData({ connecting: false, qrDataUrl: '', loginSession: '',
+        this.loginSession = ''
+        this.setData({ connecting: false, qrDataUrl: '',
           loginStatus: '', needVerifyCode: false, verifyCode: '' })
         this.toast('微信 ClawBot 连接成功')
         this.loadStatus()
@@ -176,13 +180,15 @@ Page({
       if (['expired', 'verify_code_blocked', 'binded_redirect'].includes(status)) {
         const message = status === 'expired' ? '二维码已过期，请重新生成' :
           (status === 'binded_redirect' ? '该 ClawBot 已连接过其他实例' : '验证码错误次数过多，请重试')
-        this.setData({ connecting: false, qrDataUrl: '', loginSession: '', loginStatus: message })
+        this.loginSession = ''
+        this.setData({ connecting: false, qrDataUrl: '', loginStatus: message })
         return
       }
       this.setData({ loginStatus: status === 'scaned' ? '已扫码，请在微信中确认连接…' : this.data.loginStatus })
       if (!this.pollCancelled && token === this.pollToken) setTimeout(() => this.pollLogin(''), 1200)
     } catch (error) {
-      this.setData({ connecting: false, qrDataUrl: '', loginSession: '', loginStatus: '' }); this.toast(error.message)
+      this.loginSession = ''
+      this.setData({ connecting: false, qrDataUrl: '', loginStatus: '' }); this.toast(error.message)
     }
   },
   onVerifyInput(event) { this.setData({ verifyCode: event.detail.value }) },
@@ -233,8 +239,9 @@ Page({
     if (!result.confirm) return
     try {
       this.pollCancelled = true
+      this.loginSession = ''
       await app.request(`/api/agent-bindings/${provider}`, { method: 'DELETE' })
-      this.setData({ code: '', codeProvider: '', expiresAt: '', qrDataUrl: '', loginSession: '' })
+      this.setData({ code: '', codeProvider: '', expiresAt: '', qrDataUrl: '' })
       this.toast('已解除绑定')
       this.loadStatus()
     } catch (error) { this.toast(error.message) }

@@ -505,3 +505,96 @@ def test_persistent_maintenance_failure_creates_one_monitoring_incident(monkeypa
     assert events == []
     login.update("retrying", "重试", retry_attempt=6)
     assert events == ["maintenance_error"]
+
+def test_course_selection_redirect_navigates_to_timetable(school_page, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from playwright import sync_api
+
+    context = school_page.context
+    requests, exported = [], []
+    entry = "https://tls.ccsut.cn/admin/jwxtgld/kbcx/xskblist"
+    xk_page = "https://tls.ccsut.cn/frontend/views/student/xkPage/index.html"
+
+    def route_school(route):
+        requests.append(route.request.url)
+        if route.request.url == login.SCHOOL_HOME:
+            route.fulfill(body=f"<script>location.href='{xk_page}'</script>", content_type="text/html")
+        elif route.request.url == xk_page:
+            route.fulfill(body="<html><body>选课列表</body></html>", content_type="text/html; charset=utf-8")
+        else:
+            route.fulfill(body='<input id="xm"><div class="list_sslct"></div>', content_type="text/html")
+
+    context.route("**/*", route_school)
+
+    class Engine:
+        chromium = SimpleNamespace(launch_persistent_context=lambda *args, **kwargs: context)
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            pass
+
+    def export(*args):
+        exported.append(args[1].url)
+        login._commands.put(("stop", ""))
+
+    monkeypatch.setattr(sync_api, "sync_playwright", Engine)
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "credentials", lambda: {})
+    monkeypatch.setattr(login, "LANDING_SETTLE_SECONDS", 0.1)
+    monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry, export_verified=export))
+    timeout = threading.Timer(8, lambda: login._commands.put(("stop", "")))
+    timeout.start()
+    try:
+        login.run("job")
+    finally:
+        timeout.cancel()
+    assert requests == [login.SCHOOL_HOME, xk_page, entry]
+    assert exported == [entry]
+
+
+def test_intercepted_timetable_falls_back_to_http_verification(school_page, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from playwright import sync_api
+
+    context = school_page.context
+    context.add_cookies([{"name": "username", "value": "13800138000", "domain": "tls.ccsut.cn", "path": "/"}])
+    requests, exported = [], []
+    entry = "https://tls.ccsut.cn/admin/jwxtgld/kbcx/xskblist"
+    xk_page = "https://tls.ccsut.cn/frontend/views/student/xkPage/index.html"
+
+    def route_school(route):
+        requests.append(route.request.url)
+        if route.request.url in (login.SCHOOL_HOME, entry):
+            route.fulfill(body=f"<script>location.href='{xk_page}'</script>", content_type="text/html")
+        else:
+            route.fulfill(body="<html><body>强制选课/评教页面</body></html>", content_type="text/html; charset=utf-8")
+
+    context.route("**/*", route_school)
+
+    class Engine:
+        chromium = SimpleNamespace(launch_persistent_context=lambda *args, **kwargs: context)
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            pass
+
+    def export(*args):
+        exported.append(args[1].url)
+        login._commands.put(("stop", ""))
+
+    monkeypatch.setattr(sync_api, "sync_playwright", Engine)
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "credentials", lambda: {"account": "13800138000"})
+    monkeypatch.setattr(login, "LANDING_SETTLE_SECONDS", 0.05)
+    monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry, export_verified=export))
+    timeout = threading.Timer(8, lambda: login._commands.put(("stop", "")))
+    timeout.start()
+    try:
+        login.run("job")
+    finally:
+        timeout.cancel()
+    assert exported == [xk_page]
+    assert requests.count(entry) == login.MAX_TIMETABLE_REDIRECTS
+
