@@ -275,6 +275,11 @@ def init_db():
 
         db.execute(SCHEMA)
         db.execute(INDEX)
+        db.execute("""CREATE TABLE IF NOT EXISTS academic_others (
+            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            student_id TEXT NOT NULL, term TEXT NOT NULL, remark TEXT NOT NULL DEFAULT '',
+            snapshot JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(user_id,student_id))""")
         _seed_demo(db)
 
 

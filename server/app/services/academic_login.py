@@ -164,6 +164,9 @@ def update(state, message, **details):
             academic_mail.connection_event("connected")
         elif state == "stopped" and not settings.get("enabled"):
             academic_mail.connection_event("stopped")
+        elif settings.get("enabled") and ((state == "error" and details.get("error_type") == "gateway_timeout")
+                or (state == "retrying" and details.get("retry_attempt", 0) >= 6)):
+            academic_mail.connection_event("maintenance_error")
         elif settings.get("enabled") and (state == "needs_login" or
                 state in {"ready_for_code", "waiting_code"} and settings.get("last_verified_at")):
             academic_mail.connection_event("needs_login")
@@ -424,7 +427,7 @@ def run(job, visible=False):
                             gateway_since = now
                         if not visible and now - gateway_since >= GATEWAY_TIMEOUT_SECONDS:
                             capture_login_page(page)
-                            update("needs_login", "教务系统页面超过60秒未完成加载，尚未确认登录成功。请查看学校页面提示后重新启动维护", diagnostic=True, error_type="gateway_timeout")
+                            update("error", "教务系统页面加载超时，正在等待自动恢复；尚未确认查询连接失效", diagnostic=True, error_type="gateway_timeout")
                             break
                         if (not visible and not gateway_recovered and location.path.rstrip("/") == "/admin"
                                 and now - gateway_since >= GATEWAY_RECOVERY_SECONDS):

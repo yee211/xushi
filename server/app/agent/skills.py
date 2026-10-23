@@ -56,6 +56,19 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
         return {"date": date, "period": period, "rain": day_rain(target, period),
                 "daily": fetch_daily_weather(target)}
 
+    def list_other_people() -> dict:
+        return tools.list_other_people()
+
+    def query_other_day_courses(person: str, date: str, period: str = "all") -> dict:
+        return tools.query_other_day_courses(person, date_type.fromisoformat(date), period)
+
+    def check_group_availability(date: str, period: str = "all",
+                                 people: list[str] | None = None, include_me: bool = True) -> dict:
+        return tools.check_group_availability(date_type.fromisoformat(date), period, people, bool(include_me))
+
+    def add_other_schedule(keyword: str = "", remark: str | None = None, term: str = "", student_id: str = "") -> dict:
+        return tools.add_other_schedule(keyword, remark, term, student_id)
+
     return [
         Skill("sync_schedule", "仅在用户明确要求同步/更新课表时提交后台任务；立即返回，不能代表同步完成",
               {}, (), tools.sync_schedule),
@@ -73,6 +86,23 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
               {}, (), list_course_catalog),
         Skill("get_weather", "查询某天天气概况、最高最低温度及指定时段降雨；daily 是全天概况，rain 是所选时段降雨",
               {"date": _DATE, "period": _PERIOD}, ("date",), get_weather),
+        Skill("list_other_people", "列出当前用户已保存的他人课表名单（含备注、姓名、班级、学期）",
+              {}, (), list_other_people),
+        Skill("query_other_day_courses", "查询已保存的某位同学/室友在某一天的课程列表（按备注或姓名匹配）",
+              {"person": {"type": "string", "description": "他人备注（如“室友”）或姓名（如“张三”）"},
+               "date": _DATE, "period": _PERIOD}, ("person", "date"), query_other_day_courses),
+        Skill("check_group_availability", "查询某天某时段谁有空、或者我与已保存同学的共同空闲时间段",
+              {"date": _DATE, "period": _PERIOD,
+               "people": {"type": "array", "items": {"type": "string"},
+                          "description": "指定要比较的他人备注或姓名列表；留空或省略表示比较全部已保存的他人"},
+               "include_me": {"type": "boolean", "description": "是否把用户自己的课表也纳入共同空闲比对，默认 true；仅问“他人中谁有空”时可设为 false"}},
+              ("date",), check_group_availability),
+        Skill("add_other_schedule", "从学校名录搜索并保存他人课表到“他人课表”列表（支持姓名、班级、年级或学号关键词；若同名多人会返回候选列表）",
+              {"keyword": {"type": "string", "description": "搜索关键词，如姓名“张三”或“24级软件1班张三”"},
+               "remark": {"type": "string", "description": "可选备注，如“室友”、“搭子”"},
+               "term": {"type": "string", "description": "可选学期，如 2025-2026-2，留空自动使用当前学期"},
+               "student_id": {"type": "string", "description": "可选学生唯一ID（从多候选确认时传入）"}},
+              (), add_other_schedule),
     ]
 
 

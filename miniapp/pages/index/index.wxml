@@ -10,8 +10,9 @@
     <view class="control-wrap" wx:if="{{schedule}}">
       <view class="control-card card">
         <view class="term-week-bar">
-          <view class="term-picker">
-            <text class="term-title-text">{{schedule.term || schedule.name}}</text>
+          <view class="term-picker" hover-class="term-picker-hover" hover-stay-time="80" bindtap="onTermPickerTap" aria-label="切换人员或查找他人课表">
+            <text class="term-title-text">{{scheduleScope === 'others' && otherPerson ? ((otherPerson.remark || otherPerson.snapshot.student.name) + ' · ' + (schedule.term || schedule.name)) : (schedule.term || schedule.name)}}</text>
+            <text class="term-chevron">换人 ▾</text>
           </view>
           <view class="week-inline">
             <view class="week-chip" hover-class="week-chip-hover" hover-stay-time="100" bindtap="toggleWeekPicker" aria-label="选择周数">
@@ -20,6 +21,17 @@
               <text class="week-chip-arrow">{{weekOpen ? '⌃' : '⌄'}}</text>
             </view>
           </view>
+        </view>
+      </view>
+      <view class="other-banner card" wx:if="{{scheduleScope === 'others' && otherPerson}}">
+        <view class="other-banner-left" bindtap="onTermPickerTap" hover-class="term-picker-hover">
+          <text class="other-banner-tag">{{otherPerson.updated_at ? '他人只读' : '预览只读'}}</text>
+          <text class="other-banner-name">{{otherPerson.remark ? otherPerson.remark + '（' + otherPerson.snapshot.student.name + '）' : otherPerson.snapshot.student.name}} · {{otherPerson.snapshot.student.class_name}}</text>
+        </view>
+        <view class="other-banner-actions">
+          <text class="other-banner-btn" hover-class="other-action-chip-hover" bindtap="manageOther">学期/备注</text>
+          <text class="other-banner-btn {{otherBusy ? 'disabled' : ''}}" hover-class="other-action-chip-hover" bindtap="refreshOther">{{otherBusy ? '更新中' : '更新'}}</text>
+          <text class="other-banner-btn primary" hover-class="other-action-chip-hover" data-scope="mine" bindtap="switchScheduleScope">返回我的</text>
         </view>
       </view>
       <view class="popover-mask" wx:if="{{weekOpen}}" bindtap="toggleWeekPicker"></view>
@@ -46,6 +58,22 @@
 
     <view wx:if="{{cacheNotice}}" class="loading-card card" bindtap="onRefresh"><text>{{cacheNotice}} · 点击重试</text></view>
     <view class="loading-card card" wx:if="{{loading}}"><text>正在读取课表…</text></view>
+    <view class="empty card glass-card" wx:elif="{{!schedule && scheduleScope === 'others'}}">
+      <view class="empty-hero">
+        <view class="empty-icon-box">
+          <text class="empty-icon-glyph">👥</text>
+        </view>
+        <text class="empty-title">还没有保存他人课表</text>
+        <text class="empty-desc">可查找并保存室友、同学的课表，支持切换学期与备注，与自己的课表完全独立。</text>
+        <view class="empty-buttons-row">
+          <button class="empty-button" hover-class="empty-button-hover" bindtap="openOtherSearch">
+            <text class="empty-button-icon">＋</text>
+            <text>查找他人课表</text>
+          </button>
+        </view>
+        <view class="other-empty-back" data-scope="mine" bindtap="switchScheduleScope">← 返回我的课表</view>
+      </view>
+    </view>
     <view class="empty card glass-card" wx:elif="{{!schedule}}">
       <view class="empty-hero">
         <view class="empty-icon-box">
@@ -179,6 +207,21 @@
         </view>
         <view class="service-right-group">
           <text class="service-tag tag-blue">课表来源</text>
+          <text class="service-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 模块 2：他人课表 -->
+      <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openOtherFromMine">
+        <view class="service-icon-box icon-purple">
+          <text class="service-emoji">👥</text>
+        </view>
+        <view class="service-text-col">
+          <text class="service-title">他人课表</text>
+          <text class="service-desc">查看与收藏室友、同学的课表</text>
+        </view>
+        <view class="service-right-group">
+          <text class="service-tag tag-purple">{{otherPeople.length ? '已存 ' + otherPeople.length + ' 人' : '独立查看'}}</text>
           <text class="service-arrow">›</text>
         </view>
       </view>
@@ -435,6 +478,21 @@
             <text class="opt-tag tag-green">智能解析</text>
           </view>
           <text class="opt-desc">从微信聊天记录选择教务导出的 .xlsx / .xls，秒级智能排课</text>
+        </view>
+        <text class="opt-arrow">›</text>
+      </view>
+
+      <!-- 选项 3：他人课表 -->
+      <view class="center-option-card opt-others" hover-class="center-option-hover" hover-stay-time="80" bindtap="openOtherFromMine">
+        <view class="opt-icon-badge opt-icon-purple">
+          <text class="opt-emoji">👥</text>
+        </view>
+        <view class="opt-content">
+          <view class="opt-title-row">
+            <text class="opt-title">他人课表</text>
+            <text class="opt-tag tag-purple">只读收藏</text>
+          </view>
+          <text class="opt-desc">查找并收藏多位同学的课表，与自己的课表独立管理</text>
         </view>
         <text class="opt-arrow">›</text>
       </view>

@@ -38,6 +38,7 @@ class FakeLinkDb:
         self.wx_schedules, self.target_schedules = list(wx_schedules), list(target_schedules)
         self.calls = []
         self.school_bindings = school_bindings or {}
+        self.others = {}
 
     def execute(self, sql, params=None):
         sql = " ".join(sql.split())
@@ -98,6 +99,7 @@ class FakeLinkDb:
         if sql.startswith("DELETE FROM schedules"):
             return FakeResult([], rowcount=1)
         if sql.startswith("DELETE FROM users"):
+            self.others = {k: v for k, v in self.others.items() if k[0] != params[0]}
             self.wx_user = None
             return FakeResult([], rowcount=1)
         if sql.startswith("UPDATE users SET openid"):
@@ -112,6 +114,16 @@ class FakeLinkDb:
             return FakeResult([{"id": 101}])
         if sql.startswith("INSERT INTO courses"):
             return FakeResult([], rowcount=1)
+        if sql.startswith("INSERT INTO academic_others"):
+            target, source = params
+            for (uid, sid), item in list(self.others.items()):
+                if uid == source and (target, sid) not in self.others or (
+                    uid == source and item["updated_at"] >= self.others[(target, sid)]["updated_at"]):
+                    self.others[target, sid] = dict(item)
+            return FakeResult([], rowcount=1)
+        if sql.startswith("DELETE FROM academic_others"):
+            self.others = {k: v for k, v in self.others.items() if k[0] != params[0]}
+            return FakeResult([])
         if sql.startswith("DELETE FROM sessions"):
             return FakeResult([], rowcount=1)
         raise AssertionError(sql)
@@ -134,6 +146,35 @@ def shell_user(user_id=9, openid="ox123"):
 
 def call(sql_part, db):
     return [params for sql, params in db.calls if sql_part in sql]
+
+
+def test_favorites_survive_unlink_edits_and_relink_without_resurrection():
+    db = FakeLinkDb(wx_user=shell_user(), target_user={"id": 5, "openid": None, "email": "a@b.c", "username": "tom"},
+                    binding_row=binding_row(user_id=5))
+    db.others = {(9, "bob"): {"updated_at": "2026-10-01", "remark": "旧备注"},
+                 (9, "carol"): {"updated_at": "2026-10-01", "remark": "同学"}}
+    account_link.link_wechat_account(db, "ABCD23", shell_user())
+    assert (5, "bob") in db.others
+    db.wx_user = shell_user(5)
+    account_link.unlink_wechat(db, 5)
+    assert (5, "bob") not in db.others and (99, "bob") in db.others
+    db.others[99, "bob"] = {"updated_at": "2026-10-20", "remark": "新备注"}
+    del db.others[99, "carol"]
+    db.wx_user = shell_user(99)
+    db.binding_row = binding_row(user_id=5)
+    account_link.link_wechat_account(db, "ABCD23", shell_user(99))
+    assert db.others == {(5, "bob"): {"updated_at": "2026-10-20", "remark": "新备注"}}
+
+
+def test_link_preserves_the_newest_favorite_snapshot():
+    db = FakeLinkDb(wx_user=shell_user(), target_user={"id": 5, "openid": None, "email": "a@b.c", "username": "tom"},
+                    binding_row=binding_row(user_id=5))
+    db.others = {(9, "bob"): {"updated_at": "2026-10-20", "snapshot": "new"},
+                 (5, "bob"): {"updated_at": "2026-10-01", "snapshot": "old"},
+                 (9, "carol"): {"updated_at": "2026-10-01", "snapshot": "old"},
+                 (5, "carol"): {"updated_at": "2026-10-20", "snapshot": "new"}}
+    account_link.link_wechat_account(db, "ABCD23", shell_user())
+    assert db.others[5, "bob"]["snapshot"] == db.others[5, "carol"]["snapshot"] == "new"
 
 
 # ---------- 绑定码生成 ----------
@@ -163,6 +204,7 @@ def test_link_merges_shell_account_into_email_account():
     assert call("DELETE FROM users", db) == [(9,)]
     assert call("UPDATE users SET openid", db) == [("ox123", 5)]
     assert call("UPDATE sessions SET user_id", db) == [(5, 9)]
+    assert call("INSERT INTO academic_others", db) == [(5, 9)]
     assert call("UPDATE identity_binding_codes SET consumed_at=CURRENT_TIMESTAMP WHERE id", db)
     assert not call("DELETE FROM schedules", db)
 

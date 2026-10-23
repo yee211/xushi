@@ -24,6 +24,8 @@ _wake = threading.Event()
 _stop = threading.Event()
 _thread = None
 MAX_ATTEMPTS = 3
+QUERY_RECHECK_SECONDS = 300
+MAINTENANCE_ALERT_SECONDS = 1800
 
 
 def atomic_write(path, content):
@@ -108,10 +110,10 @@ def connection_event(state):
                 if data.get("status") in {"pending", "disabled"}:
                     data.update(status="cancelled", next_attempt_at=None)
                 save_outbox(data)
-        elif (state == "needs_login" and not data.get("active")) or (
+        elif (state in {"needs_login", "maintenance_error"} and not data.get("active")) or (
                 state == "query_unavailable" and data.get("active") and data.get("severity") != "query_unavailable"):
             data.update(active=True, incident=secrets.token_hex(16), status="pending", attempts=0,
-                        severity=state, detected_at=datetime.now(UTC).isoformat(), next_attempt_at=0, last_error="")
+                        severity=state, query_checks=0, detected_at=datetime.now(UTC).isoformat(), next_attempt_at=0, last_error="")
             save_outbox(data)
             logging.getLogger(__name__).info("School notification incident: %s", state)
     _wake.set()
@@ -147,21 +149,33 @@ def process_one():
         current.update(query_state=query_state, query_checked_at=datetime.now(UTC).isoformat())
         if query_state == "unavailable":
             current["severity"] = "query_unavailable"
+        # A transient probe failure is not evidence that login expired. Keep
+        # monitoring without consuming the SMTP retry budget.
+        age = (datetime.now(UTC) - datetime.fromisoformat(current["detected_at"])).total_seconds()
+        if query_state in {"unknown", "available"} and age < MAINTENANCE_ALERT_SECONDS:
+            current.update(status="pending", attempts=current["attempts"] - 1,
+                           query_checks=current.get("query_checks", 0) + 1,
+                           next_attempt_at=time.time() + QUERY_RECHECK_SECONDS)
+            save_outbox(current)
+            return
         save_outbox(current)
     message = EmailMessage()
     message["From"] = saved["sender"]
     message["To"] = saved["recipient"]
-    message["Subject"] = "序时：学校查询连接不可用，请重新登录" if query_state == "unavailable" else "序时：学校自动维护需要人工处理"
+    message["Subject"] = {"unavailable": "序时：学校查询连接不可用，请重新登录",
+                          "available": "序时：学校自动维护持续异常，当前查询正常",
+                          "unknown": "序时：学校维护持续异常，无法确认查询状态"}[query_state]
     message["Date"] = format_datetime(datetime.now(UTC))
     message["Message-ID"] = f"<xushi-school-{incident}@{saved['sender'].split('@')[1]}>"
     descriptions = {
-        "available": "自动维护需要人工处理，但当前保存的学校查询会话仍可使用，课表暂时仍可同步。",
+        "available": "学校自动维护持续异常超过30分钟，但当前保存的学校查询会话仍可使用，课表仍可同步。请检查维护状态；仅凭本提醒无需重新登录。",
         "unavailable": "学校查询连接已不可用，可能是登录过期或查询权限变化，需要管理员重新完成登录。",
         "unknown": "自动维护需要人工处理；本次未能确认查询连接是否可用，不能据此判断登录已过期。",
     }
     message.set_content(descriptions[query_state] + "\n"
-                        "请在管理页面点击启动维护，按提示获取并输入短信验证码。\n"
-                        f"发现时间（UTC）：{data['detected_at']}\n"
+                        + ("请在管理页面重新完成学校登录。\n" if query_state == "unavailable" else
+                         "请查看管理页面维护状态；自动重试期间无需重复提交验证码。\n")
+                        + f"发现时间（UTC）：{data['detected_at']}\n"
                         "处理入口：https://xushi.tanzeng.xyz/admin#page=academic\n"
                         "停止维护会保留现有查询会话，但后续失效时需重新登录。")
     submitted = False

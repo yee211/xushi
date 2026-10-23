@@ -13,10 +13,10 @@ def test_retired_routes_are_not_registered():
         ('POST', '/api/schedules/share/{code}/import'),
         ('GET', '/api/config'),
         ('GET', '/api/academic/grades'),
-        ('GET', '/api/academic/students/{student_id}/schedule'),
         ('POST', '/api/academic/binding/sync'),
     }
     assert not registered.intersection(retired)
+    assert ('GET', '/api/academic/students/{student_id}/schedule') in registered
     assert ('POST', '/api/academic/binding/sync/tasks') in registered
     assert ('POST', '/api/import') in registered
     assert ('PUT', '/api/courses/{course_id}') in registered

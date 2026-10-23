@@ -59,6 +59,13 @@ def ensure_initial_refresh():
     return current
 
 
+def _search_tokens(query):
+    text = str(query or '').strip()
+    composite = re.fullmatch(r'(.+?班)([\u4e00-\u9fff]{2,4})', text) or re.fullmatch(
+        r'(.+?\d)([\u4e00-\u9fff]{2,4})', text)
+    return list(composite.groups()) if composite else text.split()
+
+
 def search(*, query='', grade=None, name='', class_name='', major_name=''):
     with connect() as db:
         # Metadata and students must refer to the same complete snapshot.
@@ -69,11 +76,16 @@ def search(*, query='', grade=None, name='', class_name='', major_name=''):
         clauses, params = [], []
         for field, value in (('grade', grade), ("payload->>'name'", name),
                              ("payload->>'class_name'", class_name), ("payload->>'major_name'", major_name),
-                             ('search_text', query)):
+                             ):
             if value:
                 # strpos treats %, _ and backslash as literal user input.
                 clauses.append(f"{field}=%s" if field == 'grade' else f"strpos({field},%s)>0")
                 params.append(value)
+        # Include payload fields so existing snapshots support student-number
+        # searches immediately, without waiting for the next directory rebuild.
+        for token in _search_tokens(query):
+            clauses.append("strpos(concat_ws(' ', search_text, payload->>'student_number_display', id),%s)>0")
+            params.append(token)
         where = ' AND '.join(clauses) or 'TRUE'
         rows = db.execute(f"SELECT payload FROM academic_directory_students WHERE {where} "
                           "ORDER BY grade DESC,payload->>'class_name',payload->>'name',id LIMIT 101", params).fetchall()
@@ -159,7 +171,7 @@ def publish(db, grades, students):
     with db.cursor() as cursor:
         cursor.executemany("INSERT INTO academic_directory_students(id,grade,payload,search_text) VALUES(%s,%s,%s::jsonb,%s)",
             [(s['id'], s['grade'], json.dumps(s, ensure_ascii=False),
-              ' '.join(str(s.get(k, '')) for k in ('name','major_name','class_name','grade','department_name')))
+              ' '.join(str(s.get(k, '')) for k in ('name','major_name','class_name','grade','department_name','student_number_display','id')))
              for s in students])
     db.execute("""UPDATE academic_directory_control SET state='succeeded',grades=%s::jsonb,
         synced_at=CURRENT_TIMESTAMP,student_count=%s,error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=1""",

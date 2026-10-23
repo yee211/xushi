@@ -1,4 +1,5 @@
 import smtplib
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -12,7 +13,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(mail, "OUTBOX", tmp_path / "mail-outbox.json")
     monkeypatch.setattr(mail, "_key", lambda: b"a" * 32)
     monkeypatch.setattr(mail, "_thread", None)
-    monkeypatch.setattr(mail, "verify_query_connection", lambda: "available")
+    monkeypatch.setattr(mail, "verify_query_connection", lambda: "unavailable")
 
 
 def configured():
@@ -163,17 +164,24 @@ def test_damaged_dedup_record_fails_closed(monkeypatch):
     assert not calls
 
 
-def test_available_query_does_not_claim_expiry(monkeypatch):
+def test_available_query_defers_manual_alert(monkeypatch):
     calls = smtp(monkeypatch)
     configured()
+    monkeypatch.setattr(mail, "verify_query_connection", lambda: "available")
     mail.process_one()
-    assert "仍可使用" in calls[0].get_content()
-    assert "自动维护需要人工处理" in calls[0]["Subject"]
+    assert not calls
+    assert mail.outbox()["status"] == "pending"
+    assert mail.outbox()["attempts"] == 0
+    assert mail.outbox()["next_attempt_at"] > mail.time.time()
 
 
 def test_query_failure_upgrades_once(monkeypatch):
     calls = smtp(monkeypatch)
     configured()
+    data = mail.outbox()
+    data["detected_at"] = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    mail.save_outbox(data)
+    monkeypatch.setattr(mail, "verify_query_connection", lambda: "available")
     mail.process_one()
     monkeypatch.setattr(mail, "verify_query_connection", lambda: "unavailable")
     mail.connection_event("query_unavailable")
@@ -199,4 +207,51 @@ def test_unknown_query_does_not_claim_expiry(monkeypatch):
     configured()
     monkeypatch.setattr(mail, "verify_query_connection", lambda: "unknown")
     mail.process_one()
-    assert "不能据此判断登录已过期" in calls[0].get_content()
+    assert not calls
+    assert mail.outbox()["status"] == "pending"
+    assert mail.outbox()["attempts"] == 0
+
+
+def test_persistent_unknown_query_eventually_alerts_without_claiming_expiry(monkeypatch):
+    calls = smtp(monkeypatch)
+    configured()
+    data = mail.outbox()
+    data["detected_at"] = (datetime.now(UTC) - timedelta(minutes=31)).isoformat()
+    mail.save_outbox(data)
+    monkeypatch.setattr(mail, "verify_query_connection", lambda: "unknown")
+    mail.process_one()
+    assert len(calls) == 1
+    assert "无法确认查询状态" in calls[0]["Subject"]
+    assert "请重新登录" not in calls[0]["Subject"]
+    mail.process_one()
+    assert len(calls) == 1
+
+
+def test_persistent_maintenance_alert_is_distinct_and_deduplicated(monkeypatch):
+    calls = smtp(monkeypatch)
+    configured()
+    monkeypatch.setattr(mail, "verify_query_connection", lambda: "available")
+    data = mail.outbox()
+    data["detected_at"] = (datetime.now(UTC) - timedelta(seconds=1801)).isoformat()
+    mail.save_outbox(data)
+    mail.process_one()
+    mail.connection_event("maintenance_error")
+    mail.process_one()
+    assert len(calls) == 1
+    assert "当前查询正常" in calls[0]["Subject"]
+    assert "无需重新登录" in calls[0].get_content()
+
+
+def test_deferred_unknown_probe_can_later_confirm_expiry(monkeypatch):
+    calls = smtp(monkeypatch)
+    configured()
+    monkeypatch.setattr(mail, "verify_query_connection", lambda: "unknown")
+    mail.process_one()
+    data = mail.outbox()
+    data["next_attempt_at"] = 0
+    mail.save_outbox(data)
+    monkeypatch.setattr(mail, "verify_query_connection", lambda: "unavailable")
+    mail.process_one()
+    assert len(calls) == 1
+    assert "查询连接不可用" in calls[0]["Subject"]
+    assert mail.outbox()["attempts"] == 1

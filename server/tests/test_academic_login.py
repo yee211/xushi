@@ -471,5 +471,37 @@ def test_stalled_school_gateway_recovers_once_then_reports_timeout(school_page, 
     monkeypatch.setattr(login, "capture_login_page", lambda page: None)
     login.run("job")
     assert requests == [login.SCHOOL_HOME, entry]
-    assert login.status()["state"] == "needs_login"
+    assert login.status()["state"] == "error"
     assert login.status()["error_type"] == "gateway_timeout"
+
+
+def test_gateway_timeout_retries_until_recovered_without_manual_alert(monkeypatch):
+    events, delays = [], []
+    login.save_maintenance(enabled=True)
+    monkeypatch.setattr(login.academic_mail, "connection_event", events.append)
+    class StopEvent:
+        def is_set(self):
+            return False
+        def wait(self, delay):
+            delays.append(delay)
+            return False
+    monkeypatch.setattr(login, "_stop_event", StopEvent())
+    def run(*args, **kwargs):
+        if not delays:
+            login.update("error", "页面超时", error_type="gateway_timeout")
+        else:
+            login.update("connected", "恢复成功")
+    monkeypatch.setattr(login, "run", run)
+    login.supervise("job")
+    assert delays == [30]
+    assert events == ["maintenance_error", "connected"]
+
+
+def test_persistent_maintenance_failure_creates_one_monitoring_incident(monkeypatch):
+    events = []
+    login.save_maintenance(enabled=True)
+    monkeypatch.setattr(login.academic_mail, "connection_event", events.append)
+    login.update("retrying", "重试", retry_attempt=5)
+    assert events == []
+    login.update("retrying", "重试", retry_attempt=6)
+    assert events == ["maintenance_error"]

@@ -212,3 +212,40 @@ def directory_status(admin=Depends(require_superadmin)):
 def refresh_directory(admin=Depends(require_superadmin)):
     from ..services import academic_directory
     return academic_directory.enqueue()
+
+
+class OtherScheduleIn(BaseModel):
+    student_id: str = Field(min_length=8, max_length=200)
+    term: str = Field(pattern=r"^\d{4}-\d{4}-[12]$")
+    remark: str | None = Field(default=None, max_length=40)
+
+
+@router.get("/api/academic/others")
+def other_schedules(user=Depends(get_current_user)):
+    from ..services import academic_others
+    return academic_others.list_saved(user["id"])
+
+
+@router.get("/api/academic/students/{student_id}/schedule")
+def other_preview(student_id: str, term: str = Query(pattern=r"^\d{4}-\d{4}-[12]$"),
+                  refresh: bool = False, user=Depends(get_current_user)):
+    from ..services import academic_others
+    return invoke(academic_others.query, student_id, term, refresh, user["id"])
+
+
+@router.put("/api/academic/others")
+def save_other(payload: OtherScheduleIn, user=Depends(get_current_user)):
+    from ..services import academic_others
+    return invoke(academic_others.save, user["id"], payload.student_id, payload.term, payload.remark)
+
+
+@router.delete("/api/academic/others/{student_id}", status_code=204)
+def delete_other(student_id: str, user=Depends(get_current_user)):
+    from ..services import academic_others
+    academic_others.remove(user["id"], student_id)
+
+
+@router.post("/api/academic/others/{student_id}/refresh")
+def refresh_other(student_id: str, user=Depends(get_current_user)):
+    from ..services import academic_others
+    return invoke(academic_others.refresh_saved, user["id"], student_id)

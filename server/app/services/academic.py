@@ -531,7 +531,7 @@ def _get_schedule(sid, term, refresh=False):
 
 def search_keyword(query):
     query = query.strip()
-    match = re.match(r"^(20\d{2}|\d{2})(?:级)?", query)
+    match = re.match(r"^(20\d{2}|\d{2})(?:级|(?!\d))", query)
     requested_grade = None
     if match:
         requested_grade = match[1] if len(match[1]) == 4 else "20" + match[1]

@@ -88,12 +88,14 @@ def parse_intent(message: str, today: date) -> ParsedIntent:
         return ParsedIntent("HELP")
     if "下一节" in text or "接下来" in text or "下节课" in text:
         return ParsedIntent("QUERY_NEXT")
-    course_name = _course_query(text)
-    if course_name:
-        return ParsedIntent("FIND_COURSE", course_name=course_name)
     period = "morning" if any(x in text for x in ("上午", "早上", "明早")) else (
         "afternoon" if "下午" in text else ("evening" if any(x in text for x in ("晚上", "晚间")) else "all"))
     target = _target_day(text, today)
+    if any(x in text for x in ("有空", "空不空", "空闲", "忙不忙", "忙吗")):
+        return ParsedIntent("QUERY_AVAILABILITY", target, period) if target else ParsedIntent("HELP")
+    course_name = _course_query(text)
+    if course_name:
+        return ParsedIntent("FIND_COURSE", course_name=course_name)
     # “明天要带伞吗”“今天会下雨吗”这类天气是非问句：有明确日期即按天气意图处理。
     if target and any(word in text for word in ("天气", "雨", "带伞", "温度", "几度")):
         return ParsedIntent("QUERY_WEATHER", target, period)
@@ -168,6 +170,31 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
     from .sync import query_status, status_requested
     if status_requested(message, history):
         return query_status(tools, message)
+    # The personal-only fallback must not answer a question about another person.
+    # Resolve saved names locally as well as generic references such as “室友”.
+    text = re.sub(r"\s+", "", message)
+    if is_date_only(text):
+        for item in reversed(history or []):
+            role = item.get("role") if isinstance(item, dict) else getattr(item, "type", None)
+            if role in {"user", "human"}:
+                content = item.get("content", "") if isinstance(item, dict) else item.content
+                text += re.sub(r"\s+", "", str(content).split("[消息时间", 1)[0])
+                break
+    other_scope = bool(re.search(r"他人|室友|同学|搭子|舍友|我们|咱们|共同|谁.{0,8}(?:有空|空闲)|(?:我和|我与|和我|与我)", text))
+    if not other_scope:
+        try:
+            people = tools.list_other_people().get("people") or []
+            other_scope = any(
+                str(person.get(key) or "").strip() in text
+                for person in people for key in ("name", "remark", "student_id", "class_name", "display_name", "major_name")
+                if str(person.get(key) or "").strip()
+            )
+        except Exception:
+            return {"intent": "HELP", "answer": "暂时无法确认查询对象，请稍后重试。",
+                    "error": {"code": "service_unavailable", "message": "无法读取已保存的他人课表名单"}}
+    if other_scope:
+        return {"intent": "HELP", "answer": "本次未能完成他人课表或多人空闲查询，请稍后重试。",
+                "error": {"code": "other_query_unavailable", "message": "他人课表查询暂不可用"}}
     try:
         # 课程目录只有 LLM 意图提取会用到；纯规则路径不查，省一次数据库往返。
         catalog = tools.list_course_catalog() if allow_llm and llm_configured() else []

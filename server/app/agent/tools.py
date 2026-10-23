@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from ..db import db_ctx
+from ..services.academic_others import (
+    check_group_availability,
+    list_saved_summary,
+    query_other_courses_by_date,
+    search_and_save_other,
+)
 from ..services.schedule_query import (
     find_course,
     list_course_catalog,
@@ -70,12 +76,40 @@ class ScheduleTools:
                                        target_date or self.context.now.date(),
                                        self.context.default_schedule_id)
 
+    def list_other_people(self) -> dict:
+        with self._connection() as db:
+            return list_saved_summary(db, self.context.user_id)
+
+    def query_other_day_courses(self, person: str, target_date: date, period: str = "all") -> dict:
+        with self._connection() as db:
+            return query_other_courses_by_date(db, self.context.user_id, person, target_date, period)
+
+    def check_group_availability(self, target_date: date, period: str = "all",
+                                 people: list[str] | None = None, include_me: bool = True) -> dict:
+        with self._connection() as db:
+            return check_group_availability(db, self.context.user_id, target_date, period,
+                                            people, include_me, self.context.default_schedule_id)
+
+    def add_other_schedule(self, keyword: str = "", remark: str | None = None,
+                           term: str = "", student_id: str = "") -> dict:
+        from fastapi import HTTPException
+
+        from ..services import academic
+        try:
+            return search_and_save_other(self._connection, self.context.user_id, keyword, remark, term, student_id)
+        except academic.AcademicError as error:
+            return {"ok": False, "error": error.code, "message": error.message}
+        except HTTPException as error:
+            return {"ok": False, "error": "save_failed", "message": str(error.detail)}
+
 
     def schedule_version(self) -> str:
         """Hash one consistent database snapshot, including edits and weekly overrides."""
         with self._connection() as db:
             row = db.execute("""
                 SELECT jsonb_build_object(
+                    'others', COALESCE((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.student_id)
+                        FROM academic_others o WHERE o.user_id=%s), '[]'::jsonb),
                     'binding', (SELECT jsonb_build_object('student_id', b.student->>'id',
                         'revision', b.revision, 'updated_at', b.updated_at)
                         FROM academic_bindings b WHERE b.user_id=%s),
@@ -87,7 +121,7 @@ class ScheduleTools:
                         FROM course_adjustments a JOIN courses c ON c.id=a.course_id
                         JOIN schedules s ON s.id=c.schedule_id WHERE s.user_id=%s), '[]'::jsonb)
                 ) AS snapshot
-            """, (self.context.user_id,) * 4).fetchone()
+            """, (self.context.user_id,) * 5).fetchone()
         return hashlib.sha256(json.dumps(row["snapshot"], sort_keys=True, default=str,
                                          ensure_ascii=False).encode()).hexdigest()
 
