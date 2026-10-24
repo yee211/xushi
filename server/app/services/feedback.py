@@ -84,8 +84,9 @@ def notify_operator(title: str, details: list[str], *, key: str = "") -> bool:
     key = safe_line(key or title)[:64]
     now = time.monotonic()
     with _alert_lock:
-        last = _alert_last.get(key, 0.0)
-        if now - last < ALERT_INTERVAL_SECONDS:
+        # None 哨兵而非 0.0：monotonic 在刚启动的机器上数值很小，0.0 会误判为“刚发过”
+        last = _alert_last.get(key)
+        if last is not None and now - last < ALERT_INTERVAL_SECONDS:
             return False
         _alert_last[key] = now
     lines = ["## 序时 · 运维告警", f"> {safe_line(title)}"]
