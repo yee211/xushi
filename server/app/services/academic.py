@@ -398,9 +398,11 @@ def _persist(kind, key, payload):
                    "(SELECT key FROM snapshots WHERE kind=? ORDER BY updated DESC LIMIT ?)", (kind, kind, maximum))
 
 
-def _restore(kind, key):
+def _restore(kind, key, *, max_age=None):
     with _database() as db:
-        row = db.execute("SELECT payload FROM snapshots WHERE kind=? AND key=?", (kind, key)).fetchone()
+        row = db.execute("SELECT payload,updated FROM snapshots WHERE kind=? AND key=?", (kind, key)).fetchone()
+    if row and max_age is not None and not 0 <= time.time() - row[1] < max_age:
+        return None
     return json.loads(row[0]) if row else None
 
 
@@ -475,6 +477,7 @@ def student_context(sid):
 
 
 def get_schedule(sid, term, refresh=False):
+    _sync_connection_version()
     key = (_generation, sid, term)
     with _lock:
         cached = _cache.get(key)
@@ -504,12 +507,17 @@ def get_schedule(sid, term, refresh=False):
 
 
 def _get_schedule(sid, term, refresh=False):
-    student = student_context(sid)
     key = (_generation, sid, term)
     with _lock:
         cached = _cache.get(key)
     if cached and not refresh and time.monotonic() - cached[0] < 900:
         return dict(cached[1], cached=True, stale=False)
+    if not refresh:
+        # 持久缓存跨 API / worker 共享；按写入时间判断有效期，不因读取重新续期。
+        restored = _restore("schedule", sid + ":" + term, max_age=900)
+        if restored and restored.get("complete") and not restored.get("stale"):
+            return dict(restored, cached=True, stale=False)
+    student = student_context(sid)
     if not cached:
         restored = _restore("schedule", sid + ":" + term)
         if restored:

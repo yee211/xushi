@@ -88,6 +88,9 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
     pending = clarification.load(scope, snapshot, now)
     original_text = text
     person_choice = None
+    clear_choice = bool(pending and pending.clear_student_ids and not pending.people and
+                        not pending.courses and not pending.schedules and
+                        text.strip(" 。！!？?") in {"确认", "确定", "确认清空", "确定清空", "确认删除", "确定删除"})
     if pending and text in {"取消", "算了", "不用了", "不查了", "取消查询", "取消追问"}:
         clarification.clear(scope)
         return "已取消刚才的待确认问题。你可以直接问新的问题。"
@@ -104,14 +107,18 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
                     student_id=person["id"], name=person.get("name", ""),
                     class_name=person.get("class_name", ""),
                     student_number_display=person.get("student_number_display", ""))
-    if pending and not selection and not person_choice and clarification.is_new_request(text, now.date()):
+    if pending and not selection and not person_choice and not clear_choice and clarification.is_new_request(text, now.date()):
         clarification.clear(scope)
         pending = None
         history = []
     if pending:
-        if pending.people:
+        if pending.clear_student_ids and not (pending.people or pending.courses or pending.schedules):
+            if not clear_choice:
+                return "确认清空全部同学课表请回复“确认”，放弃请回复“取消”。"
+        elif pending.people:
             if person_choice is None:
-                return "请回复序号、班级或完整学号来确认要添加的同学，也可以回复“取消”。"
+                action = "移除" if pending.person_request.get("action") == "remove" else "添加"
+                return f"请回复序号、班级或完整学号来确认要{action}的同学，也可以回复“取消”。"
         elif pending.courses:
             choice = clarification.pick_choice(pending.courses, text)
             if choice is None:
@@ -141,14 +148,24 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
     allowed, _retry_after = agent_daily_limiter.hit(f"{provider}:{sender_id[:64]}")
     if not allowed:
         return "今天的问题额度用完了，先歇一歇，明天再来找我吧。"
-    if person_choice:
+    if person_choice or clear_choice:
         import json
 
         from .completion import finalize
-        args = {**pending.person_request, "student_id": person_choice.student_id}
-        item = tools.add_other_schedule(**args)
+        from .skills import build_skills, dispatch
+        # 候选回放按 person_request.action 路由：默认添加，删除歧义走 remove。
+        if clear_choice:
+            tools.clear_student_ids = pending.clear_student_ids
+            args = {"confirm": True, "expected_count": len(pending.clear_student_ids)}
+            skill_name = "clear_other_schedules"
+        else:
+            action = pending.person_request.get("action", "add")
+            args = {k: v for k, v in pending.person_request.items() if k != "action"}
+            args["student_id"] = person_choice.student_id
+            skill_name = "remove_other_schedule" if action == "remove" else "add_other_schedule"
+        item = dispatch(build_skills(tools), skill_name, json.dumps(args))
         result = finalize({"intent": "AGENT_LOOP", "answer": item.get("message", ""), "tool_result": {
-            "skills": [{"skill": "add_other_schedule", "arguments": json.dumps(args), "result": item}]}})
+            "skills": [{"skill": skill_name, "arguments": json.dumps(args), "result": item}]}})
     else:
         result = handle_message(text, tools, history=history)
     if result.get("status") == "needs_input" and snapshot is not None:
@@ -159,11 +176,20 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
         else:
             people, person_request = clarification.person_choices(result)
             courses, course_query = clarification.course_choices(result)
+            clear_ids = []
+            for fact in reversed((result.get("tool_result") or {}).get("skills") or []):
+                if fact.get("skill") == "clear_other_schedules":
+                    item = fact.get("result") or {}
+                    # 只有用户实际看到清空确认消息，且没有其他候选追问时才保存清空授权。
+                    if not (people or courses or clarification.schedule_choices(result)) and item.get("message") == result["answer"]:
+                        clear_ids = item.get("student_ids") or []
+                    break
             waiting = clarification.PendingQuestion(
                 original=pending.original if pending else original_text,
                 question=result["answer"][:4000], version=snapshot,
                 created_at=pending.created_at if pending else now, turns=turns,
                 schedules=clarification.schedule_choices(result), people=people, person_request=person_request,
+                clear_student_ids=clear_ids,
                 courses=courses, course_query=course_query)
             if not clarification.save(scope, waiting):
                 result["answer"] += "\n暂时无法保存这次追问，请将补充信息与原问题一起发送。"

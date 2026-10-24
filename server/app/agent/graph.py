@@ -56,30 +56,45 @@ class QueryRun:
         if not self.other_scope():
             return True
         called = {f["skill"] for f in facts}
+        if re.search(r"不一样|不同|差异|区别", self.scope_question):
+            return "compare_other_week_courses" in called
         if re.search(r"有空|空闲|空档|忙不忙|忙吗|空不空", self.scope_question):
             results = [f["result"] for f in facts if f["skill"] == "check_group_availability"]
             return any(r.get("error") or (
                 any(p["role"] == "other" for p in r.get("participants", [])) and
                 (not mixed_people(self.scope_question) or any(p["role"] == "me" for p in r["participants"]))) for r in results)
-        if re.search(r"课|安排", self.scope_question) and not re.search(r"添加|加一下|保存|绑定|名单|列表", self.scope_question):
+        if re.search(r"课|安排", self.scope_question) and not re.search(
+                r"添加|加一下|保存|绑定|删除|移除|清空|清掉|去掉|名单|列表", self.scope_question):
             return "query_other_day_courses" in called and (not mixed_people(self.scope_question) or "query_day_courses" in called)
         return True
 
     def other_error(self, facts):
-        names = {"query_other_day_courses", "check_group_availability", "add_other_schedule"}
+        names = {"query_other_day_courses", "check_group_availability", "add_other_schedule",
+                 "remove_other_schedule", "clear_other_schedules", "compare_other_week_courses"}
         if any(f["skill"] in names for f in facts):
             names.add("query_day_courses")
         relevant = [f for f in facts if f["skill"] in names]
-        # A later retry of the same operation may recover an earlier error.
-        latest = {}
-        for fact in relevant:
-            latest[(fact["skill"], str(fact.get("arguments")))] = fact["result"]
-        for item in latest.values():
-            if item.get("error") and item.get("message"):
-                answer = self.answer(facts, item["message"])
-                answer["_completion_status"] = "needs_input" if item["error"] in {
-                    "AMBIGUOUS_PERSON", "AMBIGUOUS_SCHEDULE", "ADD_NEEDS_INPUT", "NO_OTHER_SCHEDULES", "PERSON_NOT_FOUND"} else "failed"
-                return answer
+        def operation(fact):
+            args = fact.get("arguments") or {}
+            try:
+                args = json.loads(args) if isinstance(args, str) else args
+                return fact["skill"], json.dumps(args, sort_keys=True, ensure_ascii=False)
+            except (ValueError, TypeError):
+                return fact["skill"], str(args)
+
+        for index, fact in enumerate(relevant):
+            item = fact["result"]
+            if not (item.get("error") and item.get("message")):
+                continue
+            # 只有相同参数的重试成功才覆盖旧错误，其他人的成功不代表本项成功。
+            if any(operation(f) == operation(fact) and not (f["result"] or {}).get("error")
+                   for f in relevant[index + 1:]):
+                continue
+            answer = self.answer(facts, item["message"])
+            answer["_completion_status"] = "needs_input" if item["error"] in {
+                "AMBIGUOUS_PERSON", "AMBIGUOUS_SCHEDULE", "ADD_NEEDS_INPUT", "NO_OTHER_SCHEDULES",
+                "PERSON_NOT_FOUND", "CLEAR_NEEDS_CONFIRM"} else "failed"
+            return answer
         return None
 
     def answer(self, facts, content):

@@ -4,7 +4,7 @@ from datetime import date
 
 from .course_reply import DayCourses, render_day
 
-OTHER_TOOLS = {"query_other_day_courses", "check_group_availability"}
+OTHER_TOOLS = {"query_other_day_courses", "check_group_availability", "compare_other_week_courses"}
 PERSON_FIELDS = ("name", "remark", "student_id", "class_name", "display_name", "major_name")
 STRONG_OTHER = re.compile(r"他人|室友|同学|搭子|舍友|共同|谁.{0,8}(?:有空|空闲)|我和|我与|和我|与我")
 WEAK_GROUP = re.compile(r"我们|咱们")
@@ -54,7 +54,21 @@ def render_other_facts(facts, today: date):
     parts = []
     for fact in relevant:
         result = fact["result"]
-        if fact["skill"] == "check_group_availability":
+        if fact["skill"] == "compare_other_week_courses":
+            person = result["person"]
+            name = person["display_name"]
+            parts.append(f"{result['start_date']} 至 {result['end_date']}，{name}和我的不同课程："
+                         + snapshot_note(person))
+            parts.append("按同一天的课程名、上课时间、教师和教室比较，任一不同即列出；基于已保存课表。")
+            different = False
+            for day in result["days"]:
+                for role, label in (("other", name), ("me", "我")):
+                    if day[role]["courses"]:
+                        different = True
+                        parts.append(label + "：\n" + render_day(DayCourses.model_validate(day[role]), today))
+            if not different:
+                parts.append("这一周双方课程完全一致，没有不同的课程。")
+        elif fact["skill"] == "check_group_availability":
             period = {"all": "全天", "morning": "上午", "afternoon": "下午", "evening": "晚上"}[result["period"]]
             parts.append(f"{result['date']}{period}（按已保存课表的上课节次比对）：")
             for p in result["participants"]:

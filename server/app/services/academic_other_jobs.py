@@ -68,12 +68,17 @@ def read(user_id, job_id=None):
     return public_job(row)
 
 
-def enqueue(user_id, retry_of=None):
+def enqueue(user_id, retry_of=None, *, student_ids=None):
     with connect() as db:
         db.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"{user_id}:academic-others",))
         _expire_stale(db, user_id)
         active = db.execute("SELECT * FROM academic_other_sync_jobs WHERE user_id=%s AND state IN ('queued','running')", (user_id,)).fetchone()
         if active:
+            requested_ids = set(student_ids) if student_ids is not None else {
+                r["student_id"] for r in db.execute(
+                    "SELECT student_id FROM academic_others WHERE user_id=%s", (user_id,)).fetchall()}
+            if {i["student_id"] for i in active["items"]} != requested_ids:
+                raise HTTPException(409, "已有其他同学课表同步任务，请等待完成后再同步指定同学")
             return public_job(active)
         academic_others.check_query_limit(user_id)
         db.execute("""DELETE FROM academic_other_sync_jobs WHERE user_id=%s AND state IN ('completed','failed')
@@ -87,7 +92,8 @@ def enqueue(user_id, retry_of=None):
         rows = db.execute("SELECT * FROM academic_others WHERE user_id=%s ORDER BY student_id", (user_id,)).fetchall()
         items = [{"student_id": r["student_id"], "term": r["term"], "updated_at": str(r["updated_at"]),
                   "name": academic_others._person_meta(r)["display_name"], "state": "pending"}
-                 for r in rows if retry_ids is None or r["student_id"] in retry_ids]
+                 for r in rows if (retry_ids is None or r["student_id"] in retry_ids)
+                 and (student_ids is None or r["student_id"] in student_ids)]
         if not items:
             raise HTTPException(409, "没有可同步的已保存课表" if retry_ids is None else "没有可重试的失败课表")
         row = db.execute("INSERT INTO academic_other_sync_jobs(id,user_id,items) VALUES(%s,%s,%s::jsonb) RETURNING *",

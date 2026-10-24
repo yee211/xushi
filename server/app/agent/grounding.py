@@ -121,7 +121,8 @@ def facts_grounded(content: str, facts: list[dict], question: str, today: date |
         return content.strip() == other_answer
     if (mentions_others(question) or group_request(question)) and re.search(
             r"有空|空闲|没课|没有课|有.{0,12}课", content) and not any(
-            f.get("skill") in {"query_other_day_courses", "check_group_availability"} for f in facts):
+            f.get("skill") in {"query_other_day_courses", "check_group_availability",
+                               "remove_other_schedule", "clear_other_schedules"} for f in facts):
         return False
     successful = [f for f in facts if isinstance(f.get("result"), dict) and not f["result"].get("error")]
     sync_states = [(f["result"].get("sync_job") or {}).get("state")
@@ -158,6 +159,7 @@ def facts_grounded(content: str, facts: list[dict], question: str, today: date |
     course_tools = {
         "query_day_courses", "query_week_courses", "get_next_course", "find_course",
         "query_other_day_courses", "check_group_availability", "list_other_people", "add_other_schedule",
+        "remove_other_schedule", "clear_other_schedules",
     }
     queried = [f for f in successful if f["skill"] in course_tools]
     status_question = bool(re.search(r"同步|学校绑定|课表.*更新|旧课表", question))
@@ -211,6 +213,13 @@ def facts_grounded(content: str, facts: list[dict], question: str, today: date |
             person = res.get("person")
             if isinstance(person, dict):
                 allowed_rooms.update(str(person.get(k) or "") for k in ("class_name", "student_id"))
+            # 移除/清空结果里的 removed 元数据（单个 dict 或姓名列表）同样允许被复述。
+            removed = res.get("removed")
+            if isinstance(removed, dict):
+                removed = [removed]
+            for item in removed if isinstance(removed, list) else []:
+                if isinstance(item, dict):
+                    allowed_rooms.update(str(item.get(k) or "") for k in ("class_name", "student_id"))
         for room in re.findall(r"(?<![A-Za-z0-9])[A-Z][A-Za-z]*-?\d{2,5}(?![A-Za-z0-9])", content):
             if not any(room in allowed for allowed in allowed_rooms):
                 return False

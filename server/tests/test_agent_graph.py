@@ -82,7 +82,8 @@ def test_graph_matches_frozen_stable_contracts(monkeypatch, question, responses)
     # The completion contract intentionally adds a prompt and JSON response mode.
     # Everything else must still match the frozen pre-migration requests.
     from app.agent.completion import COMPLETION_PROMPT
-    other_tools = {"list_other_people", "query_other_day_courses", "check_group_availability", "add_other_schedule"}
+    other_tools = {"sync_other_schedule", "sync_all_other_schedules", "get_other_schedule_status", "list_other_people", "query_other_day_courses", "check_group_availability", "add_other_schedule",
+                   "remove_other_schedule", "clear_other_schedules", "compare_other_week_courses"}
     original_requests = copy.deepcopy(requests)
     for request in original_requests:
         request["messages"][0]["content"] = request["messages"][0]["content"].removesuffix(COMPLETION_PROMPT)
@@ -91,6 +92,9 @@ def test_graph_matches_frozen_stable_contracts(monkeypatch, question, responses)
             "问有没有空/空档用 query_day_courses 的结果自行推导。")
         if "tools" in request:
             request["tools"] = [t for t in request["tools"] if t["function"]["name"] not in other_tools]
+            for tool in request["tools"]:
+                if tool["function"]["name"] == "sync_schedule":
+                    tool["function"]["description"] = tool["function"]["description"].removeprefix("仅同步用户自己的课表，不包含同学；")
         if request.get("tool_choice") != "none":
             request.pop("response_format", None)
     assert hashlib.sha256(json.dumps(original_requests, ensure_ascii=False, sort_keys=True).encode()).hexdigest() == expected["requests_sha256"]
