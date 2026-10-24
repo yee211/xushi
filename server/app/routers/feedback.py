@@ -5,20 +5,20 @@
 """
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user
 from ..db import connect, row_dict
 from ..rate_limit import SlidingWindowLimiter
 from ..schemas import FeedbackIn
-from ..services.feedback import feedback_number, send_feedback_notification
+from ..services.feedback import feedback_number
 
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 feedback_limiter = SlidingWindowLimiter(limit=5, window_seconds=600)
 
 
 @router.post("")
-def create_feedback(payload: FeedbackIn, tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
+def create_feedback(payload: FeedbackIn, user: dict = Depends(get_current_user)):
     allowed, retry_after = feedback_limiter.hit(user["id"])
     if not allowed:
         raise HTTPException(429, "提交过于频繁，请稍后再试", headers={"Retry-After": str(retry_after)})
@@ -38,8 +38,6 @@ def create_feedback(payload: FeedbackIn, tasks: BackgroundTasks, user: dict = De
              json.dumps(payload.client_info or {}, ensure_ascii=False))).fetchone()
     item = row_dict(row)
     item["feedback_no"] = feedback_number(item["id"], item.get("created_at"))
-    # 异步通知企业微信机器人，失败不影响提交
-    tasks.add_task(send_feedback_notification, item)
     return {
         "ok": True,
         "id": item["id"],
