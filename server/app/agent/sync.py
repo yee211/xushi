@@ -22,7 +22,6 @@ def requested(message: str) -> bool:
     return bool(re.fullmatch(prefix + r"(?:同步|更新|刷新)(?:一下|下)?[。！!]?", text))
 
 
-
 def status_requested(message: str, history: list | None = None) -> bool:
     text = re.sub(r"\s+", "", message)
     # A mixed course/weather question or adding someone's schedule still goes through the query agent.

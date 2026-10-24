@@ -60,6 +60,24 @@ def test_agent_turn_log_covers_fallback_path(monkeypatch, caplog):
     assert "高数" in result["answer"]
 
 
+def test_agent_turn_metrics_enqueued_for_admin_panel(monkeypatch):
+    from app.services import agent_metrics
+
+    captured = []
+    monkeypatch.setattr(agent_metrics, "enqueue", captured.append)
+    monkeypatch.setattr(orchestrator, "llm_configured", lambda: False)
+    monkeypatch.setattr(orchestrator, "rain_advisory", lambda *a, **k: None)
+    db = FakeDb([schedule()], [course(1, "高数", 3, 5, 6)])
+    tools = ScheduleTools(db, AgentContext(user_id=1, now=datetime(2026, 9, 8, 13, 0,
+                                                                tzinfo=ZoneInfo("Asia/Shanghai"))))
+    orchestrator.handle_message("明天有什么课", tools)
+    assert len(captured) == 1
+    turn = captured[0]
+    assert turn["path"] == "fallback" and turn["outcome"] == "ok"
+    assert {"rounds", "llm_calls", "prompt_tokens", "completion_tokens",
+            "cached_tokens", "duration_ms", "breaker"} <= set(turn)
+
+
 def test_redis_degraded_warning_is_debounced(caplog):
     conversation._redis_degraded = False
     try:

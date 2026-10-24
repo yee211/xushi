@@ -44,19 +44,6 @@ def list_question(message: str) -> bool:
         re.search(r"天气|雨|伞|有没有|有空|空闲|同步|更新", message))
 
 
-def day_fact(facts: list[dict], message: str) -> DayCourses | None:
-    if not list_question(message):
-        return None
-    hits = [fact for fact in facts if fact.get("skill") == "query_day_courses"]
-    if len(hits) != 1 or hits[0]["result"].get("error"):
-        return None
-    result = hits[0]["result"]
-    import json
-    args = hits[0].get("arguments") or "{}"
-    args = json.loads(args) if isinstance(args, str) else args
-    return DayCourses.model_validate(dict(result, period=args.get("period", "all")))
-
-
 def render_day(day: DayCourses, today: date, closing: str = "") -> str:
     delta = (day.date - today).days
     label = {0: "今天", 1: "明天", 2: "后天"}.get(delta, "")

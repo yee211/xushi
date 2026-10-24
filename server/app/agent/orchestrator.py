@@ -1,4 +1,4 @@
-"""Small deterministic V1 orchestrator; an LLM fallback can be added behind it."""
+"""Agent 消息入口：LLM 工具调用循环优先，确定性规则路径兜底。"""
 
 import json
 import logging
@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from ..services import agent_metrics
 from ..services.schedule_query import ScheduleQueryError, resolve_course_name
 from ..services.weather import day_rain, fetch_daily_weather, rain_advisory
 from . import telemetry
@@ -149,8 +150,7 @@ def _log_turn(started: float) -> None:
     stats = telemetry.active()
     if stats is None:
         return
-    logging.getLogger("classschedule").info(json.dumps({
-        "event": "agent_turn",
+    turn = {
         "path": stats.path or "unknown",
         "outcome": stats.outcome or "ok",
         "rounds": stats.rounds,
@@ -160,7 +160,9 @@ def _log_turn(started: float) -> None:
         "cached_tokens": stats.cached_tokens,
         "duration_ms": round((time.perf_counter() - started) * 1000, 1),
         "breaker": str(llm_circuit_breaker.state),
-    }, ensure_ascii=False))
+    }
+    logging.getLogger("classschedule").info(json.dumps({"event": "agent_turn", **turn}, ensure_ascii=False))
+    agent_metrics.enqueue(turn)
 
 
 def _handle_message(message: str, tools: ScheduleTools, history: list | None = None) -> dict:
@@ -180,7 +182,9 @@ def _handle_message(message: str, tools: ScheduleTools, history: list | None = N
     if status_requested(message, history):
         telemetry.note(path="status")
         return query_status(tools, message)
-    llm_allowed = llm_configured() and llm_circuit_breaker.allow_request()
+    # llm_configured 是测试用来强制关闭 LLM 路径的开关；本轮只调用一次，供 LLM 与兜底路径共用。
+    llm_ready = llm_configured()
+    llm_allowed = llm_ready and llm_circuit_breaker.allow_request()
     if llm_allowed:
         looped = run_agent(tools, message, history)
         if looped:
@@ -197,11 +201,12 @@ def _handle_message(message: str, tools: ScheduleTools, history: list | None = N
     # is still CLOSED, retain the existing intent-extraction/polishing fallback.
     telemetry.note(path="fallback")
     return _fallback_reply(message, tools, history,
-                         allow_llm=available() and llm_circuit_breaker.state == CircuitState.CLOSED)
+                           allow_llm=available() and llm_circuit_breaker.state == CircuitState.CLOSED,
+                           llm_ready=llm_ready)
 
 
 def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = None,
-                  *, allow_llm: bool = True) -> dict:
+                  *, allow_llm: bool = True, llm_ready: bool = True) -> dict:
     from .sync import query_status, status_requested
     if status_requested(message, history):
         return query_status(tools, message)
@@ -229,7 +234,7 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
                 "error": {"code": "other_query_unavailable", "message": "他人课表查询暂不可用"}}
     try:
         # 课程目录只有 LLM 意图提取会用到；纯规则路径不查，省一次数据库往返。
-        catalog = tools.list_course_catalog() if allow_llm and llm_configured() else []
+        catalog = tools.list_course_catalog() if allow_llm and llm_ready else []
     except ScheduleQueryError:
         catalog = []
     extracted = (extract_intent(message, tools.context.now.date(), received_at=tools.context.now.isoformat(),
@@ -341,7 +346,7 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
         else:
             result = None
             answer = "你可以问我：今天下午有什么课、明天有课吗、明天要带伞吗、这周有什么课、下周三有什么课、下一节课是什么，或者“高数什么时候上”。"
-            chatted = small_talk(message, history) if allow_llm and llm_configured() else None
+            chatted = small_talk(message, history) if allow_llm and llm_ready else None
             if chatted:
                 answer = chatted
         if intent.name in {"QUERY_DAY", "QUERY_COURSE_ON_DAY"} and result and result.get("courses"):

@@ -55,15 +55,15 @@
       <section id="academicSyncPage" class="page hidden"></section>
       <section id="academicPage" class="page hidden"></section>
       <section id="overviewPage" class="page"></section>
-      <section id="tasksPage" class="page hidden"></section>
       <section id="directoryPage" class="page hidden"></section>
-      <section id="schedulesPage" class="page hidden"></section>
 
       <section id="usersPage" class="page hidden">
         <form id="userSearchForm" class="glass toolbar users-toolbar" onsubmit="event.preventDefault()">
           <input id="userSearch" placeholder="搜索用户ID、邮箱、用户名、OpenID、课表名或课程名">
+          <label class="checkbox-row" style="white-space:nowrap;"><input id="showUnbound" type="checkbox"> 显示未绑定</label>
           <button id="btnSearchUser" type="submit" class="save">搜索</button>
           <button id="btnResetUser" type="button" class="ghost">重置</button>
+          <button id="btnCleanupUsers" type="button" class="ghost danger-text">清理未绑定</button>
         </form>
         <div id="usersList" class="table-shell"></div>
         <div id="usersPagination" class="pagination-bar"></div>
@@ -135,6 +135,10 @@
             </div>
           </div>
         </div>
+        <details class="glass panel mt-16">
+          <summary style="cursor:pointer;"><h2 style="display:inline;">最近管理操作</h2> <small class="meta">最近 30 条后台操作审计记录</small></summary>
+          <div id="auditList" style="margin-top:10px;"></div>
+        </details>
       </section>
 
       <section id="adminsPage" class="page hidden">
@@ -191,6 +195,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/admin/static/admin.js?v=20261011_01" defer></script>
+  <script src="/admin/static/admin.js?v=20261024_01" defer></script>
 </body>
 </html>

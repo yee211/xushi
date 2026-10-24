@@ -96,7 +96,7 @@ class MockAdminDb:
             return Result(None)
 
         if "insert into admin_audit_logs" in sql_lower:
-            self.audit_logs.append(params)
+            self.audit_logs.append((sql, params))
             return Result(None)
 
         if "select * from llm_configs where scope=" in sql_lower:
@@ -120,6 +120,14 @@ class MockAdminDb:
             scope = params[0]
             self.llm_configs.pop(scope, None)
             return Result(None)
+
+        if "from agent_turn_logs" in sql_lower:
+            if "group by path, outcome" in sql_lower:
+                return Results([{"path": "llm", "outcome": "ok", "count": 8},
+                                {"path": "fallback", "outcome": "ok", "count": 2}])
+            return Result({"turns": 10, "llm_turns": 8, "fallback_turns": 2, "deterministic_turns": 0,
+                           "abnormal": 1, "avg_ms": 900, "p95_ms": 2200, "llm_calls": 12,
+                           "prompt_tokens": 20000, "completion_tokens": 900, "cached_tokens": 6000})
 
         if "from users" in sql_lower:
             if sql_lower.strip().startswith("select count(*)"):
@@ -158,7 +166,18 @@ class MockAdminDb:
                 "updated_at": datetime.now(UTC),
                 "schedule_count": 2,
                 "providers": ["wechat"],
+                "student_name": "张三",
             }])
+
+        if "from academic_bindings" in sql_lower:
+            return Result({
+                "student_name": "张三",
+                "student_id": "2023001",
+                "revision": 1,
+                "last_synced_at": datetime.now(UTC),
+                "last_synced_term": "2026-2027-1",
+                "updated_at": datetime.now(UTC),
+            })
 
         if "from user_identities" in sql_lower:
             return Results([{"provider": "wechat", "provider_user_id": "wx_alice_openid", "created_at": datetime.now(UTC)}])
@@ -466,15 +485,62 @@ def test_favicon_serves_existing_asset(tmp_path, monkeypatch):
 def test_admin_list_users():
     res = admin.list_users(query="alice", limit=20, offset=0, _="operator")
     assert res["total"] == 1
+    assert res["unbound_total"] == 1
     assert len(res["items"]) == 1
     assert res["items"][0]["id"] == 101
-    assert res["items"][0]["nickname"] == "Alice"
+    assert res["items"][0]["username"] == "Alice"
     assert res["items"][0]["schedule_count"] == 2
     assert "wechat" in res["items"][0]["providers"]
+    assert res["items"][0]["student_name"] == "张三"
+
+
+def test_admin_list_users_includes_unbound_when_requested():
+    # 夹具不区分绑定状态；这里只验证 include_unbound 参数被接受并保持返回结构一致。
+    res = admin.list_users(query="", limit=20, offset=0, include_unbound=True, _="operator")
+    assert res["total"] == 1
+    assert "items" in res
+    # 显示全部时前端不展示“已隐藏 N 位”提示，后端不再多跑一次未绑定计数
+    assert res["unbound_total"] == 0
+
+
+def test_admin_overview_active_users_uses_bound_filter(monkeypatch, mock_admin_environment):
+    """active_users 必须与 users 同受绑定口径约束，否则面板会出现“24h 活跃 > 绑定用户”。"""
+    from collections import defaultdict
+
+    captured = []
+    inner = mock_admin_environment
+
+    class LooseRow(defaultdict):
+        def __init__(self):
+            super().__init__(lambda: 0)
+
+    class SpyDb:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            captured.append(sql)
+            class R:
+                def fetchone(self):
+                    return LooseRow()
+                def fetchall(self):
+                    return []
+            return R()
+
+    monkeypatch.setattr(admin, "connect", lambda: SpyDb())
+    admin.overview(_="operator")
+    totals_sql = next(sql for sql in captured if "active_users" in sql).lower()
+    bound = admin.BOUND_USER_FILTER.lower()
+    # users 与 active_users 两处都套绑定口径
+    assert totals_sql.count(bound) >= 2
+    assert "as active_users" in totals_sql
 
 
 def test_admin_get_user_detail():
-    res = admin.get_user_detail(user_id=101, _="operator")
+    res = admin.user_detail(user_id=101, _="operator")
     assert res["user"]["id"] == 101
     assert res["user"]["username"] == "Alice"
     assert len(res["identities"]) == 1
@@ -483,16 +549,18 @@ def test_admin_get_user_detail():
     assert res["schedules"][0]["id"] == 201
     assert len(res["bots"]) == 1
     assert res["bots"][0]["account_id"] == "bot1"
+    assert res["academic"]["student_name"] == "张三"
+    assert res["academic"]["student_id"] == "2023001"
 
 
 def test_admin_get_user_detail_not_found():
     with pytest.raises(HTTPException) as exc:
-        admin.get_user_detail(user_id=999, _="operator")
+        admin.user_detail(user_id=999, _="operator")
     assert exc.value.status_code == 404
 
 
 def test_admin_get_schedule_courses():
-    res = admin.get_schedule_courses(user_id=101, schedule_id=201, _="operator")
+    res = admin.schedule_courses(user_id=101, schedule_id=201, _="operator")
     assert res["schedule"]["id"] == 201
     assert res["schedule"]["name"] == "大三上"
     assert len(res["courses"]) == 1
@@ -502,8 +570,30 @@ def test_admin_get_schedule_courses():
 
 def test_admin_get_schedule_courses_not_found():
     with pytest.raises(HTTPException) as exc:
-        admin.get_schedule_courses(user_id=101, schedule_id=999, _="operator")
+        admin.schedule_courses(user_id=101, schedule_id=999, _="operator")
     assert exc.value.status_code == 404
+
+
+def test_admin_agent_stats():
+    res = admin.agent_stats(hours=24, _="operator")
+    assert res["hours"] == 24
+    assert res["totals"]["turns"] == 10
+    assert res["totals"]["llm_turns"] == 8
+    assert res["totals"]["abnormal"] == 1
+    assert res["totals"]["cached_tokens"] == 6000
+    assert res["outcomes"][0]["path"] == "llm"
+
+
+def test_admin_cleanup_unbound(monkeypatch, mock_admin_environment):
+    db = mock_admin_environment
+    monkeypatch.setattr("app.services.user_cleanup.cleanup", lambda: 3)
+    monkeypatch.setattr("app.services.user_cleanup.retention_days", lambda: 30)
+    res = admin.cleanup_unbound_users(admin="operator")
+    assert res["ok"] is True
+    assert res["deleted_count"] == 3
+    assert res["retention_days"] == 30
+    assert any("user.cleanup_unbound" in sql and params[0] == "operator"
+               for sql, params in db.audit_logs)
 
 
 def test_admin_unbind_wechat(monkeypatch):

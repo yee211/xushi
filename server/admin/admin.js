@@ -1,12 +1,12 @@
 const $ = id => document.getElementById(id)
-const state = { token: sessionStorage.getItem('admin_token') || '', page: 'overview', feedback: [], usersPage: 1, usersQuery: '' }
+const state = { token: sessionStorage.getItem('admin_token') || '', page: 'overview', feedback: [], usersPage: 1, usersQuery: '', showUnbound: false }
 const labels = { pending: '待处理', processing: '处理中', resolved: '已解决', closed: '已关闭' }
 const weekdays = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]))
 const timeText = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const modules = {
-  workspace: { title: '工作台', description: '关注待办事项与系统运行情况', tabs: [['overview', '运行概览'], ['tasks', '待办事项']] },
-  users: { title: '用户管理', description: '查找用户、检查课表并跟进反馈', tabs: [['users', '用户列表'], ['schedules', '课表管理'], ['feedback', '用户反馈']] },
+  workspace: { title: '工作台', description: '关注系统运行情况与用户反馈', tabs: [['overview', '运行概览']] },
+  users: { title: '用户管理', description: '查找用户、检查课表并跟进反馈', tabs: [['users', '用户列表'], ['feedback', '用户反馈']] },
   academic: { title: '教务管理', description: '维护学校连接、学生目录与课表同步', tabs: [['academic', '学校连接'], ['directory', '学生目录'], ['academicSync', '课表同步']] },
   ai: { title: 'AI 管理', description: '配置各业务场景的模型与接口', tabs: [['llm', '模型配置']] },
   system: { title: '系统管理', description: '检查服务与流量，管理运维操作和后台账号', tabs: [['system', '服务与缓存'], ['traffic', '流量与错误'], ['admins', '管理员账号']] }
@@ -16,6 +16,7 @@ function saveLocation() {
   const params = new URLSearchParams({ page: state.page })
   if (state.usersQuery) params.set('query', state.usersQuery)
   if (state.usersPage > 1) params.set('usersPage', state.usersPage)
+  if (state.showUnbound) params.set('unbound', '1')
   if ($('feedbackSearch').value) params.set('search', $('feedbackSearch').value)
   if ($('feedbackStatus').value) params.set('status', $('feedbackStatus').value)
   if ($('feedbackCategory').value) params.set('category', $('feedbackCategory').value)
@@ -25,7 +26,9 @@ function restoreLocation() {
   const params = new URLSearchParams(location.hash.slice(1))
   state.usersQuery = params.get('query') || ''
   state.usersPage = Math.max(1, Number(params.get('usersPage')) || 1)
+  state.showUnbound = params.get('unbound') === '1'
   $('userSearch').value = state.usersQuery
+  $('showUnbound').checked = state.showUnbound
   $('feedbackSearch').value = params.get('search') || ''
   $('feedbackStatus').value = params.get('status') || ''
   $('feedbackCategory').value = params.get('category') || ''
@@ -47,7 +50,8 @@ function stat(label, value, suffix = '') { return `<div class="glass stat"><smal
 async function loadOverview() {
   $('overviewPage').innerHTML = '<div class="empty">正在读取运行数据…</div>'
   const data = await api('/overview'); const t = data.totals, m = data.traffic
-  $('overviewPage').innerHTML = `<div class="stats">${stat('累计用户',t.users)}${stat('24h 活跃',t.active_users)}${stat('课表总数',t.schedules)}${stat('待处理反馈',t.open_feedback)}</div><div class="grid-2"><div class="glass panel"><h2>最近 24 小时</h2><div class="metric-row"><span>API 请求</span><b>${m.requests}</b></div><div class="metric-row"><span>错误率</span><b class="${Number(m.error_rate)>1?'bad':'good'}">${m.error_rate}%</b></div><div class="metric-row"><span>平均响应</span><b>${m.avg_ms} ms</b></div><div class="metric-row"><span>P95 响应</span><b>${m.p95_ms} ms</b></div></div><div class="glass panel"><h2>服务概况</h2><div class="metric-row"><span>助手绑定</span><b>${t.agent_bindings}</b></div><div class="metric-row"><span>待处理</span><b>${data.feedback.pending||0}</b></div><div class="metric-row"><span>处理中</span><b>${data.feedback.processing||0}</b></div><div class="metric-row"><span>已解决</span><b>${data.feedback.resolved||0}</b></div></div></div>`
+  const hiddenNote = t.unbound_users > 0 ? `<div class="meta" style="margin-top:6px;">另有 ${t.unbound_users} 位仅微信静默登录的用户未计入（未绑定任何身份）</div>` : ''
+  $('overviewPage').innerHTML = `<div class="stats">${stat('绑定用户',t.users)}${stat('24h 活跃',t.active_users)}${stat('课表总数',t.schedules)}${stat('待处理反馈',t.open_feedback)}</div>${hiddenNote}<div class="grid-2"><div class="glass panel"><h2>最近 24 小时</h2><div class="metric-row"><span>API 请求</span><b>${m.requests}</b></div><div class="metric-row"><span>错误率</span><b class="${Number(m.error_rate)>1?'bad':'good'}">${m.error_rate}%</b></div><div class="metric-row"><span>平均响应</span><b>${m.avg_ms} ms</b></div><div class="metric-row"><span>P95 响应</span><b>${m.p95_ms} ms</b></div></div><div class="glass panel"><h2>服务概况</h2><div class="metric-row"><span>助手绑定</span><b>${t.agent_bindings}</b></div><div class="metric-row"><span>待处理</span><b>${data.feedback.pending||0}</b></div><div class="metric-row"><span>处理中</span><b>${data.feedback.processing||0}</b></div><div class="metric-row"><span>已解决</span><b>${data.feedback.resolved||0}</b></div></div></div>`
 }
 
 async function loadFeedback() {
@@ -69,11 +73,30 @@ async function saveFeedback(id) {
 
 async function loadTraffic() {
   $('trafficPage').innerHTML = '<div class="empty">正在汇总流量…</div>'
-  const data = await api('/traffic?hours=24'); const max = Math.max(1, ...data.timeline.map(x => Number(x.requests)))
+  const [data, agent] = await Promise.all([
+    api('/traffic?hours=24'),
+    api('/agent-stats?hours=24').catch(() => null)
+  ])
+  const max = Math.max(1, ...data.timeline.map(x => Number(x.requests)))
   const bars = data.timeline.map(x => { const h=Math.max(5,Number(x.requests)/max*100), e=Number(x.requests)?Number(x.errors)/Number(x.requests)*100:0; return `<i class="bar" style="height:${h}%;--error:${e}%" title="${timeText(x.bucket)} · ${x.requests} 次"></i>` }).join('')
   const paths = data.paths.map(x => `<div class="path-row"><span>${esc(x.path)}</span><b>${x.requests} 次 · ${x.avg_ms} ms</b></div>`).join('') || '<div class="empty">暂无请求数据</div>'
   const errors = data.recent_errors.map(x => `<div class="path-row"><span><b class="bad">${x.status}</b> ${esc(x.method)} ${esc(x.path)}</span><small>${timeText(x.created_at)}</small></div>`).join('') || '<div class="empty">最近 24 小时没有接口错误</div>'
-  $('trafficPage').innerHTML = `<div class="glass panel"><h2>24 小时请求趋势 <small class="meta">蓝色为请求，红色为错误占比</small></h2><div class="bars">${bars||'<div class="empty">暂无请求数据</div>'}</div></div><div class="grid-2"><div class="glass panel"><h2>访问最多的接口</h2>${paths}</div><div class="glass panel"><h2>最近错误</h2>${errors}</div></div>`
+  const t = agent && agent.totals
+  let agentPanel = '<div class="glass panel"><h2>助手运行（近 24 小时）</h2><div class="empty">暂无助手运行数据</div></div>'
+  if (t && Number(t.turns) > 0) {
+    const pct = n => Math.round(Number(n) * 100 / Number(t.turns)) + '%'
+    const prompt = Number(t.prompt_tokens), cached = Number(t.cached_tokens)
+    const cacheHit = prompt > 0 ? Math.round(cached * 100 / prompt) + '%' : '-'
+    const outcomeTags = (agent.outcomes || []).slice(0, 8).map(o =>
+      `<span class="tag ${o.outcome === 'ok' ? 'closed' : 'bad'}">${esc(o.path)}/${esc(o.outcome)} ×${o.count}</span>`).join(' ')
+    agentPanel = `<div class="glass panel"><h2>助手运行（近 24 小时） <small class="meta">LLM 直答 ${pct(t.llm_turns)} · 规则兜底 ${pct(t.fallback_turns)}</small></h2>
+      <div class="metric-row"><span>处理消息</span><b>${t.turns} 轮（模型调用 ${t.llm_calls} 次）</b></div>
+      <div class="metric-row"><span>异常轮次</span><b class="${Number(t.abnormal) > 0 ? 'bad' : 'good'}">${t.abnormal}</b></div>
+      <div class="metric-row"><span>耗时</span><b>平均 ${t.avg_ms} ms · P95 ${t.p95_ms} ms</b></div>
+      <div class="metric-row"><span>Token 消耗</span><b>输入 ${t.prompt_tokens} · 输出 ${t.completion_tokens}（前缀缓存命中 ${cacheHit}）</b></div>
+      <div class="path-row"><span>${outcomeTags || '-'}</span></div></div>`
+  }
+  $('trafficPage').innerHTML = `<div class="glass panel"><h2>24 小时请求趋势 <small class="meta">蓝色为请求，红色为错误占比</small></h2><div class="bars">${bars||'<div class="empty">暂无请求数据</div>'}</div></div>${agentPanel}<div class="grid-2"><div class="glass panel"><h2>访问最多的接口</h2>${paths}</div><div class="glass panel"><h2>最近错误</h2>${errors}</div></div>`
 }
 
 async function loadLlm() {
@@ -241,7 +264,6 @@ async function deleteAdmin(id, username) {
 let usersLoadRevision = 0
 async function loadUsers(page = 1) {
   const revision = ++usersLoadRevision
-  const schedulesMode = state.page === 'schedules'
   state.usersPage = page
   saveLocation()
   $('usersList').innerHTML = '<div class="empty">正在加载用户列表…</div>'
@@ -250,30 +272,31 @@ async function loadUsers(page = 1) {
   const offset = (page - 1) * limit
   const query = state.usersQuery || ''
   try {
-    const data = await api(`/users?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`)
+    const unboundParam = state.showUnbound ? '&include_unbound=true' : ''
+    const data = await api(`/users?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${unboundParam}`)
     if (revision !== usersLoadRevision) return
     const items = data.items || []
+    const hiddenNote = !state.showUnbound && data.unbound_total > 0
+      ? `已隐藏 ${data.unbound_total} 位仅微信静默登录、未绑定任何身份的用户（勾选“显示未绑定”可查看）` : ''
     if (!items.length) {
-      $('usersList').innerHTML = '<div class="glass empty" style="grid-column:1/-1;">未检索到符合条件的用户或课表（支持输入用户ID、邮箱、用户名、微信OpenID、课表名或课程名）</div>'
+      $('usersList').innerHTML = `<div class="glass empty" style="grid-column:1/-1;">${hiddenNote || '未检索到符合条件的用户（支持输入用户ID、邮箱、用户名、微信OpenID、课表名或课程名）'}</div>`
+      $('usersPagination').innerHTML = hiddenNote ? `<span class="meta">${hiddenNote}</span>` : ''
       return
     }
     const rows = items.map(user => {
       const providers = (user.providers || []).map(p => `<span class="provider-badge ${esc(p)}">${esc(p)}</span>`).join('')
-      const displayName = user.username || user.nickname || (user.openid ? '微信用户 ' + user.openid.slice(-6) : '用户 #' + user.id)
-      return `<tr><td><b>${esc(displayName)}</b><small class="cell-secondary">UID ${user.id}</small></td><td>${esc(user.email || '未绑定')}</td><td>${providers || '<span class="meta">未关联</span>'}</td><td><span class="tag ${user.schedule_count > 0 ? 'good' : 'closed'}">${user.schedule_count} 张</span></td><td>${timeText(user.created_at)}</td><td><button type="button" class="ghost" onclick="openUserDetail(${user.id})">查看详情</button></td></tr>`
+      const academic = user.student_name ? `<span class="tag good" title="教务绑定：${esc(user.student_name)}">教务</span>` : ''
+      const bindingCell = providers || academic
+        ? `${providers}${academic}` : '<span class="meta">未绑定</span>'
+      const displayName = user.username || (user.openid ? '微信用户 ' + user.openid.slice(-6) : '用户 #' + user.id)
+      return `<tr><td><b>${esc(displayName)}</b><small class="cell-secondary">UID ${user.id}</small></td><td>${esc(user.email || '未绑定')}</td><td>${bindingCell}</td><td><span class="tag ${user.schedule_count > 0 ? 'good' : 'closed'}">${user.schedule_count} 张</span></td><td>${timeText(user.created_at)}</td><td><button type="button" class="ghost" onclick="openUserDetail(${user.id})">查看详情</button></td></tr>`
     }).join('')
-    $('usersList').innerHTML = `<table class="management-table"><thead><tr><th>用户</th><th>邮箱</th><th>登录方式</th><th>课表</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`
-    if (schedulesMode) {
-      const details = await Promise.all(items.map(user => api(`/users/${user.id}/detail`)))
-      if (revision !== usersLoadRevision || state.page !== 'schedules') return
-      const scheduleRows = details.flatMap(detail => (detail.schedules || []).map(schedule => `<tr><td><b>${esc(schedule.name)}</b><small class="cell-secondary">课表 ID ${esc(schedule.id)}</small></td><td>${esc(detail.user.username || detail.user.nickname || '用户 #' + detail.user.id)}<small class="cell-secondary">UID ${esc(detail.user.id)}</small></td><td>${esc(schedule.term || schedule.semester || '未设置')}</td><td>${esc(schedule.course_count ?? '—')} 门</td><td><span class="tag ${schedule.variant_type === 'adjusted' ? 'good' : 'closed'}">${schedule.variant_type === 'adjusted' ? '调课版' : '原始课表'}</span></td><td><button type="button" class="ghost" onclick="viewScheduleCourses(${detail.user.id}, ${schedule.id})">查看课程</button><button type="button" class="ghost" onclick="openUserDetail(${detail.user.id})">所属用户</button></td></tr>`)).join('')
-      $('usersList').innerHTML = `<table class="management-table"><thead><tr><th>课表名称</th><th>所属用户</th><th>学期</th><th>课程数量</th><th>状态</th><th>操作</th></tr></thead><tbody>${scheduleRows || '<tr><td colspan="6" class="empty">当前匹配用户尚未创建课表</td></tr>'}</tbody></table>`
-    }
+    $('usersList').innerHTML = `<table class="management-table"><thead><tr><th>用户</th><th>邮箱</th><th>绑定身份</th><th>课表</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`
 
     const total = data.total || 0
-    const totalPages = Math.ceil(total / limit)
+    const totalPages = Math.max(1, Math.ceil(total / limit))
     if (total > 0) {
-      let pagerHtml = `<span class="meta">共 ${total} 位用户，第 ${page}/${totalPages} 页</span>`
+      let pagerHtml = `<span class="meta">共 ${total} 位用户，第 ${page}/${totalPages} 页${hiddenNote ? ' · ' + hiddenNote : ''}</span>`
       if (page > 1) {
         pagerHtml += `<button type="button" class="ghost" onclick="loadUsers(${page - 1})">上一页</button>`
       }
@@ -296,8 +319,9 @@ async function openUserDetail(userId) {
     const u = data.user
     const identities = data.identities || []
     const schedules = data.schedules || []
-    const bots = data.bots || data.agent_bindings || []
-    const displayName = u.username || u.nickname || (u.openid ? '微信用户 ' + u.openid.slice(-6) : '用户 #' + u.id)
+    const bots = data.bots || []
+    const academic = data.academic
+    const displayName = u.username || (u.openid ? '微信用户 ' + u.openid.slice(-6) : '用户 #' + u.id)
 
     const hasWechat = identities.some(i => i.provider === 'wechat') || Boolean(u.openid)
     const idCards = identities.map(i => `
@@ -318,11 +342,18 @@ async function openUserDetail(userId) {
       <div class="schedule-card">
         <div class="schedule-info">
           <div class="schedule-title">${esc(s.name)} ${s.variant_type === 'adjusted' ? '<span class="tag good">调课版</span>' : ''}</div>
-          <div class="meta mt-8">学期: ${esc(s.term || s.semester || '-')} · 起始日: ${esc(s.start_date || '-')} · ${s.course_count ?? '-'} 门课程</div>
+          <div class="meta mt-8">学期: ${esc(s.term || '-')} · 起始日: ${esc(s.start_date || '-')} · ${s.course_count ?? '-'} 门课程</div>
         </div>
         <button type="button" class="save schedule-inspect-btn" onclick="viewScheduleCourses(${userId}, ${s.id})">透视课程清单</button>
       </div>
     `).join('') || '<div class="empty">该用户尚未创建任何课表</div>'
+
+    const academicBlock = academic ? `
+      <h3 class="dialog-section-title">教务学生绑定</h3>
+      <div class="metric-row"><span>学生姓名</span><b>${esc(academic.student_name || '-')}</b></div>
+      <div class="metric-row"><span>学号</span><b><code>${esc(academic.student_id || '-')}</code></b></div>
+      <div class="metric-row"><span>最近同步</span><b>${timeText(academic.last_synced_at)}${academic.last_synced_term ? ' · ' + esc(academic.last_synced_term) : ''}</b></div>
+    ` : ''
 
     $('userDetailContent').innerHTML = `
       <p class="eyebrow">USER PROFILE · UID ${u.id}</p>
@@ -340,7 +371,8 @@ async function openUserDetail(userId) {
       <h3 class="dialog-section-title">三方身份绑定 (${identities.length})</h3>
       ${idCards}
 
-      <h3 class="dialog-section-title">微信/企微助手绑定 (${bots.length})</h3>
+      ${academicBlock}
+      <h3 class="dialog-section-title">微信助手绑定 (${bots.length})</h3>
       ${botRows}
 
       <h3 class="dialog-section-title">用户课表数据 (${schedules.length})</h3>
@@ -390,7 +422,7 @@ async function viewScheduleCourses(userId, scheduleId) {
     $('coursesContent').innerHTML = `
       <p class="eyebrow">SCHEDULE INSPECT</p>
       <div class="courses-dialog-head">
-        <h2>${esc(sched.name)} <small class="meta">(${esc(sched.term || sched.semester || '无学期')})</small></h2>
+        <h2>${esc(sched.name)} <small class="meta">(${esc(sched.term || '无学期')})</small></h2>
         <span class="meta">共 ${courses.length} 门课程明细 · 用户 UID: ${userId}</span>
       </div>
       <div class="courses-table-container">
@@ -434,6 +466,23 @@ async function loadSystemStatus() {
         <span class="tag ${b.status === 'active' || b.status === 'online' ? 'good' : 'bad'}">${esc(b.status)}</span>
       </div>
     `).join('')
+  }
+
+  const auditActions = {
+    'feedback.update': '更新反馈', 'llm_config.update': '修改模型配置', 'llm_config.reset': '重置模型配置',
+    'admin.create': '创建管理员', 'admin.delete': '删除管理员', 'user.unbind_wechat': '解绑用户微信',
+    'ratelimit.clear': '清除限流', 'session_cache.clear': '清除会话缓存'
+  }
+  try {
+    const audits = await api('/audit?limit=30')
+    $('auditList').innerHTML = audits.length ? audits.map(a => `
+      <div class="metric-row">
+        <span>${esc(auditActions[a.action] || a.action)} · <b>${esc(a.admin_name)}</b> → <code>${esc(a.target_type)}:${esc(a.target_id)}</code></span>
+        <small>${timeText(a.created_at)}</small>
+      </div>
+    `).join('') : '<div class="meta" style="padding:8px 0;">暂无管理操作记录</div>'
+  } catch {
+    $('auditList').innerHTML = '<div class="meta" style="padding:8px 0;">操作记录读取失败</div>'
   }
 }
 
@@ -486,9 +535,7 @@ async function loadPage() {
   $('refreshStatus').textContent = '正在读取数据'
   try {
     if (state.page === 'overview') await loadOverview()
-    else if (state.page === 'tasks') await loadTasks()
     else if (state.page === 'directory') await loadDirectory()
-    else if (state.page === 'schedules') await loadScheduleManagement()
     else if (state.page === 'users') await loadUsers(state.usersPage)
     else if (state.page === 'feedback') await loadFeedback()
     else if (state.page === 'traffic') await loadTraffic()
@@ -520,10 +567,6 @@ function switchPage(page) {
   saveLocation()
   const moduleKey = pageModule(page)
   const module = modules[moduleKey]
-  if (page === 'users' || page === 'schedules') {
-    const target = $(`${page}Page`)
-    ;['userSearchForm', 'usersList', 'usersPagination'].forEach(id => target.appendChild($(id)))
-  }
   document.querySelectorAll('.nav').forEach(x => {
     x.classList.toggle('active', x.dataset.module === moduleKey)
     x.setAttribute('aria-current', x.dataset.module === moduleKey ? 'page' : 'false')
@@ -536,7 +579,7 @@ function switchPage(page) {
     academic: '学校教务连接',
     academicSync: '课表同步',
     overview: '运行概览',
-    users: '用户与课表管理',
+    users: '用户列表',
     feedback: '用户反馈',
     traffic: '流量监控',
     llm: '大模型配置',
@@ -627,6 +670,22 @@ if ($('userSearchForm')) {
     loadUsers(1)
   }
 }
+if ($('showUnbound')) {
+  $('showUnbound').onchange = () => {
+    state.showUnbound = $('showUnbound').checked
+    loadUsers(1)
+  }
+}
+if ($('btnCleanupUsers')) {
+  $('btnCleanupUsers').onclick = async () => {
+    if (!confirm('确定立即清理过期的未绑定用户吗？\n仅删除超过保留期未活跃、且无任何绑定/课表/反馈的微信静默登录用户。')) return
+    try {
+      const res = await api('/users/cleanup-unbound', { method: 'POST' })
+      toast(`已清理 ${res.deleted_count} 位未绑定用户（保留期 ${res.retention_days} 天）`)
+      loadUsers(1)
+    } catch (error) { toast(error.message) }
+  }
+}
 $('btnSearchUser').onclick = () => {
   clearTimeout(userSearchTimer)
   state.usersQuery = $('userSearch').value.trim()
@@ -648,28 +707,6 @@ window.addEventListener('DOMContentLoaded', () => { if(state.token){$('loginView
 
 
 let academicLoginTimer
-
-async function loadScheduleManagement() {
-  if (!$('scheduleManagementHint')) {
-    $('schedulesPage').insertAdjacentHTML('afterbegin', '<div id="scheduleManagementHint" class="section-intro"><h2>课表目录</h2><p class="meta">按用户、课表名或课程名查找，以每页 20 位用户为范围展示全部所属课表，可直接查看课程。</p></div>')
-  }
-  await loadUsers(state.usersPage)
-}
-
-async function loadTasks() {
-  const [data, school] = await Promise.all([api('/overview'), api('/academic/login/status').catch(() => null)])
-  const feedback = data.feedback || {}
-  $('tasksPage').innerHTML = `<div class="section-intro"><h2>反馈待办</h2><p class="meta">点击待办进入对应的反馈列表，继续处理。</p></div><div class="stats"><button class="glass stat task-link" data-status="pending"><small>待处理反馈</small><strong>${esc(feedback.pending || 0)}</strong><span class="meta">查看待处理 →</span></button><button class="glass stat task-link" data-status="processing"><small>处理中反馈</small><strong>${esc(feedback.processing || 0)}</strong><span class="meta">继续跟进 →</span></button></div><div class="glass panel"><h2>教务巡检</h2><p class="meta">检查学校连接与同步任务，查看异常原因和进度。</p><div class="quick-actions"><button class="ghost" data-task-page="academic">检查学校连接</button><button class="ghost" data-task-page="academicSync">查看同步任务</button><button class="ghost" data-task-page="traffic">查看接口错误</button></div></div>`
-  if (school && school.state !== 'connected') {
-    $('tasksPage').insertAdjacentHTML('afterbegin', `<div class="page-error"><span>学校连接：${esc(school.message)}${school.next_retry_at ? ' · 下次重试 ' + esc(timeText(school.next_retry_at)) : ''}</span><button type="button" class="ghost" data-task-page="academic">处理连接</button></div>`)
-  }
-  $('tasksPage').onclick = event => {
-    const task = event.target.closest('[data-status]')
-    if (task) { $('feedbackStatus').value = task.dataset.status; $('feedbackSearch').value = ''; $('feedbackCategory').value = ''; switchPage('feedback') }
-    const link = event.target.closest('[data-task-page]')
-    if (link) switchPage(link.dataset.taskPage)
-  }
-}
 
 let directoryTimer
 let directoryRevision = 0

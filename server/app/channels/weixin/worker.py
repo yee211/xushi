@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from ...agent.service import build_agent_reply
 from ...db import close_pool, connect, init_db, init_pool
 from ...rate_limit import clawbot_limiter
+from ...services import agent_metrics
 from .client import ILinkClient, ILinkError, reply_client_id
 from .protocol import Credentials, InboundText, extract_text_items
 from .store import (
@@ -300,6 +301,9 @@ def run() -> None:
     signal.signal(signal.SIGINT, _stop)
     init_pool()
     init_db()
+    # 生产环境的 agent 回复全部产生于本进程（API 进程的 /api/agent 入口是 dev-only），
+    # turn 指标的落库线程必须由 worker 自己启动，否则队列只进不出。
+    agent_metrics.start()
     with connect() as db:
         reset = reset_stale_processing(db)
     if reset:
@@ -318,4 +322,5 @@ def run() -> None:
         stop_event.set()
         thread.join(timeout=45)
     shutdown_executor(wait=True)
+    agent_metrics.stop()
     close_pool()

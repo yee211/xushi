@@ -416,3 +416,42 @@ class FakeClientWithNotify:
         return self.http.post("/getupdates", json={"cursor": cursor}).json()
     def close(self):
         pass
+
+
+def test_worker_run_starts_and_stops_agent_metrics(monkeypatch):
+    """生产环境 agent turn 指标只能由 worker 进程落库：run() 必须自启 metrics 线程。"""
+    from app.channels.weixin import worker as worker_module
+    from app.services import agent_metrics
+
+    events = []
+
+    class FakeDb:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, *args, **kwargs):
+            class R:
+                @staticmethod
+                def fetchone():
+                    return None
+            return R()
+
+    monkeypatch.setattr(worker_module, "_running", False)  # 跳过 supervisor 循环直接退出
+    monkeypatch.setattr(worker_module, "init_pool", lambda: events.append("init_pool"))
+    monkeypatch.setattr(worker_module, "init_db", lambda: events.append("init_db"))
+    monkeypatch.setattr(worker_module, "connect", lambda: FakeDb())
+    monkeypatch.setattr(worker_module, "reset_stale_processing", lambda db: 0)
+    monkeypatch.setattr(worker_module, "shutdown_executor",
+                        lambda wait=True: events.append("shutdown_executor"))
+    monkeypatch.setattr(worker_module, "close_pool", lambda: events.append("close_pool"))
+    monkeypatch.setattr(agent_metrics, "start", lambda: events.append("metrics.start"))
+    monkeypatch.setattr(agent_metrics, "stop", lambda: events.append("metrics.stop"))
+
+    worker_module.run()
+
+    assert events[:2] == ["init_pool", "init_db"]
+    assert events.index("metrics.start") > events.index("init_db")
+    assert events.index("shutdown_executor") < events.index("metrics.stop") < events.index("close_pool")

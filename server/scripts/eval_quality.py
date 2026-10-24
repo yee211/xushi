@@ -1,9 +1,42 @@
 """Deterministic evaluation helpers; lexical checks are not a factual judge."""
 import json
 import math
+import os
 import re
 from pathlib import Path
 from statistics import fmean
+
+PRICE_ENV_VARS = ("EVAL_PRICE_INPUT_PER_MTOK", "EVAL_PRICE_CACHED_PER_MTOK", "EVAL_PRICE_OUTPUT_PER_MTOK")
+
+
+def prices_from_env():
+    """读取模型单价（每百万 token，元）；输入/输出未配置时返回 None 表示不计成本。"""
+    values = []
+    for name in PRICE_ENV_VARS:
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            return None
+        try:
+            values.append(float(raw))
+        except ValueError:
+            return None
+    return tuple(values)
+
+
+def estimate_cost(usage_list, prices):
+    """按 provider 返回的 usage 列表估算成本（元）：(输入-缓存)*输入价 + 缓存*缓存价 + 输出*输出价。"""
+    if not prices:
+        return None
+    input_price, cached_price, output_price = prices
+    total = 0.0
+    for usage in usage_list:
+        if not isinstance(usage, dict):
+            continue
+        prompt = float(usage.get("prompt_tokens") or 0)
+        completion = float(usage.get("completion_tokens") or 0)
+        cached = float((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+        total += max(prompt - cached, 0) * input_price + cached * cached_price + completion * output_price
+    return round(total / 1_000_000, 6)
 
 
 def read_cases(path):
@@ -51,6 +84,8 @@ def summary(rows):
         values = [r[key] for r in completed if isinstance(r.get(key), int | float)]
         output[key + "_mean"] = round(fmean(values), 4) if values else None
     output["elapsed_ms_p95"] = percentile([r["elapsed_ms"] for r in completed if isinstance(r.get("elapsed_ms"), int | float)], .95)
+    costs = [r["cost"] for r in completed if isinstance(r.get("cost"), int | float)]
+    output["cost_total"] = round(sum(costs), 6) if costs else None
     return output
 
 def write_report(path, rows, metadata):

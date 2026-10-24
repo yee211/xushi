@@ -10,7 +10,7 @@ from pathlib import Path
 from time import perf_counter
 from unittest.mock import patch
 
-from scripts.eval_quality import grade, read_cases, write_report
+from scripts.eval_quality import estimate_cost, grade, prices_from_env, read_cases, write_report
 
 DEFAULT_CASES = Path(__file__).resolve().parents[1] / "evals/agent_cases.jsonl"
 
@@ -130,7 +130,8 @@ def evaluate_case(case):
         row["diagnostics"] = diagnostic_messages
         close_llm_client()
     row.update(elapsed_ms=round((perf_counter()-started)*1000, 2), llm_calls=len(calls),
-               request_trace=calls, cost=None, first_token_ms=None)
+               request_trace=calls, cost=estimate_cost([c.get("usage") for c in calls], prices_from_env()),
+               first_token_ms=None)
     return row
 
 def main():
@@ -154,7 +155,8 @@ def main():
         write_report(args.output, rows, {"live": True, "data": "synthetic timetable and fixed rain fixture",
             "scope": "Agent loop only; seeded history; channel delivery tested separately",
             "grading": "tool names/arguments and keyword facets; factual correctness requires human review",
-            "cost": "null until provider prices are supplied", "first_token": "not applicable: nonstreaming"})
+            "cost": "CNY via EVAL_PRICE_INPUT/CACHED/OUTPUT_PER_MTOK env; null when unset",
+            "first_token": "not applicable: nonstreaming"})
         print(case["id"], rows[-1].get("error", "completed"), flush=True)
 
 if __name__ == "__main__":

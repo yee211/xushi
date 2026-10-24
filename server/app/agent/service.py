@@ -162,7 +162,7 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
         clarification.clear(scope)
         if result.get("status") == "needs_input":
             result["answer"] += "\n暂时无法保存这次追问，请将补充信息与原问题一起发送。"
-    append_turn(row["user_id"], provider, thread_key, original_text, result["answer"], now,
+    append_turn(user_id, provider, thread_key, original_text, result["answer"], now,
                 {**(result.get("resolved_context") or {"intent": result.get("intent")}),
                  "awaiting_input": result.get("status") == "needs_input"}, version)
     return result["answer"]

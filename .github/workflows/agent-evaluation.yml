@@ -54,6 +54,10 @@ jobs:
       AGENT_BASE_URL: ${{ secrets.AGENT_BASE_URL }}
       AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
       AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+      # 可选：配置后周报自动估算成本（元/百万 token，缓存命中单价可与输入价不同）
+      EVAL_PRICE_INPUT_PER_MTOK: ${{ secrets.EVAL_PRICE_INPUT_PER_MTOK }}
+      EVAL_PRICE_CACHED_PER_MTOK: ${{ secrets.EVAL_PRICE_CACHED_PER_MTOK }}
+      EVAL_PRICE_OUTPUT_PER_MTOK: ${{ secrets.EVAL_PRICE_OUTPUT_PER_MTOK }}
     defaults:
       run:
         working-directory: server

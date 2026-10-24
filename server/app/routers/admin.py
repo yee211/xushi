@@ -18,6 +18,7 @@ from ..db import connect, row_dict
 from ..rate_limit import SlidingWindowLimiter, client_ip
 from ..services.feedback import CATEGORY_LABELS, feedback_number
 from ..services.llm_config import SCOPES, public_config, reset_llm_config, save_llm_config, test_llm_connection
+from ..services.user_cleanup import BOUND_USER_FILTER
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 FEEDBACK_STATUSES = {"pending", "processing", "resolved", "closed"}
@@ -157,9 +158,11 @@ def admin_login(payload: AdminLoginIn, request: Request):
 @router.get("/overview")
 def overview(_: str = Depends(current_admin)):
     with connect() as db:
-        totals = db.execute("""SELECT
-            (SELECT COUNT(*) FROM users) AS users,
-            (SELECT COUNT(*) FROM users WHERE last_login_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS active_users,
+        totals = db.execute(f"""SELECT
+            (SELECT COUNT(*) FROM users u WHERE {BOUND_USER_FILTER}) AS users,
+            (SELECT COUNT(*) FROM users u WHERE NOT {BOUND_USER_FILTER}) AS unbound_users,
+            (SELECT COUNT(*) FROM users u WHERE {BOUND_USER_FILTER}
+                AND u.last_login_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS active_users,
             (SELECT COUNT(*) FROM schedules) AS schedules,
             (SELECT COUNT(*) FROM feedbacks WHERE status IN ('pending','processing')) AS open_feedback,
             (SELECT COUNT(*) FROM user_identities) AS agent_bindings""").fetchone()
@@ -194,6 +197,29 @@ def traffic(hours: int = Query(default=24, ge=1, le=168), _: str = Depends(curre
             ORDER BY created_at DESC LIMIT 30""", (hours,)).fetchall()
     return {"timeline": [row_dict(row) for row in timeline], "paths": [dict(row) for row in paths],
             "recent_errors": [row_dict(row) for row in errors]}
+
+
+@router.get("/agent-stats")
+def agent_stats(hours: int = Query(default=24, ge=1, le=168), _: str = Depends(current_admin)):
+    """助手运行指标：近 N 小时各路径占比、异常轮次、耗时与 token 消耗。"""
+    window = "created_at >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 hour')"
+    with connect() as db:
+        totals = db.execute(f"""SELECT COUNT(*) AS turns,
+            COUNT(*) FILTER (WHERE path = 'llm') AS llm_turns,
+            COUNT(*) FILTER (WHERE path = 'fallback') AS fallback_turns,
+            COUNT(*) FILTER (WHERE path IN ('sync','status')) AS deterministic_turns,
+            COUNT(*) FILTER (WHERE outcome <> 'ok') AS abnormal,
+            COALESCE(ROUND(AVG(duration_ms)), 0) AS avg_ms,
+            COALESCE(ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms)), 0) AS p95_ms,
+            COALESCE(SUM(llm_calls), 0) AS llm_calls,
+            COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+            COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+            COALESCE(SUM(cached_tokens), 0) AS cached_tokens
+            FROM agent_turn_logs WHERE {window}""", (hours,)).fetchone()
+        outcomes = db.execute(f"""SELECT path, outcome, COUNT(*) AS count FROM agent_turn_logs
+            WHERE {window} GROUP BY path, outcome ORDER BY count DESC LIMIT 12""",
+            (hours,)).fetchall()
+    return {"hours": hours, "totals": dict(totals), "outcomes": [dict(row) for row in outcomes]}
 
 
 @router.get("/feedback")
@@ -368,26 +394,26 @@ def delete_admin(admin_id: int, admin: str = Depends(require_superadmin)):
 
 # ==================== 用户与课表管理 ====================
 
+# “有绑定身份”的判定统一由 services/user_cleanup.py 的 BOUND_USER_FILTER 提供。
+
+
 @router.get("/users")
 def list_users(
-    search: str = "",
     query: str = "",
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
+    include_unbound: bool = False,
     _: str = Depends(current_admin),
 ):
-    """用户检索列表（支持 ID / 邮箱 / 用户名 / OpenID 搜索）。"""
-    kw = (search or query).strip()
-    if offset > 0 or limit != 20:
-        effective_limit = limit
-        effective_offset = offset
-    else:
-        effective_limit = page_size
-        effective_offset = (page - 1) * page_size
+    """用户检索列表（支持 ID / 邮箱 / 用户名 / OpenID 搜索）。
+
+    默认只返回有绑定身份的用户；include_unbound=true 时返回全部。
+    """
+    kw = query.strip()
 
     clauses, params = [], []
+    if not include_unbound:
+        clauses.append(BOUND_USER_FILTER)
     if kw:
         escaped = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         like_kw = f"%{escaped}%"
@@ -407,16 +433,24 @@ def list_users(
     with connect() as db:
         total_row = db.execute(f"SELECT COUNT(*) AS total FROM users u {where}", params).fetchone()
         total = int(total_row["total"]) if total_row else 0
+        # “已隐藏 N 位未绑定用户”的提示只在默认隐藏模式下展示，勾选显示未绑定时无需多跑一次计数。
+        unbound_total = 0
+        if not include_unbound:
+            unbound_row = db.execute(
+                f"SELECT COUNT(*) AS total FROM users u WHERE NOT {BOUND_USER_FILTER}"
+            ).fetchone()
+            unbound_total = int(unbound_row["total"]) if unbound_row else 0
 
         rows = db.execute(f"""
             SELECT u.id, u.openid, u.email, u.username, u.created_at, u.last_login_at,
                    (SELECT COUNT(*) FROM schedules s WHERE s.user_id = u.id) AS schedule_count,
-                   (SELECT COALESCE(array_to_json(array_agg(ui.provider)), '[]'::json) FROM user_identities ui WHERE ui.user_id = u.id) AS providers
+                   (SELECT COALESCE(array_to_json(array_agg(ui.provider)), '[]'::json) FROM user_identities ui WHERE ui.user_id = u.id) AS providers,
+                   (SELECT ab.student->>'name' FROM academic_bindings ab WHERE ab.user_id = u.id) AS student_name
             FROM users u
             {where}
             ORDER BY u.id DESC
             LIMIT %s OFFSET %s
-        """, (*params, effective_limit, effective_offset)).fetchall()
+        """, (*params, limit, offset)).fetchall()
 
     users = []
     for r in rows:
@@ -426,9 +460,9 @@ def list_users(
 
     return {
         "total": total,
-        "page": page,
-        "page_size": effective_limit,
-        "users": users,
+        "unbound_total": unbound_total,
+        "limit": limit,
+        "offset": offset,
         "items": users,
     }
 
@@ -463,15 +497,20 @@ def user_detail(user_id: int, _: str = Depends(current_admin)):
             ORDER BY id ASC
         """, (user_id,)).fetchall()
 
+        academic_binding = db.execute("""
+            SELECT student->>'name' AS student_name, student->>'id' AS student_id,
+                   revision, last_synced_at, last_synced_term, updated_at
+            FROM academic_bindings
+            WHERE user_id = %s
+        """, (user_id,)).fetchone()
+
     return {
         "user": row_dict(user),
         "schedules": [row_dict(s) for s in schedules],
         "identities": [row_dict(i) for i in identities],
         "bots": [row_dict(b) for b in bots],
+        "academic": row_dict(academic_binding) if academic_binding else None,
     }
-
-
-get_user_detail = user_detail
 
 
 
@@ -494,9 +533,6 @@ def schedule_courses(user_id: int, schedule_id: int, _: str = Depends(current_ad
         "schedule": row_dict(sched),
         "courses": [row_dict(c) for c in courses],
     }
-
-
-get_schedule_courses = schedule_courses
 
 
 @router.post("/users/{user_id}/unbind-wechat")
@@ -522,6 +558,18 @@ def admin_unbind_wechat(user_id: int, admin: str = Depends(require_superadmin)):
     for digest in summary.pop('_session_invalidations', []):
         invalidate_session_cache(token_digest=digest)
     return {"ok": True, "message": "微信绑定已解除，对应小程序会话已同步注销"}
+
+
+@router.post("/users/cleanup-unbound")
+def cleanup_unbound_users(admin: str = Depends(require_superadmin)):
+    """立即清理过期的裸 openid 用户（无任何绑定与数据、超保留期未活跃）。"""
+    from ..services.user_cleanup import cleanup, retention_days
+    deleted = cleanup()
+    with connect() as db:
+        db.execute("""INSERT INTO admin_audit_logs(admin_name,action,target_type,target_id,details)
+            VALUES(%s,'user.cleanup_unbound','user','unbound',%s::jsonb)""",
+            (admin, json.dumps({"deleted_count": deleted, "retention_days": retention_days()})))
+    return {"ok": True, "deleted_count": deleted, "retention_days": retention_days()}
 
 
 # ==================== 系统与缓存运维 ====================

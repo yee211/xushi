@@ -30,13 +30,14 @@ class QueryState(TypedDict, total=False):
 
 
 class QueryRun:
-    def __init__(self, tools, question: str, history: list | None, credentials=None):
+    def __init__(self, tools, question: str, history: list | None, credentials=None, config=None):
         self.tools = tools
         self.question = question
         self.history = history
         self.scope_question = contextual_question(question, history)
         self.base_url, self.api_key, self.model_name = credentials or loop.agent_config()
-        self.config = loop.get_llm_config("agent")
+        # config 可由调用方注入（同轮已读过时避免重复查库）。
+        self.config = config or loop.get_llm_config("agent")
         self.skills = loop.build_skills(tools)
         # Recovery snapshot belongs only to this invocation, never a module global.
         self.facts = []
@@ -120,7 +121,6 @@ class QueryRun:
             payload["messages"] = state["messages"] + [{"role": "system", "content":
                 '课程列表由服务端使用工具事实生成。只输出 JSON 对象 {"closing":"一句可选的自然提醒"}。'
                 '不要输出日期、课程列表或同步状态；没有适合的提醒就返回 {"closing":""}。'}]
-            payload["response_format"] = {"type": "json_object"}
             payload["tool_choice"] = "none"
         # 深度思考开关统一走 enable_thinking；DeepSeek 的参数名转换由 http_client.post_llm 负责。
         payload["enable_thinking"] = bool(self.config.get("enable_thinking", False))

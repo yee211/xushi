@@ -102,7 +102,6 @@ class ScheduleTools:
         except HTTPException as error:
             return {"ok": False, "error": "save_failed", "message": str(error.detail)}
 
-
     def schedule_version(self) -> str:
         """Hash one consistent database snapshot, including edits and weekly overrides."""
         with self._connection() as db:

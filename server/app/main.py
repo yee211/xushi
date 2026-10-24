@@ -48,7 +48,15 @@ from .routers import (
     importer,
     schedules,
 )
-from .services import academic_directory, academic_jobs, academic_login, academic_mail, user_cache
+from .services import (
+    academic_directory,
+    academic_jobs,
+    academic_login,
+    academic_mail,
+    agent_metrics,
+    user_cache,
+    user_cleanup,
+)
 from .services import request_metrics as metrics_writer
 from .settings import settings, validate_settings
 
@@ -69,6 +77,8 @@ async def lifespan(_: FastAPI):
     academic_login.resume()
     academic_mail.start()
     metrics_writer.start()
+    agent_metrics.start()
+    user_cleanup.start()
     try:
         yield
     finally:
@@ -77,6 +87,8 @@ async def lifespan(_: FastAPI):
         await run_in_threadpool(academic_login.shutdown)
         await run_in_threadpool(academic_mail.stop)
         await run_in_threadpool(metrics_writer.stop)
+        await run_in_threadpool(agent_metrics.stop)
+        await run_in_threadpool(user_cleanup.stop)
         close_llm_client()
         close_pool()
         reset_redis_client()

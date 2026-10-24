@@ -238,6 +238,19 @@ def init_db():
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
         db.execute("CREATE INDEX IF NOT EXISTS api_request_logs_created_idx ON api_request_logs(created_at DESC)")
         db.execute("CREATE INDEX IF NOT EXISTS api_request_logs_path_created_idx ON api_request_logs(path, created_at DESC)")
+        db.execute("""CREATE TABLE IF NOT EXISTS agent_turn_logs (
+            id BIGSERIAL PRIMARY KEY,
+            path VARCHAR(16) NOT NULL,
+            outcome VARCHAR(24) NOT NULL,
+            rounds SMALLINT NOT NULL DEFAULT 0,
+            llm_calls SMALLINT NOT NULL DEFAULT 0,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            cached_tokens INTEGER NOT NULL DEFAULT 0,
+            duration_ms REAL NOT NULL DEFAULT 0,
+            breaker VARCHAR(16) NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        db.execute("CREATE INDEX IF NOT EXISTS agent_turn_logs_created_idx ON agent_turn_logs(created_at DESC)")
         db.execute("""CREATE TABLE IF NOT EXISTS llm_configs (
             scope VARCHAR(32) PRIMARY KEY,
             base_url VARCHAR(500) NOT NULL DEFAULT '',
@@ -254,6 +267,7 @@ def init_db():
         db.execute("DELETE FROM identity_binding_codes WHERE expires_at <= CURRENT_TIMESTAMP")
         db.execute("DELETE FROM channel_messages WHERE processed_at < CURRENT_TIMESTAMP - INTERVAL '30 days'")
         db.execute("DELETE FROM api_request_logs WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'")
+        db.execute("DELETE FROM agent_turn_logs WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'")
 
         db.execute("""CREATE TABLE IF NOT EXISTS academic_bindings (
             user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

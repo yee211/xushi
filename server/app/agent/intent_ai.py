@@ -48,9 +48,9 @@ def llm_configured() -> bool:
 def extract_intent(message: str, today: date, *, received_at: str = "",
                    course_catalog: list[dict] | None = None, history: list | None = None) -> dict | None:
     config = get_llm_config("agent")
-    base_url = (config.get("base_url") or os.getenv("AGENT_BASE_URL") or os.getenv("AI_BASE_URL", "")).strip().rstrip("/")
-    api_key = (config.get("api_key") or os.getenv("AGENT_API_KEY") or os.getenv("AI_API_KEY", "")).strip().strip('"').strip("'")
-    model = (config.get("model") or os.getenv("AGENT_MODEL") or os.getenv("AI_MODEL", "")).strip()
+    base_url = (config.get("base_url") or "").strip().rstrip("/")
+    api_key = (config.get("api_key") or "").strip()
+    model = (config.get("model") or "").strip()
     timeout = float(config.get("timeout_seconds") or os.getenv("AGENT_TIMEOUT_SECONDS", "15"))
     timeout = max(3.0, min(timeout, 30.0))
     max_tokens = int(config.get("max_tokens") or 300)
