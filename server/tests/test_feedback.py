@@ -1,11 +1,8 @@
-"""Feedback persistence and enterprise WeChat notification tests."""
+"""Feedback persistence tests."""
 from datetime import UTC, datetime
-
-from fastapi import BackgroundTasks
 
 from app.rate_limit import SlidingWindowLimiter
 from app.routers import feedback as main
-from app.services import feedback as feedback_service
 
 
 class Result:
@@ -37,71 +34,17 @@ class FeedbackDb:
         raise AssertionError(sql)
 
 
-def test_create_feedback_persists_then_queues_notification(monkeypatch):
+def test_create_feedback_persists_and_returns_union_fields(monkeypatch):
     monkeypatch.setattr("app.rate_limit.get_redis", lambda: None)
     db = FeedbackDb()
-    queued = []
-    tasks = BackgroundTasks()
     monkeypatch.setattr(main, "connect", lambda: db)
     monkeypatch.setattr(main, "feedback_limiter", SlidingWindowLimiter(3, 600))
-    monkeypatch.setattr(tasks, "add_task", lambda function, item: queued.append((function, item)))
     payload = main.FeedbackIn(category="import", description=" 导入后缺少两门课程 ", schedule_id=3)
 
-    result = main.create_feedback(payload, tasks, user={"id": 7})
+    result = main.create_feedback(payload, user={"id": 7})
 
     assert db.insert_params[0:5] == (7, 3, "import", "导入后缺少两门课程", "")
     # 统一后端返回两端字段并集；小程序依赖的字段必须齐全
     assert result["id"] == 12
     assert result["feedback_no"] == "FB-20260916-000012"
     assert result["status"] == "pending"
-    assert queued[0][0] is main.send_feedback_notification
-
-
-def test_notification_posts_markdown_without_exposing_user_id(monkeypatch):
-    captured = {}
-
-    class Response:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"errcode": 0}
-
-    monkeypatch.setenv("WECOM_FEEDBACK_WEBHOOK_URL", "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test")
-    monkeypatch.setenv("FEEDBACK_ANON_SALT", "test-salt")
-    monkeypatch.setattr(feedback_service.httpx, "post",
-                        lambda url, **kwargs: captured.update(url=url, **kwargs) or Response())
-    item = {"id": 12, "user_id": 7, "category": "import", "description": "课表缺失",
-            "created_at": "2026-09-16T08:00:00+00:00",
-            "client_info": {"platform": "android", "system": "Android 16", "wechat_version": "8.0"}}
-
-    assert feedback_service.send_feedback_notification(item) is True
-    content = captured["json"]["markdown"]["content"]
-    assert "FB-20260916-000012" in content and "课表缺失" in content
-    assert "用户：7" not in content
-
-
-def test_notification_is_disabled_without_webhook(monkeypatch):
-    monkeypatch.delenv("WECOM_FEEDBACK_WEBHOOK_URL", raising=False)
-    assert feedback_service.send_feedback_notification({}) is False
-
-
-def test_notify_operator_posts_once_within_rate_window(monkeypatch):
-    import threading
-
-    monkeypatch.setenv("WECOM_FEEDBACK_WEBHOOK_URL", "https://example.test/hook")
-    monkeypatch.setattr(feedback_service, "_alert_last", {})
-    posted = []
-    done = threading.Event()
-
-    def fake_post(lines):
-        posted.append(lines)
-        done.set()
-        return True
-
-    monkeypatch.setattr(feedback_service, "_post_markdown", fake_post)
-    assert feedback_service.notify_operator("教务连接不可用", ["错误码：connection_not_configured"], key="k1") is True
-    assert feedback_service.notify_operator("教务连接不可用", ["错误码：connection_not_configured"], key="k1") is False
-    assert feedback_service.notify_operator("另一个问题", ["x"], key="k2") is True  # 不同 key 不互相限频
-    assert done.wait(2)
-    assert any("教务连接不可用" in line for line in posted[0])

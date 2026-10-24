@@ -199,7 +199,7 @@ def unlink_wechat(db, user_id: int) -> dict:
     """解除账号与微信的绑定：
     1. 清空目标账号（App/邮箱）的 openid；
     2. 为独立微信小程序恢复/创建专属账号（以 openid 为准）；
-    3. 将微信专属渠道身份（ClawBot weixin_ilink 与 wecom）、渠道账号（channel_accounts）、未消费绑定码转移至独立小程序账号；
+    3. 将微信专属渠道身份（ClawBot weixin_ilink）、渠道账号（channel_accounts）、未消费绑定码转移至独立小程序账号；
     4. 课表保全：若独立微信账号下尚无课表，从原账号复制一份最新课表与课程，确保解绑后小程序与微信 ClawBot 仍可正常查课；
     5. 吊销原账号的小程序会话，小程序端静默重新登录即可无缝衔接独立微信账号，且 ClawBot 保持已绑定状态。
     """
@@ -219,12 +219,12 @@ def unlink_wechat(db, user_id: int) -> dict:
         RETURNING id""", (openid,)).fetchone()
     wx_id = wx_user["id"] if wx_user else None
 
-    # 3. 微信专属渠道身份（ClawBot weixin_ilink 与 wecom）转移给独立微信账号
+    # 3. 微信专属渠道身份（ClawBot weixin_ilink）转移给独立微信账号
     agent_bindings_moved = 0
     if wx_id:
         for identity in db.execute(
             "SELECT id, provider FROM user_identities WHERE user_id=%s AND provider=ANY(%s)",
-            (user_id, ["weixin_ilink", "wecom"])
+            (user_id, ["weixin_ilink"])
         ).fetchall():
             db.execute("DELETE FROM user_identities WHERE user_id=%s AND provider=%s",
                        (wx_id, identity["provider"]))
@@ -239,7 +239,7 @@ def unlink_wechat(db, user_id: int) -> dict:
         )
         db.execute(
             "UPDATE identity_binding_codes SET user_id=%s WHERE user_id=%s AND provider=ANY(%s) AND consumed_at IS NULL",
-            (wx_id, user_id, ["weixin_ilink", "wecom"])
+            (wx_id, user_id, ["weixin_ilink"])
         )
 
         # 4. 课表复制保全：若独立微信账号下无课表，复制一份 App 账号的课表，确保解绑后小程序有课表、ClawBot 查课正常
