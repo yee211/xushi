@@ -1,12 +1,17 @@
-name: Agent evaluation offline
+name: Agent evaluation
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # 每周一 04:00（北京时间）对真实模型跑全量评测；未配置 secrets 时自动跳过
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   agent:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -31,6 +36,39 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - name: Agent, concurrency and evaluation regression
-        run: python -m pytest tests/test_agent_loop.py tests/test_agent_graph.py tests/test_agent_optimizations.py tests/test_agent_conversation.py tests/test_agent_clarification.py tests/test_bot_concurrency_hardening.py tests/test_intent_corpus.py tests/test_evaluation_contracts.py tests/test_agent_provider_fixes.py tests/test_agent_sync.py tests/test_course_reply.py tests/test_agent_sync_multiturn.py tests/test_academic_sync_notifications.py tests/test_sync_followup.py tests/test_sync_followup_postgres.py tests/test_weixin_session_expiry.py -q -p no:cacheprovider
+        run: python -m pytest tests/test_agent_loop.py tests/test_agent_graph.py tests/test_agent_optimizations.py tests/test_agent_conversation.py tests/test_agent_clarification.py tests/test_bot_concurrency_hardening.py tests/test_intent_corpus.py tests/test_evaluation_contracts.py tests/test_agent_provider_fixes.py tests/test_agent_sync.py tests/test_course_reply.py tests/test_agent_sync_multiturn.py tests/test_academic_sync_notifications.py tests/test_sync_followup.py tests/test_sync_followup_postgres.py tests/test_agent_telemetry.py tests/test_agent_grounding.py tests/test_agent_entry_limits.py -q -p no:cacheprovider
       - name: Validate corpus without provider calls
         run: python -m scripts.evaluate_agent
+
+  agent-live:
+    if: >-
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      && secrets.AGENT_BASE_URL != '' && secrets.AGENT_API_KEY != '' && secrets.AGENT_MODEL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      APP_ENV: test
+      PYTHONDONTWRITEBYTECODE: "1"
+      AGENT_REDIS_URL: ""
+      REDIS_URL: ""
+      AGENT_BASE_URL: ${{ secrets.AGENT_BASE_URL }}
+      AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+      AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - name: Run live evaluation against the configured model
+        run: python -m scripts.evaluate_agent --live
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-report-${{ github.run_id }}
+          path: server/evals/reports/agent.json
+          if-no-files-found: warn
