@@ -145,6 +145,10 @@ def substitute_course(original: str, query: str, name: str) -> str:
 
 def selected_person(pending, text):
     text = text.strip(" ，,。！!？?")
+    # 读音兜底等场景常只剩一位候选，“是/对/确认”即选定，不必再报序号。
+    if len(pending.people) == 1 and text in {
+            "是", "对", "是的", "对的", "嗯", "嗯嗯", "好", "好的", "确认", "没错", "就这个", "就是他", "就是她"}:
+        return pending.people[0]
     ordinal = re.fullmatch(r"第?([一二三四五六七八]|\d+)(?:个|位|名)?", text)
     if ordinal:
         value = ordinal[1]

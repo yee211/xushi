@@ -95,6 +95,15 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
         return selection_ack
     if pending and pending.people:
         person_choice = clarification.selected_person(pending, text)
+        if person_choice is None and re.fullmatch(r"\d{6,20}", text.strip()):
+            # 候选未含此人（>8 截断）时，完整学号可在全名录内唯一定位
+            from ..services.academic_directory import by_number_pattern
+            person = by_number_pattern(text.strip())
+            if person:
+                person_choice = clarification.PersonChoice(
+                    student_id=person["id"], name=person.get("name", ""),
+                    class_name=person.get("class_name", ""),
+                    student_number_display=person.get("student_number_display", ""))
     if pending and not selection and not person_choice and clarification.is_new_request(text, now.date()):
         clarification.clear(scope)
         pending = None
@@ -102,7 +111,7 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
     if pending:
         if pending.people:
             if person_choice is None:
-                return "请按刚才的候选回复第几位、班级或学号，也可以回复“取消”。"
+                return "请回复序号、班级或完整学号来确认要添加的同学，也可以回复“取消”。"
         elif pending.courses:
             choice = clarification.pick_choice(pending.courses, text)
             if choice is None:

@@ -5,7 +5,7 @@ annotate the same turn without threading a parameter through call signatures.
 No user content is ever recorded—only counters and enum-like labels.
 """
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -17,6 +17,7 @@ class TurnStats:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    tool_errors: list = field(default_factory=list)  # 去重后的工具错误码（如 connection_not_configured）
 
 
 _stats: ContextVar[TurnStats | None] = ContextVar("agent_turn_stats", default=None)
@@ -40,6 +41,21 @@ def note(path: str | None = None, outcome: str | None = None, rounds: int | None
         stats.outcome = outcome
     if rounds is not None:
         stats.rounds = rounds
+
+
+def note_tool_errors(tool_result) -> None:
+    """从一轮的工具事实中提取去重错误码；只记枚举值，不记用户内容。"""
+    stats = _stats.get()
+    if stats is None or not isinstance(tool_result, dict):
+        return
+    for fact in tool_result.get("skills") or []:
+        item = fact.get("result") if isinstance(fact, dict) else None
+        if isinstance(item, dict):
+            code = item.get("error")
+            if code and code not in stats.tool_errors:
+                stats.tool_errors.append(str(code)[:48])
+                if len(stats.tool_errors) >= 5:
+                    return
 
 
 def record_llm_call(response) -> None:

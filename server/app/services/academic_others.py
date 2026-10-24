@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from ..db import connect, db_ctx
 from ..rate_limit import SlidingWindowLimiter
-from . import academic, academic_rate_limit
+from . import academic, academic_directory, academic_rate_limit
 from .schedule_query import (
     APP_TIMEZONE,
     PERIOD_SECTIONS,
@@ -355,6 +355,7 @@ def search_and_save_other(db_or_factory, user_id: int, keyword: str, remark: str
     sid = str(student_id or "").strip()
     kw = str(keyword or "").strip()
     chosen_student = None
+    fuzzy = False
     if sid:
         try:
             chosen_student = academic.student_context(sid)
@@ -363,42 +364,56 @@ def search_and_save_other(db_or_factory, user_id: int, keyword: str, remark: str
     if chosen_student is None:
         if not kw:
             return {"ok": False, "error": "ADD_NEEDS_INPUT", "status": "needs_input", "message": "请提供要添加同学的姓名、班级或关键词。"}
-        search_res = academic.search_keyword(kw)
-        students = search_res.get("students") or []
-        if not students:
-            return {"ok": False, "error": "STUDENT_NOT_FOUND", "status": "not_found", "keyword": kw, "message": f"没有在学校名录中找到与“{kw}”匹配的学生。"}
-        if len(students) > 1:
-            # Check if keyword exactly matches a single student_number_display or id
-            exact_id = [s for s in students if s.get("id") == kw or s.get("student_number_display") == kw]
-            if len(exact_id) == 1:
-                chosen_student = exact_id[0]
+        if re.fullmatch(r"\d{6,20}", kw):
+            # 名录只存脱敏学号（前4+****+后4），按长度+前后缀在全名录内唯一定位完整学号
+            chosen_student = academic_directory.by_number_pattern(kw)
+        if chosen_student is None:
+            search_res = academic.search_keyword(kw)
+            students = search_res.get("students") or []
+            fuzzy = bool(search_res.get("fuzzy"))
+            if not students:
+                return {"ok": False, "error": "STUDENT_NOT_FOUND", "status": "not_found", "keyword": kw, "message": f"没有在学校名录中找到与“{kw}”匹配的学生。"}
+            if len(students) == 1 and not fuzzy:
+                chosen_student = students[0]
             else:
-                candidates = [
-                    {
-                        "student_id": s.get("id"),
-                        "name": s.get("name"),
-                        "grade": s.get("grade"),
-                        "class_name": s.get("class_name"),
-                        "major_name": s.get("major_name"),
-                        "student_number_display": s.get("student_number_display"),
+                # Check if keyword exactly matches a single student_number_display or id
+                exact_id = [s for s in students if s.get("id") == kw or s.get("student_number_display") == kw]
+                if len(students) > 1 and len(exact_id) == 1 and not fuzzy:
+                    chosen_student = exact_id[0]
+                else:
+                    candidates = [
+                        {
+                            "student_id": s.get("id"),
+                            "name": s.get("name"),
+                            "grade": s.get("grade"),
+                            "class_name": s.get("class_name"),
+                            "major_name": s.get("major_name"),
+                            "student_number_display": s.get("student_number_display"),
+                        }
+                        for s in students[:8]
+                    ]
+                    summary = "；".join(
+                        f"{i}. {c['name']}（{c['grade']}级 {c['class_name']} {c['student_number_display']}）"
+                        for i, c in enumerate(candidates, 1)
+                    )
+                    if fuzzy:
+                        # 读音兜底命中可能是猜的，即使唯一也先经用户确认再保存
+                        message = (f"没有找到与“{kw}”完全匹配的同学，按读音相近找到 {len(students)} 位：{summary}。"
+                                   "是哪一位？请回复序号确认，或直接发完整的姓名/班级/学号。")
+                    else:
+                        tail = "若不在以上名单，请直接回复完整学号。" if len(students) > 8 else ""
+                        message = (f"找到 {len(students)} 位匹配“{kw}”的同学：{summary}。"
+                                   f"请回复序号、班级或完整学号来确认添加哪一位？{tail}")
+                    return {
+                        "ok": False,
+                        "error": "AMBIGUOUS_PERSON",
+                        "status": "ambiguous",
+                        "keyword": kw,
+                        "total_matches": len(students),
+                        "fuzzy": fuzzy,
+                        "candidates": candidates,
+                        "message": message,
                     }
-                    for s in students[:8]
-                ]
-                summary = "；".join(
-                    f"{i}. {c['name']}（{c['grade']}级 {c['class_name']} {c['student_number_display']}）"
-                    for i, c in enumerate(candidates, 1)
-                )
-                return {
-                    "ok": False,
-                    "error": "AMBIGUOUS_PERSON",
-                    "status": "ambiguous",
-                    "keyword": kw,
-                    "total_matches": len(students),
-                    "candidates": candidates,
-                    "message": f"找到 {len(students)} 位匹配“{kw}”的同学：{summary}。请告诉我具体的班级或学号来确认添加哪一位？",
-                }
-        else:
-            chosen_student = students[0]
 
     target_term = str(term or "").strip()
     if not re.fullmatch(r"\d{4}-\d{4}-[12]", target_term):

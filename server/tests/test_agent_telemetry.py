@@ -92,3 +92,16 @@ def test_redis_degraded_warning_is_debounced(caplog):
             assert len(warnings) == 2
     finally:
         conversation._redis_degraded = False
+
+
+def test_tool_errors_deduplicated_and_capped_from_tool_result():
+    telemetry.start_turn()
+    facts = {"skills": [
+        {"skill": "add_other_schedule", "result": {"ok": False, "error": "connection_not_configured"}},
+        {"skill": "add_other_schedule", "result": {"ok": False, "error": "connection_not_configured"}},
+        {"skill": "query_day_courses", "result": {"courses": []}},
+    ] + [{"skill": f"skill-{i}", "result": {"ok": False, "error": f"e{i}"}} for i in range(6)]}
+    telemetry.note_tool_errors(facts)
+    stats = telemetry.active()
+    assert stats.tool_errors == ["connection_not_configured", "e0", "e1", "e2", "e3"]  # 去重 + 上限5
+    telemetry.note_tool_errors(None)  # 非 dict 容错

@@ -300,3 +300,19 @@ def test_dangling_followup_without_context_expires_kindly(monkeypatch):
         reply = service.build_agent_reply(lambda: db, fragment, "weixin_ilink", "sender", now,
                                           account_id="bot", message_id="m")
         assert "过期" in reply, fragment
+
+
+def test_single_person_candidate_accepts_confirmation_word():
+    from datetime import datetime
+
+    from app.agent.clarification import PendingQuestion, PersonChoice, selected_person
+
+    person = PersonChoice(student_id="sid-lx", name="李鑫", class_name="26大数据1班")
+    pending = PendingQuestion(original="帮我添加李欣的课表", question="按读音相近找到…", version="v",
+                              created_at=datetime(2026, 10, 24, 12, 0), people=[person])
+    assert selected_person(pending, "是") is person
+    assert selected_person(pending, "对的。") is person
+    assert selected_person(pending, "不是") is None  # 非确认词不误判
+    two = PendingQuestion(original="x", question="y", version="v", created_at=datetime(2026, 10, 24, 12, 0),
+                          people=[person, PersonChoice(student_id="sid-2", name="李欣")])
+    assert selected_person(two, "是") is None  # 多候选时确认词有歧义，不选定

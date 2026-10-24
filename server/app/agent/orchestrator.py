@@ -141,7 +141,9 @@ def handle_message(message: str, tools: ScheduleTools, history: list | None = No
     try:
         with execution():
             from .completion import finalize
-            return finalize(_handle_message(message, tools, history))
+            result = finalize(_handle_message(message, tools, history))
+            telemetry.note_tool_errors(result.get("tool_result"))
+            return result
     finally:
         _log_turn(started)
 
@@ -161,6 +163,9 @@ def _log_turn(started: float) -> None:
         "duration_ms": round((time.perf_counter() - started) * 1000, 1),
         "breaker": str(llm_circuit_breaker.state),
     }
+    if stats.tool_errors:
+        # outcome=ok 只代表 LLM 循环正常返回；工具错误码单列，运维可按码聚合告警。
+        turn["tool_errors"] = stats.tool_errors
     logging.getLogger("classschedule").info(json.dumps({"event": "agent_turn", **turn}, ensure_ascii=False))
     agent_metrics.enqueue(turn)
 

@@ -40,6 +40,18 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Ruff lint
         run: ruff check app tests scripts migrations
+      - name: Validate deploy compose file
+        # 部署 compose 的结构性回归（漏挂卷、缺必填变量）在 PR 阶段就暴露
+        run: docker compose -f deploy/docker-compose.yml config --quiet
+        env:
+          DB_PASSWORD: ci-only-password
+          JWT_SECRET: ci-only-secret-ci-only-secret-32bytes!
+          DEFAULT_PASSWORD: ci-only-password
+          WECHAT_APP_ID: ci-only
+          WECHAT_APP_SECRET: ci-only
+          WEIXIN_ILINK_CREDENTIAL_KEY: Y2ktb25seS1iYXNlNjQta2V5LXZhbHVlLWhlcmU=
+          ADMIN_PASSWORD: ci-only-password
+          ADMIN_SESSION_SECRET: ci-only-secret-ci-only-secret-32bytes!
       - name: Unit tests
         run: python scripts/verify_audit_repairs.py
         env:
