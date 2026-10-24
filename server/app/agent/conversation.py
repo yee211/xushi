@@ -57,7 +57,8 @@ def clean_message_content(text: str) -> str:
 
 
 def _ttl() -> int:
-    return max(300, min(int(os.getenv("AGENT_CONTEXT_TTL_SECONDS", "7200")), 86400))
+    # 默认 24 小时：与课表选择 TTL 对齐，隔天回来追问仍能接上上下文（12 条上限不变）。
+    return max(300, min(int(os.getenv("AGENT_CONTEXT_TTL_SECONDS", "86400")), 86400))
 
 
 @lru_cache(maxsize=1)

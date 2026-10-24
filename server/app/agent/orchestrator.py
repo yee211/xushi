@@ -273,7 +273,8 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
             if resolved["status"] == "ambiguous":
                 names = "、".join(item["name"] for item in resolved["candidates"])
                 return {"intent": intent.name, "answer": f"“{intent.course_name}”可能是：{names}。你指哪一门？",
-                        "tool_result": {"course_match": resolved}}
+                        "tool_result": {"course_match": resolved},
+                        "resolved_context": {"intent": intent.name, "course_name": intent.course_name}}
             display = resolved["course"]["name"] if resolved["course"] else intent.course_name
             result = tools.get_courses_by_date(intent.target_date, intent.period)
             courses = result["courses"]
@@ -331,7 +332,8 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
             elif resolved["status"] == "ambiguous":
                 names = "、".join(item["name"] for item in resolved["candidates"])
                 return {"intent": intent.name, "answer": f"“{intent.course_name}”可能是：{names}。你指哪一门？",
-                        "tool_result": {"course_match": resolved}}
+                        "tool_result": {"course_match": resolved},
+                        "resolved_context": {"intent": intent.name, "course_name": intent.course_name}}
             result = tools.find_course(intent.course_name, intent.target_date or tools.context.now.date())
             rows = result["occurrences"]
             answer = f"未来没有查到“{intent.course_name}”。" if not rows else f"“{rows[0]['name']}”接下来的上课时间：\n" + "\n".join(

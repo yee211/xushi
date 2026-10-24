@@ -221,3 +221,82 @@ def test_pending_scope_has_no_sanitization_collisions():
     assert clarification.key(7, "weixin_ilink", "sender", "bot") != clarification.key(
         8, "weixin_ilink", "sender", "bot"
     )
+
+
+@pytest.fixture
+def course_pair(monkeypatch):
+    """单课表、两门同前缀课程（高等数学上/下），触发课程名歧义。"""
+    schedules = [{
+        "id": 11, "user_id": 7, "name": "测试课表", "term": "2026-2027-1",
+        "start_date": date(2026, 8, 1), "end_date": date(2027, 1, 1),
+        "variant_type": "original", "source_schedule_id": None,
+    }]
+    courses = [
+        {"id": 1, "schedule_id": 11, "name": "高等数学(上)", "weekday": 3, "start_section": 1,
+         "end_section": 2, "weeks": list(range(1, 31)), "teacher": "甲", "room": "A101"},
+        {"id": 2, "schedule_id": 11, "name": "高等数学(下)", "weekday": 5, "start_section": 3,
+         "end_section": 4, "weeks": list(range(1, 31)), "teacher": "乙", "room": "B202"},
+    ]
+
+    class Db(FakeAgentDb):
+        revision = 1
+
+        def execute(self, sql, params=None):
+            if "AS snapshot" in sql:
+                return FakeResult([{"snapshot": {"schedules": self.schedules}}])
+            if "SELECT id,name FROM schedules" in sql:
+                return FakeResult([s for s in self.schedules if s["id"] == params[0]])
+            if "FROM courses" in sql:
+                return FakeResult([c for c in self.courses if c["schedule_id"] == params[0]])
+            return super().execute(sql, params)
+
+    db = Db(identity_user_id=7, schedules=schedules, courses=courses)
+    redis = FakeRedis()
+    monkeypatch.setattr(conversation, "_client", lambda: redis)
+    monkeypatch.setattr(orchestrator, "llm_configured", lambda: False)
+    monkeypatch.setattr(orchestrator, "rain_advisory", lambda *args: None)
+    now = datetime(2026, 9, 8, 13, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    def say(text):
+        return service.build_agent_reply(lambda: db, text, "weixin_ilink", "sender", now,
+                                         account_id="bot", message_id="m")
+
+    return db, redis, now, say
+
+
+def test_course_ambiguity_offers_numbered_choice_and_resumes(course_pair):
+    db, redis, now, say = course_pair
+    first = say("高数什么时候上")
+    assert "可能是" in first and "高等数学(上)" in first and "高等数学(下)" in first
+    pending = clarification.load((7, "weixin_ilink", "sender", "bot"),
+                                 service.ScheduleTools(lambda: db, MagicMock(user_id=7)).schedule_version(), now)
+    assert pending and len(pending.courses) == 2 and pending.course_query == "高数"
+
+    second = say("第二门")
+    assert "高等数学(下)" in second and "B202" in second and "A101" not in second
+    assert not redis.get(clarification.key(7, "weixin_ilink", "sender", "bot"))
+
+
+def test_course_ambiguity_accepts_full_name_reply(course_pair):
+    db, redis, now, say = course_pair
+    assert "可能是" in say("高数什么时候上")
+    answer = say("高等数学(上)")
+    assert "A101" in answer and "B202" not in answer
+
+
+def test_invalid_course_choice_keeps_question(course_pair):
+    db, redis, now, say = course_pair
+    say("高数什么时候上")
+    assert "第几门" in say("随便看看")
+    assert redis.get(clarification.key(7, "weixin_ilink", "sender", "bot"))
+
+
+def test_dangling_followup_without_context_expires_kindly(monkeypatch):
+    db = FakeAgentDb(identity_user_id=7)
+    monkeypatch.setattr(conversation, "_client", lambda: FakeRedis())
+    monkeypatch.setattr(orchestrator, "llm_configured", lambda: False)
+    now = datetime(2026, 9, 8, 13, tzinfo=ZoneInfo("Asia/Shanghai"))
+    for fragment in ("呢", "那呢？", "然后呢", "上午呢"):
+        reply = service.build_agent_reply(lambda: db, fragment, "weixin_ilink", "sender", now,
+                                          account_id="bot", message_id="m")
+        assert "过期" in reply, fragment

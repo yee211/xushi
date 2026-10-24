@@ -38,7 +38,7 @@ def test_redis_history_is_versioned_user_scoped_and_trimmed(monkeypatch):
     assert ":v2:" in key and len(payload["messages"]) == 12
     assert payload["updated_at"] == now.isoformat()
     assert payload["state"]["target_date"] == "2026-09-14"
-    assert redis.ttls[key] == 7200
+    assert redis.ttls[key] == 86400
     assert redis.get(conversation._key(8, "wecom", "zhangsan")) is None
 
     history = conversation.load_history(7, "wecom", "zhangsan")
@@ -65,3 +65,8 @@ def test_dirty_history_metadata_is_cleaned_on_load(monkeypatch):
 def test_unconfigured_redis_degrades_to_empty_history(monkeypatch):
     monkeypatch.setattr(conversation, "_client", lambda: None)
     assert conversation.load_history(7, "wecom", "zhangsan") == []
+
+
+def test_history_default_ttl_is_24_hours(monkeypatch):
+    monkeypatch.delenv("AGENT_CONTEXT_TTL_SECONDS", raising=False)
+    assert conversation._ttl() == 86400

@@ -35,8 +35,10 @@ class PendingQuestion(BaseModel):
     created_at: datetime
     turns: list[tuple[str, str]] = Field(default_factory=list, max_length=3)
     schedules: list[Choice] = Field(default_factory=list, max_length=30)
+    courses: list[Choice] = Field(default_factory=list, max_length=30)
     people: list[PersonChoice] = Field(default_factory=list, max_length=8)
     person_request: dict = Field(default_factory=dict)
+    course_query: str = Field(default="", max_length=80)
 
     def history(self):
         result = [HumanMessage(content=self.original + "\n[消息时间：" + self.created_at.isoformat() + "]")]
@@ -120,6 +122,27 @@ def person_choices(result):
     return [], {}
 
 
+def course_choices(result):
+    """从课程歧义结果提取候选与用户口语原词，供序号选择后回放原问题。"""
+    match = (result.get("tool_result") or {}).get("course_match") or {}
+    if match.get("status") != "ambiguous":
+        return [], ""
+    choices = []
+    for index, item in enumerate((match.get("candidates") or [])[:30]):
+        course_id = item.get("course_id") if isinstance(item.get("course_id"), int) else item.get("id")
+        choices.append(Choice(id=course_id if isinstance(course_id, int) and course_id > 0 else index + 1,
+                              name=str(item.get("name") or f"课程{index + 1}")[:200]))
+    query = str((result.get("resolved_context") or {}).get("course_name") or "")
+    return choices, query[:80]
+
+
+def substitute_course(original: str, query: str, name: str) -> str:
+    """把原问题里的口语课程名替换为选定的完整课程名；原词定位不到时直接点名。"""
+    if query and query in original:
+        return original.replace(query, name, 1)
+    return f"{original}（指{name}）"
+
+
 def selected_person(pending, text):
     text = text.strip(" ，,。！!？?")
     ordinal = re.fullmatch(r"第?([一二三四五六七八]|\d+)(?:个|位|名)?", text)
@@ -132,18 +155,23 @@ def selected_person(pending, text):
     return matches[0] if len(matches) == 1 else None
 
 
-def selected_choice(pending, text):
+def pick_choice(choices: list[Choice], text: str):
+    """在给定候选里解析用户回复：序号（“第二门”）、“使用课表 N”或完整名称。"""
     text = text.strip(" ，,。！!？?")
     explicit = re.fullmatch(r"使用课表\s*(\d+)", text)
     if explicit:
-        return next((c for c in pending.schedules if c.id == int(explicit[1])), None)
-    ordinal = re.fullmatch(r"第?([一二三四五六七八九十]|\d+)(?:个|张|份)?", text)
+        return next((c for c in choices if c.id == int(explicit[1])), None)
+    ordinal = re.fullmatch(r"第?([一二三四五六七八九十]|\d+)(?:个|张|份|门|位)?", text)
     if ordinal:
         value = ordinal[1]
         index = int(value) if value.isdigit() else "一二三四五六七八九十".index(value) + 1
-        return pending.schedules[index - 1] if 1 <= index <= len(pending.schedules) else None
-    matches = [c for c in pending.schedules if c.name == text]
+        return choices[index - 1] if 1 <= index <= len(choices) else None
+    matches = [c for c in choices if c.name == text]
     return matches[0] if len(matches) == 1 else None
+
+
+def selected_choice(pending, text):
+    return pick_choice(pending.schedules, text)
 
 
 def is_new_request(text, today):

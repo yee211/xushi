@@ -14,6 +14,8 @@ from .orchestrator import handle_message
 from .tools import AgentContext, ScheduleTools
 
 BINDING_RE = re.compile(r"^\s*绑定\s*([A-Za-z0-9]{6})\s*$")
+# 无日期、无主语的追问碎片：既没有澄清上下文也没有可用历史时，友好提示过期。
+DANGLING_FOLLOWUP = re.compile(r"^(?:那(?:么)?呢|然后呢|后来呢|结果呢|上午呢|下午呢|晚上呢|呢)[。！？?！]*$")
 GUIDANCE = ("我是序时课表助手，可以查询你的课程。请先在序时小程序「AI 助手」页生成绑定码，"
             "然后给我发送：绑定 XXXXXX\n试试问我：“今天下午有什么课”、“这周有什么课”、"
             "“下一节课是什么”、“高数什么时候上”。")
@@ -101,6 +103,11 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
         if pending.people:
             if person_choice is None:
                 return "请按刚才的候选回复第几位、班级或学号，也可以回复“取消”。"
+        elif pending.courses:
+            choice = clarification.pick_choice(pending.courses, text)
+            if choice is None:
+                return "请回复第几门（如“1”“第二门”）或完整课程名，也可以回复“取消”。"
+            text = clarification.substitute_course(pending.original, pending.course_query, choice.name)
         elif pending.schedules:
             choice = clarification.selected_choice(pending, text)
             if choice is None:
@@ -119,6 +126,8 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
         else:
             text = pending.original if selection else clarification.resume_text(pending, text)
         history = pending.history()
+    if pending is None and not history and DANGLING_FOLLOWUP.match(re.sub(r"\s+", "", text)):
+        return "刚才的对话已经过期啦，把想问的日期或课程完整发我一次就好～"
     # 每日兜底限额在渠道级分钟限流之外，覆盖所有渠道；只对真正进入问答/查询流程的消息计数。
     allowed, _retry_after = agent_daily_limiter.hit(f"{provider}:{sender_id[:64]}")
     if not allowed:
@@ -140,11 +149,13 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
             result["answer"] = "还没能确认你的意思，请把日期、课程或课表选择与原问题一起重新发送。"
         else:
             people, person_request = clarification.person_choices(result)
+            courses, course_query = clarification.course_choices(result)
             waiting = clarification.PendingQuestion(
                 original=pending.original if pending else original_text,
                 question=result["answer"][:4000], version=snapshot,
                 created_at=pending.created_at if pending else now, turns=turns,
-                schedules=clarification.schedule_choices(result), people=people, person_request=person_request)
+                schedules=clarification.schedule_choices(result), people=people, person_request=person_request,
+                courses=courses, course_query=course_query)
             if not clarification.save(scope, waiting):
                 result["answer"] += "\n暂时无法保存这次追问，请将补充信息与原问题一起发送。"
     else:
