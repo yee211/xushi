@@ -139,7 +139,7 @@ def resolve_saved_person(rows: Sequence[dict], query_text: str) -> dict:
     if not rows:
         raise ScheduleQueryError(
             "NO_OTHER_SCHEDULES",
-            "你还没有保存任何他人课表，可以先告诉我“帮我加一下某某的课表”或去小程序“他人课表”中添加。",
+            "你还没有保存任何同学课表，可以先告诉我“帮我加一下某某的课表”或去小程序“同学课表”中添加。",
         )
     if not needle:
         if len(rows) == 1:
@@ -170,7 +170,7 @@ def resolve_saved_person(rows: Sequence[dict], query_text: str) -> dict:
     names = "、".join(c["display_name"] for c in candidates)
     raise ScheduleQueryError(
         "PERSON_NOT_FOUND",
-        f"在已保存的他人课表中没有找到“{query_text}”（当前已保存：{names}）。如果需要添加，可以说“帮我添加{query_text}的课表”。",
+        f"在已保存的同学课表中没有找到“{query_text}”（当前已保存：{names}）。如果需要添加，可以说“帮我添加{query_text}的课表”。",
         candidates,
     )
 
@@ -255,7 +255,7 @@ def check_group_availability(
     else:
         selected_rows = list(rows)
     if not selected_rows:
-        raise ScheduleQueryError("NO_OTHER_SCHEDULES", "你还没有保存可比对的他人课表，请先添加同学的课表。")
+        raise ScheduleQueryError("NO_OTHER_SCHEDULES", "你还没有保存可比对的同学课表，请先添加同学的课表。")
 
     participants = []
     if include_me:
@@ -319,7 +319,7 @@ def check_group_availability(
     if not participants:
         raise ScheduleQueryError(
             "NO_PARTICIPANTS",
-            "没有可比对的课表数据（请先导入自己的课表或在“他人课表”中保存同学的课表）。",
+            "没有可比对的课表数据（请先导入自己的课表或在“同学课表”中保存同学的课表）。",
         )
 
     common_free_set = set(all_sections)

@@ -16,7 +16,7 @@
         <view class="hero-badge-box">
           <text class="hero-badge-icon">👥</text>
         </view>
-        <text class="hero-title">他人课表</text>
+        <text class="hero-title">同学课表</text>
         <text class="hero-desc">支持保存多位室友或同学的课表，与自己的身份和课表完全独立管理。</text>
       </view>
 
@@ -42,26 +42,26 @@
 
       <!-- 搜索学生卡片 -->
       <view class="card others-card">
-        <text class="form-card-title">搜索学生档案</text>
+        <text class="form-card-title">添加同学</text>
         <view class="others-field-group">
           <view class="field-item">
             <text class="field-item-label">姓名、专业、班级或年级</text>
             <input class="field-input" value="{{keyword}}" maxlength="80" disabled="{{busy}}" placeholder="如：李四、软件工程、24软工2班" placeholder-class="field-placeholder" bindinput="inputKeyword" bindconfirm="search" confirm-type="search"/>
           </view>
         </view>
-        <button class="btn primary search-btn" disabled="{{busy || !keyword}}" loading="{{busy}}" bindtap="search">搜索学生</button>
+        <button class="btn primary search-btn" disabled="{{busy || !keyword}}" loading="{{busy}}" bindtap="search">搜索同学</button>
 
         <view wx:if="{{notice}}" class="others-notice">{{notice}}</view>
         <view class="others-alert info-alert" wx:if="{{busy && !error && !selected}}">
           <view class="alert-spinner mini"></view>
-          <text class="alert-text">正在查找学生信息，请稍候…</text>
+          <text class="alert-text">正在查找同学信息，请稍候…</text>
         </view>
       </view>
 
       <!-- 搜索无结果空状态 -->
       <view class="card others-card empty-card" wx:if="{{searched && !students.length && !busy}}">
         <text class="empty-icon">🔍</text>
-        <text class="empty-title">未找到匹配学生</text>
+        <text class="empty-title">未找到匹配的同学</text>
         <text class="empty-desc">请补充姓名或班级的部分文字后重试。</text>
       </view>
 
@@ -93,7 +93,7 @@
                 <text class="manage-user-name">{{selected.name}}</text>
                 <text class="manage-user-class">{{selected.class_name}}</text>
               </view>
-              <text class="others-hint">{{saved ? '已保存在他人课表列表中，再次保存将更新学期和课表。' : '可先预览课表，或直接保存到他人课表列表。'}}</text>
+              <text class="others-hint">{{saved ? '已保存在同学课表列表中，再次保存将更新学期和课表。' : '可先预览课表，或直接保存到同学课表列表。'}}</text>
             </view>
           </view>
           <text wx:if="{{updatedText}}" class="bound-sync-time">最近更新：{{updatedText}}</text>

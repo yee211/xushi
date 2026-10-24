@@ -72,12 +72,12 @@
         <view class="empty-icon-box">
           <text class="empty-icon-glyph">👥</text>
         </view>
-        <text class="empty-title">还没有保存他人课表</text>
+        <text class="empty-title">还没有添加同学课表</text>
         <text class="empty-desc">可查找并保存室友、同学的课表，支持切换学期与备注，与自己的课表完全独立。</text>
         <view class="empty-buttons-row">
           <button class="empty-button" hover-class="empty-button-hover" bindtap="openOtherSearch">
             <text class="empty-button-icon">＋</text>
-            <text>查找他人课表</text>
+            <text>添加同学</text>
           </button>
         </view>
         <view class="other-empty-back" data-scope="mine" bindtap="switchScheduleScope">← 返回我的课表</view>
@@ -220,13 +220,13 @@
         </view>
       </view>
 
-      <!-- 模块 2：他人课表 -->
+      <!-- 模块 2：同学课表 -->
       <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openOtherFromMine">
         <view class="service-icon-box icon-purple">
           <text class="service-emoji">👥</text>
         </view>
         <view class="service-text-col">
-          <text class="service-title">他人课表</text>
+          <text class="service-title">同学课表</text>
           <text class="service-desc">查看与收藏室友、同学的课表</text>
         </view>
         <view class="service-right-group">
@@ -476,14 +476,14 @@
         <text class="opt-arrow">›</text>
       </view>
 
-      <!-- 选项 3：他人课表 -->
+      <!-- 选项 3：同学课表 -->
       <view class="center-option-card opt-others" hover-class="center-option-hover" hover-stay-time="80" bindtap="openOtherFromMine">
         <view class="opt-icon-badge opt-icon-purple">
           <text class="opt-emoji">👥</text>
         </view>
         <view class="opt-content">
           <view class="opt-title-row">
-            <text class="opt-title">他人课表</text>
+            <text class="opt-title">同学课表</text>
             <text class="opt-tag tag-purple">独立收藏</text>
           </view>
           <text class="opt-desc">查找并收藏多位同学的课表，与自己的课表独立管理</text>

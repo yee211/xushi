@@ -1,4 +1,4 @@
-/* ===== 查找他人课表页面：真正液态毛玻璃设计规范 ===== */
+/* ===== 查找同学课表页面：真正液态毛玻璃设计规范 ===== */
 .saved-item-actions {
   display: flex;
   align-items: center;

@@ -228,10 +228,10 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
             other_scope = bool(people) and (mentions_others(text, people) or group_request(text))
         except Exception:
             return {"intent": "HELP", "answer": "暂时无法确认查询对象，请稍后重试。",
-                    "error": {"code": "service_unavailable", "message": "无法读取已保存的他人课表名单"}}
+                    "error": {"code": "service_unavailable", "message": "无法读取已保存的同学课表名单"}}
     if other_scope:
-        return {"intent": "HELP", "answer": "本次未能完成他人课表或多人空闲查询，请稍后重试。",
-                "error": {"code": "other_query_unavailable", "message": "他人课表查询暂不可用"}}
+        return {"intent": "HELP", "answer": "本次未能完成同学课表或多人空闲查询，请稍后重试。",
+                "error": {"code": "other_query_unavailable", "message": "同学课表查询暂不可用"}}
     try:
         # 课程目录只有 LLM 意图提取会用到；纯规则路径不查，省一次数据库往返。
         catalog = tools.list_course_catalog() if allow_llm and llm_ready else []

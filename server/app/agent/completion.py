@@ -11,7 +11,7 @@ ARCHIVE_TOOLS = {
 }
 AMBIGUOUS_ERRORS = {"AMBIGUOUS_SCHEDULE", "AMBIGUOUS_PERSON", "ADD_NEEDS_INPUT", "NO_OTHER_SCHEDULES", "PERSON_NOT_FOUND"}
 OTHER_SCHEDULES_PROMPT = (
-    "\n- 查询已保存的他人（室友、同学、搭子）某天课程用 query_other_day_courses，查询已保存他人列表用 list_other_people；"
+    "\n- 查询已保存的同学（室友、搭子等）某天课程用 query_other_day_courses，查询已保存同学列表用 list_other_people；"
     "\n- 询问某个时段“谁有空”或“我和某人/室友什么时候都有空（共同空闲）”用 check_group_availability；"
     "\n- 用户要求添加/保存某位同学的课表时，调用 add_other_schedule（若返回 status=ambiguous 候选列表，使用 needs_input 列出候选请用户确认班级或学号；若已唯一定位并保存成功，使用 completed 告知已添加）。"
 )
@@ -75,7 +75,7 @@ def finalize(result: dict) -> dict:
         for fact in reversed(data.get("skills") or []):
             item = fact.get("result") or {}
             if fact.get("skill") == "add_other_schedule" and item.get("ok") is False:
-                result["answer"] = item.get("message") or "未能保存他人课表，请重试。"
+                result["answer"] = item.get("message") or "未能保存同学课表，请重试。"
                 reported_status = "needs_input" if item.get("status") in {"ambiguous", "needs_input"} else "failed"
                 break
             if item.get("error") in AMBIGUOUS_ERRORS and item.get("candidates"):

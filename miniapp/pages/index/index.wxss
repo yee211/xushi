@@ -1998,7 +1998,7 @@ button.empty-button::after { display:none !important; }
   padding-left: 8rpx;
 }
 
-/* 他人课表状态下的单行轻量提示横幅（平时查看自己课表时完全不渲染） */
+/* 同学课表状态下的单行轻量提示横幅（平时查看自己课表时完全不渲染） */
 .other-banner {
   margin-top: 10rpx;
   padding: 12rpx 16rpx 12rpx 22rpx;

@@ -3,7 +3,7 @@ const days = ['周一','周二','周三','周四','周五','周六','周日']
 const dayShortNames = ['一','二','三','四','五','六','日']
 const ROW_HEIGHT = 112
 const DEFAULT_COLOR = '#5B8DEF'
-// 他人课表批量同步：轮询 2s 一次，最多 150 次（约 5 分钟）；完成横幅仅在完成后 10 分钟内展示
+// 同学课表批量同步：轮询 2s 一次，最多 150 次（约 5 分钟）；完成横幅仅在完成后 10 分钟内展示
 const OTHER_SYNC_MAX_POLLS = 150
 const OTHER_SYNC_SLOW_POLLS = 40
 const OTHER_SYNC_SLOW_DELAY = 15000
@@ -314,7 +314,7 @@ Page({
         const label = (p.remark ? `${p.remark}（${p.snapshot.student.name}）` : p.snapshot.student.name) + (p.snapshot.student.class_name ? ` · ${p.snapshot.student.class_name}` : '')
         items.push({ text: `${isCurrent ? '✓ ' : '👤 '}${label}` })
       })
-      items.push({ text: '＋ 查找 / 添加他人课表' })
+      items.push({ text: '＋ 添加同学' })
       const { tapIndex } = await this.actionSheet(items)
       if (tapIndex < 0) return
       if (tapIndex === 0) {
@@ -354,7 +354,7 @@ Page({
       const cache = wx.getStorageSync('other_schedules_cache')
       if (cache && cache.session === wx.getStorageSync('session_token') && ![401, 403].includes(e.statusCode)) {
         const people = cache.people || []
-        this.setData({ otherPeople: people.map(p => ({ ...p, displayName: (p.remark ? p.remark + ' · ' : '') + p.snapshot.student.name + ' · ' + (p.snapshot.student.class_name || '') })), cacheNotice: '离线课表 · 显示上次保存的他人课表' })
+        this.setData({ otherPeople: people.map(p => ({ ...p, displayName: (p.remark ? p.remark + ' · ' : '') + p.snapshot.student.name + ' · ' + (p.snapshot.student.class_name || '') })), cacheNotice: '离线课表 · 显示上次保存的同学课表' })
         const current = this.data.otherPerson
         this.showOtherPerson(this.previewOther || people.find(p => current && p.student_id === current.student_id) || people[0] || null)
         this.previewOther = null
@@ -458,7 +458,7 @@ Page({
     if (this._otherSyncTimer) clearTimeout(this._otherSyncTimer)
     this._otherSyncTimer = setTimeout(() => { this._otherSyncTimer = null; this.loadOtherSyncStatus() }, nextDelay)
   },
-  // 用户主动进入/返回他人课表时：重置轮询额度；名单刚由调用方加载过，首次状态查询不必再拉一次
+  // 用户主动进入/返回同学课表时：重置轮询额度；名单刚由调用方加载过，首次状态查询不必再拉一次
   resumeOtherSyncStatus() {
     this._otherSyncPolls = 0
     return this.loadOtherSyncStatus({ peopleFresh: true })
