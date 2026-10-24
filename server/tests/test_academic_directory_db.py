@@ -138,3 +138,34 @@ def test_new_snapshot_invisible_until_commit(database):
         writer.commit()
     assert directory.student('student123') is None
     assert directory.student('newstudent')['name'] == '新同学'
+
+
+def test_exact_name_priority_and_pinyin_fuzzy_fallback(database):
+    exact = dict(record('exact1', '李欣'), student_number_display='2026****0105')
+    homophone = dict(record('homo1', '李鑫'), student_number_display='2026****0106')
+    ying = dict(record('ying1', '李欣莹'), student_number_display='2026****0108')
+    pqk = dict(record('pqk1', '潘桥康', ), student_number_display='2024****0706')
+    seed(database, [homophone, ying, exact, pqk])
+    # 子串命中时精确同名排最前（“李欣”也命中“李欣莹”）
+    assert directory.search(query='李欣')['students'][0]['id'] == 'exact1'
+    # 子串零命中 → 读音兜底，标注 fuzzy
+    fuzzy = directory.search(query='李昕')
+    # 全拼前缀也算读音相近（李欣莹 lixinying 含 lixin）；候选需用户确认，宁多勿漏
+    assert fuzzy['fuzzy'] is True and {s['id'] for s in fuzzy['students']} == {'exact1', 'homo1', 'ying1'}
+    # 纯拼音（全拼/缩写）同样走兜底
+    assert {s['id'] for s in directory.search(query='panqiaokang')['students']} == {'pqk1'}
+    assert {s['id'] for s in directory.search(query='pqk')['students']} == {'pqk1'}
+    # 无匹配时仍是普通空结果（不带 fuzzy 标记）
+    empty = directory.search(query='不存在')
+    assert empty['students'] == [] and 'fuzzy' not in empty
+
+
+def test_by_number_pattern_resolves_masked_number(database):
+    masked = dict(record('m1', '潘桥康'), student_number_display='2024****0706')
+    other = dict(record('m2', '王五'), student_number_display='2024****0707')
+    seed(database, [masked, other])
+    assert directory.by_number_pattern('202412340706')['id'] == 'm1'
+    assert directory.by_number_pattern('2024') is None  # 太短不猜
+    twin = dict(record('m3', '赵六'), student_number_display='2024****0706')
+    seed(database, [masked, other, twin])
+    assert directory.by_number_pattern('202412340706') is None  # 掩码撞车时不选定

@@ -338,3 +338,40 @@ def test_agent_add_other_schedule_disambiguation_and_save(db, monkeypatch):
     assert (1, "sid-zs-1") in db.rows
     assert db.rows[1, "sid-zs-1"]["remark"] == "搭子"
 
+
+
+def _directory_student(sid, name, cls="软件2401", grade="2024", number="2024****0101"):
+    return {"id": sid, "name": name, "grade": grade, "class_name": cls,
+            "major_name": "软件工程", "student_number_display": number, "default_term": "2026-2027-1"}
+
+
+def test_full_student_number_resolves_unique_masked_directory_row(db, monkeypatch):
+    pan = _directory_student("sid-pqk", "潘桥康", "24计科7班", "2024", "2024****0706")
+    monkeypatch.setattr(service.academic_directory, "by_number_pattern",
+                        lambda number: pan if number == "202407210706" else None)
+    searched = []
+    monkeypatch.setattr(service.academic, "search_keyword", lambda kw: searched.append(kw) or {"students": []})
+    result = service.search_and_save_other(db, 1, "202407210706")
+    assert result["ok"] is True and result["person"]["student_id"] == "sid-pqk"
+    assert searched == []  # 学号唯一定位，跳过名录搜索
+    assert (1, "sid-pqk") in db.rows
+
+
+def test_fuzzy_pinyin_match_requires_confirmation_even_when_single(db, monkeypatch):
+    lixin = _directory_student("sid-lx", "李鑫", "26大数据1班", "2026", "2026****0105")
+    monkeypatch.setattr(service.academic, "search_keyword",
+                        lambda kw: {"students": [lixin], "fuzzy": True})
+    result = service.search_and_save_other(db, 1, "李欣")
+    assert result["status"] == "ambiguous" and result["fuzzy"] is True
+    assert "读音相近" in result["message"]
+    assert (1, "sid-lx") not in db.rows  # 读音兜底是猜测，必须先经用户确认
+
+
+def test_ambiguous_candidates_hint_full_number_beyond_eight(db, monkeypatch):
+    students = [_directory_student(f"sid-{i}", "李欣", f"26电商{i}班", "2026", f"2026****03{i:02d}")
+                for i in range(10)]
+    monkeypatch.setattr(service.academic, "search_keyword", lambda kw: {"students": students})
+    result = service.search_and_save_other(db, 1, "李欣")
+    assert result["status"] == "ambiguous"
+    assert "序号" in result["message"] and "完整学号" in result["message"]
+    assert len(result["candidates"]) == 8

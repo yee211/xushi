@@ -13,3 +13,4 @@ qrcode[pil]==8.2
 beautifulsoup4==4.15.0
 openpyxl==3.1.5
 PyJWT==2.9.0
+pypinyin==0.55.0

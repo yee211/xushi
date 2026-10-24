@@ -117,3 +117,10 @@ def test_collection_accepts_major_without_classes(monkeypatch):
     directory._stop.clear()
     grades, students = directory.collect(lambda *args: None)
     assert grades == ['2026'] and len(students) == 1
+
+
+def test_pinyin_keys_and_column_extract_han_only():
+    assert directory.pinyin_keys('潘桥康') == ('panqiaokang', 'pqk')
+    assert directory.pinyin_keys('李欣 24级') == ('lixinji', 'lxj')  # 只取汉字，跨片段拼接
+    assert directory.pinyin_keys('123') == ('', '')
+    assert directory.pinyin_column('李欣') == 'lixin lx'

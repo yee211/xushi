@@ -87,6 +87,18 @@ def _sync_connection_version():
             _cache.clear()
 
 
+def _alert_connection_failure(code: str, message: str):
+    """连接类故障对全体用户的教务功能是全局不可用，推送管理员告警（限频、绝不抛错）。"""
+    try:
+        from .feedback import notify_operator
+        notify_operator("教务连接不可用",
+                        [f"错误码：{code}", f"详情：{message}",
+                         "同学课表添加与课表同步将失败，请到管理后台「教务连接」重新配置"],
+                        key=f"academic-connection:{code}")
+    except Exception:
+        pass
+
+
 def connection_headers():
     _sync_connection_version()
     cookie = os.getenv("CCSUT_COOKIE", "").strip()
@@ -100,8 +112,10 @@ def connection_headers():
         except AcademicError:
             raise
         except Exception as error:
+            _alert_connection_failure("connection_unreadable", "教务连接配置无法读取")
             raise AcademicError("connection_unreadable", "教务连接配置无法读取，请重新配置", 503) from error
     if not cookie:
+        _alert_connection_failure("connection_not_configured", "未配置教务会话（Cookie）")
         raise AcademicError("connection_not_configured", "管理员尚未连接学校教务系统", 503)
     return {"Cookie": cookie, "User-Agent": agent, "X-Requested-With": "XMLHttpRequest"}
 
@@ -377,6 +391,8 @@ def _database():
     path = ROOT / "data" / "academic" / "cache.sqlite3"
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=5)
+    # api 与 weixin-worker 两容器共享此缓存文件，WAL 降低跨进程读写互堵。
+    db.execute("PRAGMA journal_mode=WAL")
     if os.name != "nt":
         path.chmod(0o600)
     db.execute("CREATE TABLE IF NOT EXISTS snapshots (kind TEXT, key TEXT, payload TEXT, updated REAL, PRIMARY KEY(kind,key))")

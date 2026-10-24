@@ -13,7 +13,7 @@ AMBIGUOUS_ERRORS = {"AMBIGUOUS_SCHEDULE", "AMBIGUOUS_PERSON", "ADD_NEEDS_INPUT",
 OTHER_SCHEDULES_PROMPT = (
     "\n- 查询已保存的同学（室友、搭子等）某天课程用 query_other_day_courses，查询已保存同学列表用 list_other_people；"
     "\n- 询问某个时段“谁有空”或“我和某人/室友什么时候都有空（共同空闲）”用 check_group_availability；"
-    "\n- 用户要求添加/保存某位同学的课表时，调用 add_other_schedule（若返回 status=ambiguous 候选列表，使用 needs_input 列出候选请用户确认班级或学号；若已唯一定位并保存成功，使用 completed 告知已添加）。"
+    "\n- 用户要求添加/保存某位同学的课表时，调用 add_other_schedule（若返回 status=ambiguous 候选列表，使用 needs_input 原样转达候选，请用户回复序号、班级或完整学号确认；若已唯一定位并保存成功，使用 completed 告知已添加）。"
 )
 COMPLETION_PROMPT = (
     '\n最终回复请输出 JSON 对象，固定字段为 status（completed、pending、needs_input 或 failed）、answer（给用户的文字）、task_id（无任务时为 null）。'

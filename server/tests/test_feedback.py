@@ -84,3 +84,24 @@ def test_notification_posts_markdown_without_exposing_user_id(monkeypatch):
 def test_notification_is_disabled_without_webhook(monkeypatch):
     monkeypatch.delenv("WECOM_FEEDBACK_WEBHOOK_URL", raising=False)
     assert feedback_service.send_feedback_notification({}) is False
+
+
+def test_notify_operator_posts_once_within_rate_window(monkeypatch):
+    import threading
+
+    monkeypatch.setenv("WECOM_FEEDBACK_WEBHOOK_URL", "https://example.test/hook")
+    monkeypatch.setattr(feedback_service, "_alert_last", {})
+    posted = []
+    done = threading.Event()
+
+    def fake_post(lines):
+        posted.append(lines)
+        done.set()
+        return True
+
+    monkeypatch.setattr(feedback_service, "_post_markdown", fake_post)
+    assert feedback_service.notify_operator("教务连接不可用", ["错误码：connection_not_configured"], key="k1") is True
+    assert feedback_service.notify_operator("教务连接不可用", ["错误码：connection_not_configured"], key="k1") is False
+    assert feedback_service.notify_operator("另一个问题", ["x"], key="k2") is True  # 不同 key 不互相限频
+    assert done.wait(2)
+    assert any("教务连接不可用" in line for line in posted[0])
