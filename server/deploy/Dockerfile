@@ -20,7 +20,11 @@ COPY server/requirements.txt server/requirements-common.txt ./
 ARG PIP_INDEX_URL=""
 ARG INSTALL_ACADEMIC_BROWSER=false
 ARG APT_MIRROR=""
+# Chromium 二进制默认走 playwright 官方 CDN（国外，国内服务器几十 KB/s 会拖 15 分钟+），
+# 构建时传 --build-arg PLAYWRIGHT_DOWNLOAD_HOST=https://registry.npmmirror.com/-/binary/playwright
+ARG PLAYWRIGHT_DOWNLOAD_HOST=""
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
 COPY server/requirements-academic.txt ./
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 RUN pip install --no-cache-dir -r requirements.txt
