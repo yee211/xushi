@@ -47,7 +47,6 @@ from .routers import (
     feedback,
     importer,
     schedules,
-    wecom_callback,
 )
 from .services import academic_directory, academic_jobs, academic_login, academic_mail, user_cache
 from .services import request_metrics as metrics_writer
@@ -171,7 +170,6 @@ app.include_router(courses.router)
 app.include_router(adjustments.router)
 app.include_router(importer.router)
 app.include_router(agent.router)
-app.include_router(wecom_callback.router)
 app.include_router(app_update.router)
 app.include_router(feedback.router)
 

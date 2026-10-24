@@ -32,8 +32,8 @@ router = APIRouter(prefix="/api", tags=["agent-bindings"])
 logger = logging.getLogger("uvicorn.error")
 
 ACTIVE_PROVIDER = os.getenv("AGENT_CHANNEL_PROVIDER", "weixin_ilink").strip() or "weixin_ilink"
-# 可同时在多个渠道绑定助手（各渠道身份独立、互不影响）
-BINDING_PROVIDERS = ("weixin_ilink", "wecom")
+# 可同时在多个渠道绑定助手（各渠道身份独立、互不影响）；企业微信渠道已于 2026-10 下线
+BINDING_PROVIDERS = ("weixin_ilink",)
 
 
 @router.get("/agent-bindings")

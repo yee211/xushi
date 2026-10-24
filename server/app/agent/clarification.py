@@ -58,6 +58,7 @@ def load(scope, version, now):
     try:
         raw = client.get(key(*scope))
         if not raw:
+            conversation._note_redis_recovery()
             return None
         pending = PendingQuestion.model_validate_json(raw)
         if (
@@ -66,9 +67,12 @@ def load(scope, version, now):
             or not timedelta(0) <= now - pending.created_at < timedelta(seconds=TTL)
         ):
             clear(scope)
+            conversation._note_redis_recovery()
             return None
+        conversation._note_redis_recovery()
         return pending
     except (RedisError, ValueError, TypeError, ValidationError):
+        conversation._note_redis_failure("clarification.load")
         return None
 
 
@@ -77,8 +81,9 @@ def clear(scope):
     if client is not None:
         try:
             client.setex(key(*scope), 1, "")
+            conversation._note_redis_recovery()
         except RedisError:
-            pass
+            conversation._note_redis_failure("clarification.clear")
 
 
 def save(scope, pending):
@@ -87,8 +92,10 @@ def save(scope, pending):
         return False
     try:
         client.setex(key(*scope), TTL, pending.model_dump_json())
+        conversation._note_redis_recovery()
         return True
     except RedisError:
+        conversation._note_redis_failure("clarification.save")
         return False
 
 

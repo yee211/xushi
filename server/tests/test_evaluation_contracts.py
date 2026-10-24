@@ -8,8 +8,9 @@ from scripts.evaluate_agent import fixture_tools, tool_contract
 
 def test_agent_cases_cover_relevant_failure_and_history_scenarios():
     cases = read_cases(Path(__file__).resolve().parents[1] / "evals/agent_cases.jsonl")
-    assert len(cases) == 30
-    assert {"history", "edge", "alias", "composite", "adversarial"} <= {c["category"] for c in cases}
+    assert len(cases) >= 100
+    assert {"history", "edge", "alias", "composite", "adversarial", "sync", "others",
+            "availability", "weather", "chitchat"} <= {c["category"] for c in cases}
     for case in cases:
         assert case["question"]
         assert all(isinstance(c, list) and c for c in case["checks"])

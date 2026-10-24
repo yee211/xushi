@@ -65,11 +65,6 @@ def validate_settings(environment: str | None = None, jwt_secret: str | None = N
         raise RuntimeError("APP_ENV 只能是 development、test 或 production")
     if not 1024 <= _upload_bytes() <= 50 * 1024 * 1024:
         raise RuntimeError("MAX_UPLOAD_BYTES 必须在 1KB 到 50MB 之间")
-    # 企业微信智能机器人（URL 回调模式）：Token 与 EncodingAESKey 必须成对配置。
-    wecom_token = os.getenv("WECOM_CALLBACK_TOKEN", "").strip()
-    wecom_aes = os.getenv("WECOM_ENCODING_AES_KEY", "").strip()
-    if bool(wecom_token) != bool(wecom_aes):
-        raise RuntimeError("企业微信渠道配置不完整：WECOM_CALLBACK_TOKEN 与 WECOM_ENCODING_AES_KEY 必须同时配置")
     if app_env == "production":
         # 小程序侧生产强校验：dev 后门必须关闭，微信凭证必须配置
         if os.getenv("WECHAT_DEV_OPENID", "").strip():

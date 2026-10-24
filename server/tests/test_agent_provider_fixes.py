@@ -1,18 +1,30 @@
 """Protocol, time-format and safe-diagnostic regressions."""
 import httpx
-from test_agent_loop import configure, make_tools, reply_message, tool_call
+from test_agent_loop import FakeResponse, configure, make_tools, reply_message, tool_call
 
-from app.agent import loop
+from app.agent import http_client, loop
 
 
 def test_deepseek_disables_thinking_with_provider_supported_field(monkeypatch):
-    sent = configure(monkeypatch, [
+    # 在 httpx 层截获：DeepSeek 的 thinking 参数转换由 http_client.post_llm 负责，
+    # 断言的是最终发往供应商的载荷。
+    replies = [
         reply_message(tool_calls=[tool_call("c1", "query_day_courses", '{"date":"2026-09-09"}')]),
         reply_message(content="明天 14:00 有高数课。"),
-    ])
+    ]
+    sent = []
+
+    def fake_post(url, **kwargs):
+        sent.append(kwargs["json"])
+        return FakeResponse(replies.pop(0))
+
+    monkeypatch.setattr(http_client.httpx, "post", fake_post)
     monkeypatch.setenv("AGENT_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("AGENT_API_KEY", "sk-test")
+    monkeypatch.setenv("AGENT_MODEL", "test-model")
     result = loop.run(make_tools(), "明天有什么课")
     assert result is not None
+    assert sent
     assert all(request["thinking"] == {"type": "disabled"} for request in sent)
     assert all("enable_thinking" not in request for request in sent)
 

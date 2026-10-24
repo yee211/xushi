@@ -1,15 +1,12 @@
 """Regressions for the remaining review findings."""
-import json
 import time
 from datetime import date
 from types import SimpleNamespace
 
 import pytest
-from fastapi import BackgroundTasks
 from psycopg.pq import TransactionStatus
 
 from app.agent.http_client import post_llm
-from app.channels import wecom
 from app.excel import _decode
 from app.services import academic_runtime, weather
 
@@ -23,35 +20,6 @@ def test_deepseek_adapter_covers_fallback_requests(monkeypatch, enabled):
     monkeypatch.setattr("app.agent.http_client.httpx.post", post)
     post_llm("https://api.deepseek.com/chat/completions", json={"enable_thinking": enabled})
     assert captured["json"] == {"thinking": {"type": "enabled" if enabled else "disabled"}}
-
-
-@pytest.mark.parametrize("timestamp", ["invalid", "1", str(int(time.time()) + 10000)])
-def test_signed_stale_callback_is_rejected(timestamp):
-    key = b"x" * 32
-    encrypted = wecom.encrypt_message(json.dumps({"msgtype":"text"}), key)
-    settings = {"token":"test", "aes_key":key}
-    body = json.dumps({"encrypt":encrypted}).encode()
-    signature = wecom.message_signature("test", timestamp, "nonce", encrypted)
-    with pytest.raises(wecom.WeComCryptoError):
-        wecom.handle_callback(settings, body, signature, timestamp, "nonce", BackgroundTasks())
-
-
-def test_messages_without_msgid_do_not_collide_in_the_same_second(monkeypatch):
-    monkeypatch.setattr(wecom, "_seen_messages", {})
-    monkeypatch.setattr(wecom, "get_redis", lambda: None)
-    settings = {"token":"test", "aes_key":b"x" * 32}
-    timestamp = str(int(time.time()))
-    tasks = BackgroundTasks()
-    for text in ("今天有课吗", "明天有课吗"):
-        payload = {"msgtype":"text", "from":{"userid":"sender"}, "text":{"content":text}, "response_url":"https://example.test/reply"}
-        encrypted = wecom.encrypt_message(json.dumps(payload), settings["aes_key"])
-        body = json.dumps({"encrypt":encrypted}).encode()
-        signature = wecom.message_signature("test", timestamp, "nonce", encrypted)
-        wecom.handle_callback(settings, body, signature, timestamp, "nonce", tasks)
-    assert len(tasks.tasks) == 2
-    # Replaying the same message is still deduplicated.
-    wecom.handle_callback(settings, body, signature, timestamp, "nonce", tasks)
-    assert len(tasks.tasks) == 2
 
 
 def test_committed_transaction_is_not_reported_as_timeout():

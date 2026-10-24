@@ -1,6 +1,7 @@
 """Redis-backed, versioned short conversation history for the schedule agent."""
 
 import json
+import logging
 import os
 import re
 from datetime import datetime, timedelta
@@ -10,7 +11,27 @@ from langchain_core.messages import AIMessage, HumanMessage
 from redis import Redis
 from redis.exceptions import RedisError
 
+logger = logging.getLogger("agent.conversation")
+
 CLEAN_METADATA_PATTERN = re.compile(r"\s*\[消息时间[:：].*?\]\s*$", re.DOTALL)
+
+# Redis failures degrade silently by design; this flag surfaces the first failure
+# (and recovery) so an outage is visible without spamming one warning per call.
+_redis_degraded = False
+
+
+def _note_redis_failure(scope: str) -> None:
+    global _redis_degraded
+    if not _redis_degraded:
+        _redis_degraded = True
+        logger.warning("Agent Redis unavailable (%s); history/clarification degrade until it recovers", scope)
+
+
+def _note_redis_recovery() -> None:
+    global _redis_degraded
+    if _redis_degraded:
+        _redis_degraded = False
+        logger.info("Agent Redis recovered")
 
 
 _APPEND_TURN_LUA = """
@@ -60,7 +81,9 @@ def load_history(user_id: int, provider: str, thread_key: str, schedule_version:
     try:
         payload = client.get(_key(user_id, provider, thread_key))
         messages = (json.loads(payload).get("messages") if payload else []) or []
+        _note_redis_recovery()
     except (RedisError, ValueError, TypeError):
+        _note_redis_failure("load_history")
         return []
     result = []
     for item in messages[-12:]:
@@ -102,7 +125,9 @@ def append_turn(user_id: int, provider: str, thread_key: str, user_text: str,
                "expires_at": (received_at + timedelta(seconds=_ttl())).isoformat()}
     try:
         client.eval(_APPEND_TURN_LUA, 1, key, json.dumps(payload, ensure_ascii=False), _ttl())
+        _note_redis_recovery()
     except RedisError:
+        _note_redis_failure("append_turn")
         return
 
 
@@ -112,8 +137,11 @@ def selected_schedule(user_id: int, provider: str, thread_key: str) -> int | Non
         return None
     try:
         value = client.get(_key(user_id, provider, thread_key) + ":selection")
-        return int(value) if value else None
+        selected = int(value) if value else None
+        _note_redis_recovery()
+        return selected
     except (RedisError, ValueError, TypeError):
+        _note_redis_failure("selected_schedule")
         return None
 
 
@@ -123,6 +151,8 @@ def select_schedule(user_id: int, provider: str, thread_key: str, schedule_id: i
         return False
     try:
         client.setex(_key(user_id, provider, thread_key) + ":selection", 86400, str(schedule_id))
+        _note_redis_recovery()
         return True
     except RedisError:
+        _note_redis_failure("select_schedule")
         return False

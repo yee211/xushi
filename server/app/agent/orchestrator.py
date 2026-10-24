@@ -1,11 +1,15 @@
 """Small deterministic V1 orchestrator; an LLM fallback can be added behind it."""
 
+import json
+import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import date, timedelta
 
 from ..services.schedule_query import ScheduleQueryError, resolve_course_name
 from ..services.weather import day_rain, fetch_daily_weather, rain_advisory
+from . import telemetry
 from .budget import available, execution
 from .circuit_breaker import CircuitState, llm_circuit_breaker
 from .intent_ai import extract_intent, llm_configured
@@ -131,14 +135,38 @@ def handle_message(message: str, tools: ScheduleTools, history: list | None = No
 
     循环不可用（LLM 未配置/熔断中/超时/输出未过接地校验）时，退回确定性意图+模板路径兜底。
     """
-    with execution():
-        from .completion import finalize
-        return finalize(_handle_message(message, tools, history))
+    telemetry.start_turn()
+    started = time.perf_counter()
+    try:
+        with execution():
+            from .completion import finalize
+            return finalize(_handle_message(message, tools, history))
+    finally:
+        _log_turn(started)
+
+
+def _log_turn(started: float) -> None:
+    stats = telemetry.active()
+    if stats is None:
+        return
+    logging.getLogger("classschedule").info(json.dumps({
+        "event": "agent_turn",
+        "path": stats.path or "unknown",
+        "outcome": stats.outcome or "ok",
+        "rounds": stats.rounds,
+        "llm_calls": stats.llm_calls,
+        "prompt_tokens": stats.prompt_tokens,
+        "completion_tokens": stats.completion_tokens,
+        "cached_tokens": stats.cached_tokens,
+        "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+        "breaker": str(llm_circuit_breaker.state),
+    }, ensure_ascii=False))
 
 
 def _handle_message(message: str, tools: ScheduleTools, history: list | None = None) -> dict:
     from .sync import query_status, reply, requested, status_requested
     if requested(message):
+        telemetry.note(path="sync")
         tools.sync_authorized = True
         from .sync_followup import completed_reply, prepare
         plan = prepare(message, tools.context.now)
@@ -150,17 +178,24 @@ def _handle_message(message: str, tools: ScheduleTools, history: list | None = N
             response["answer"] = completed_reply(result, plan, tools)
         return response
     if status_requested(message, history):
+        telemetry.note(path="status")
         return query_status(tools, message)
     llm_allowed = llm_configured() and llm_circuit_breaker.allow_request()
     if llm_allowed:
         looped = run_agent(tools, message, history)
         if looped:
+            stats = telemetry.active()
+            telemetry.note(path="llm", outcome=(stats.outcome if stats and stats.outcome else "ok"))
             return {"intent": "AGENT_LOOP", "answer": looped["answer"],
                     "_completion_status": looped.get("_completion_status"),
                     "tool_result": looped["tool_result"],
                     "resolved_context": looped.get("resolved_context") or {"intent": "AGENT_LOOP", "skills": looped["skills"]}}
+        stats = telemetry.active()
+        telemetry.note(path="llm",
+                       outcome=(stats.outcome if stats and stats.outcome else "llm_unavailable"))
     # OPEN/HALF_OPEN fallback must remain entirely deterministic. When the breaker
     # is still CLOSED, retain the existing intent-extraction/polishing fallback.
+    telemetry.note(path="fallback")
     return _fallback_reply(message, tools, history,
                          allow_llm=available() and llm_circuit_breaker.state == CircuitState.CLOSED)
 

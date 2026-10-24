@@ -12,7 +12,7 @@ import httpx
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from app.agent import budget, graph, loop, orchestrator  # noqa: E402
+from app.agent import budget, graph, http_client, loop, orchestrator  # noqa: E402
 from app.agent.circuit_breaker import llm_circuit_breaker  # noqa: E402
 from tests.test_agent_loop import FakeResponse, make_tools, reply_message, tool_call  # noqa: E402
 
@@ -36,11 +36,12 @@ def replay(monkeypatch, question, responses, tools=None, history=None):
         if isinstance(response, Exception):
             raise response
         return FakeResponse(response)
-    monkeypatch.setattr(loop, "_post_llm", post)
+    # 在 httpx 层截获：穿过真实的 http_client.post_llm，记录到的即最终线上载荷
+    # （含 DeepSeek thinking 参数转换），冻结契约哈希对应的就是这个形态。
+    monkeypatch.setattr(http_client.httpx, "post", post)
     llm_circuit_breaker.reset()
     result = loop.run(tools or make_tools(), question, history)
     return result, sent, llm_circuit_breaker.state
-
 
 @pytest.mark.parametrize(("question", "responses"), [
     ("你好", [reply_message(content="在的，可以帮你查课表")]),

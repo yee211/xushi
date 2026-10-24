@@ -6,6 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from ..db import db_ctx
+from ..rate_limit import agent_daily_limiter
 from ..services.binding import BindingError, consume_binding_code, unbind_provider_identity
 from . import clarification
 from .conversation import append_turn, load_history, select_schedule, selected_schedule
@@ -22,7 +23,11 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
                       received_at: datetime | None = None, timezone_name: str = "Asia/Shanghai",
                       account_id: str = "", message_id: str = "") -> str:
     """Bind/unbind or dispatch a text message to the shared schedule agent."""
-    text = str(content or "").strip()[:500]
+    raw_text = str(content or "").strip()
+    text = raw_text[:500]
+    if len(raw_text) > len(text):
+        # 让模型与对话历史都看得到截断事实，避免用户以为后半段被忽略。
+        text += "（消息过长，已截断）"
     if text in {"解绑", "解除绑定"}:
         with db_ctx(db) as conn:
             if unbind_provider_identity(conn, provider, sender_id):
@@ -114,6 +119,10 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
         else:
             text = pending.original if selection else clarification.resume_text(pending, text)
         history = pending.history()
+    # 每日兜底限额在渠道级分钟限流之外，覆盖所有渠道；只对真正进入问答/查询流程的消息计数。
+    allowed, _retry_after = agent_daily_limiter.hit(f"{provider}:{sender_id[:64]}")
+    if not allowed:
+        return "今天的问题额度用完了，先歇一歇，明天再来找我吧。"
     if person_choice:
         import json
 

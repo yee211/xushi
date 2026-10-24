@@ -10,13 +10,13 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from ..services.llm_config import get_llm_config
 from .http_client import post_llm
+from .intents import INTENTS
 
 
 def _post_llm(url: str, **kwargs):
     return post_llm(url, **kwargs)
 
-ALLOWED_INTENTS = {"QUERY_DAY", "QUERY_WEEK", "QUERY_NEXT", "QUERY_AVAILABILITY", "QUERY_COURSE_ON_DAY",
-                   "QUERY_WEATHER", "FIND_COURSE", "HELP"}
+ALLOWED_INTENTS = set(INTENTS)
 ALLOWED_PERIODS = {"all", "morning", "afternoon", "evening"}
 SYSTEM_PROMPT = """你是课表 Agent 的主意图规划器。结合当前消息、短对话上下文、服务端时间和课程候选，
 只输出 JSON，不解释。

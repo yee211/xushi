@@ -15,13 +15,11 @@ def test_binding_status_uses_live_account_state(monkeypatch, connected):
     db.__enter__.return_value = db
     now = datetime(2026, 10, 14)
     db.execute.return_value.fetchall.return_value = [
-        {"provider": "weixin_ilink", "created_at": now, "last_seen_at": now, "connected": connected},
-        {"provider": "wecom", "created_at": now, "last_seen_at": now, "connected": False}]
+        {"provider": "weixin_ilink", "created_at": now, "last_seen_at": now, "connected": connected}]
     monkeypatch.setattr(agent, "connect", lambda: db)
     result = agent.agent_binding_status({"id": 7})
     channels = {item["provider"]: item for item in result["channels"]}
     assert channels["weixin_ilink"]["bound"] is connected
-    assert channels["wecom"]["bound"] is True
     assert not any("DELETE" in call.args[0] for call in db.execute.call_args_list)
 
 

@@ -110,15 +110,16 @@ def test_poll_weixin_login_auto_binds_current_user(client, monkeypatch):
     assert deleted == ["session-1"]
 
 
-def test_binding_status_lists_both_channels(client, monkeypatch):
+def test_binding_status_lists_supported_channels(client, monkeypatch):
     from datetime import datetime
     now = datetime(2026, 9, 14, 12, 0)
     db = FakeAgentDb(identity_rows=[{"provider": "weixin_ilink", "created_at": now, "last_seen_at": now, "connected": True}])
     monkeypatch.setattr(main_module, "connect", lambda: db)
     response = client.get("/api/agent-bindings", headers={"Authorization": "Bearer anything"})
     body = response.json()
-    assert [item["provider"] for item in body["channels"]] == ["weixin_ilink", "wecom"]
-    assert body["channels"][0]["bound"] is True and body["channels"][1]["bound"] is False
+    # 企业微信渠道已下线：渠道列表只包含微信 ClawBot
+    assert [item["provider"] for item in body["channels"]] == ["weixin_ilink"]
+    assert body["channels"][0]["bound"] is True
     assert body["bound"] is True and body["provider"] == "weixin_ilink"
 
 
@@ -126,12 +127,13 @@ def test_binding_code_honors_provider_and_rejects_unknown(client, monkeypatch):
     db = FakeAgentDb()
     monkeypatch.setattr(main_module, "connect", lambda: db)
     headers = {"Authorization": "Bearer anything"}
-    response = client.post("/api/agent-bindings/code", headers=headers, json={"provider": "wecom"})
+    response = client.post("/api/agent-bindings/code", headers=headers, json={"provider": "weixin_ilink"})
     body = response.json()
     assert response.status_code == 200
-    assert body["provider"] == "wecom" and len(body["code"]) == 6
-    assert db.generated_codes and db.generated_codes[0][2] == "wecom"
+    assert body["provider"] == "weixin_ilink" and len(body["code"]) == 6
+    assert db.generated_codes and db.generated_codes[0][2] == "weixin_ilink"
 
+    assert client.post("/api/agent-bindings/code", headers=headers, json={"provider": "wecom"}).status_code == 404
     assert client.post("/api/agent-bindings/code", headers=headers, json={"provider": "telegram"}).status_code == 404
     assert client.delete("/api/agent-bindings/telegram", headers=headers).status_code == 404
-    assert client.delete("/api/agent-bindings/wecom", headers=headers).status_code == 204
+    assert client.delete("/api/agent-bindings/wecom", headers=headers).status_code == 404

@@ -7,6 +7,7 @@ settings（网页母版的 AUTH_RATE_LIMIT / AUTH_RATE_WINDOW_SECONDS），
 多实例部署时需替换为 Redis 共享实现。
 """
 import logging
+import os
 import threading
 import time
 import uuid
@@ -86,8 +87,10 @@ link_limiter = SlidingWindowLimiter(limit=10, window_seconds=60, prefix="xushi:r
 # 微信 ClawBot：单用户 60 秒内最多 10 次提问（防止刷爆 LLM Token 与阻塞线程池）
 clawbot_limiter = SlidingWindowLimiter(limit=10, window_seconds=60, prefix="xushi:ratelimit:clawbot")
 
-# 企业微信智能机器人：单用户 60 秒内最多 10 次提问
-wecom_limiter = SlidingWindowLimiter(limit=10, window_seconds=60, prefix="xushi:ratelimit:wecom")
+# Agent 入口兜底：单用户每日提问上限，防止刷爆 LLM token（渠道级分钟限流之外的全局护栏）
+agent_daily_limiter = SlidingWindowLimiter(
+    limit=max(1, int(os.getenv("AGENT_DAILY_QUESTION_LIMIT", "200"))),
+    window_seconds=86400, prefix="xushi:ratelimit:agent-daily")
 
 
 def client_ip(request: Request) -> str:

@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .budget import remaining
+from .telemetry import record_llm_call
 
 _original_httpx_post = httpx.post
 _client: httpx.Client | None = None
@@ -42,15 +43,18 @@ def post_llm(url: str, **kwargs) -> httpx.Response:
     timeout = float(kwargs.get("timeout") or 15)
     kwargs["timeout"] = remaining(timeout)
     if is_httpx_post_patched():
-        return httpx.post(url, **kwargs)
-    semaphore = get_llm_semaphore()
-    if not semaphore.acquire(timeout=remaining(timeout)):
-        raise httpx.TimeoutException("Agent model queue timed out")
-    try:
-        kwargs["timeout"] = remaining(timeout)
-        return get_llm_client().post(url, **kwargs)
-    finally:
-        semaphore.release()
+        response = httpx.post(url, **kwargs)
+    else:
+        semaphore = get_llm_semaphore()
+        if not semaphore.acquire(timeout=remaining(timeout)):
+            raise httpx.TimeoutException("Agent model queue timed out")
+        try:
+            kwargs["timeout"] = remaining(timeout)
+            response = get_llm_client().post(url, **kwargs)
+        finally:
+            semaphore.release()
+    record_llm_call(response)
+    return response
 
 
 def get_llm_client() -> httpx.Client:

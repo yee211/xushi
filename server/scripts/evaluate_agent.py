@@ -45,6 +45,8 @@ def fixture_tools(kind="normal"):
                 return Result([])
             if "FROM academic_sync_jobs" in sql:
                 return Result([])
+            if "FROM academic_others" in sql:
+                return Result([])
             if "FROM schedules" in sql and len(params) == 1:
                 return Result([schedule] if kind != "missing" else [])
             if "FROM schedules" in sql:

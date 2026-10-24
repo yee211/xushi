@@ -8,13 +8,12 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from typing import TypedDict
-from urllib.parse import urlsplit
 
 import httpx
 from langgraph.graph import END, START, StateGraph
 from langsmith import tracing_context
 
-from . import loop
+from . import loop, telemetry
 from .completion import COMPLETION_PROMPT, Completion, promises_work
 from .course_reply import CourseComment, course_facts, render_courses
 from .other_reply import contextual_question, group_request, mentions_others, mixed_people, render_other_facts
@@ -109,6 +108,7 @@ class QueryRun:
     def model(self, state: QueryState) -> dict:
         if state["rounds"] >= loop.MAX_ROUNDS:
             loop.logger.warning("Agent failed: maximum_rounds")
+            telemetry.note(outcome="rounds_exhausted", rounds=state["rounds"])
             loop.llm_circuit_breaker.record_failure("agent loop exhausted maximum rounds")
             return {"route": "recover"}
         loop.remaining()
@@ -122,10 +122,8 @@ class QueryRun:
                 '不要输出日期、课程列表或同步状态；没有适合的提醒就返回 {"closing":""}。'}]
             payload["response_format"] = {"type": "json_object"}
             payload["tool_choice"] = "none"
-        if urlsplit(self.base_url).hostname == "api.deepseek.com":
-            payload["thinking"] = {"type": "enabled" if self.config.get("enable_thinking") else "disabled"}
-        else:
-            payload["enable_thinking"] = bool(self.config.get("enable_thinking", False))
+        # 深度思考开关统一走 enable_thinking；DeepSeek 的参数名转换由 http_client.post_llm 负责。
+        payload["enable_thinking"] = bool(self.config.get("enable_thinking", False))
         response = loop._post_llm(f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=float(self.config.get("timeout_seconds") or loop._timeout()), json=payload)
@@ -133,6 +131,7 @@ class QueryRun:
         loop.remaining()
         choice = response.json()["choices"][0]
         if choice.get("finish_reason") == "length":
+            telemetry.note(outcome="truncated", rounds=state["rounds"] + 1)
             return {"rounds": state["rounds"] + 1, "route": "recover"}
         reply = choice["message"]
         return {"rounds": state["rounds"] + 1, "reply": reply,
@@ -162,10 +161,12 @@ class QueryRun:
             return {"corrected": True, "route": "model", "messages": state["messages"] + [
                 {"role": "system", "content": "上一条回复没有完成用户请求，不能以稍等或稍后回复结束。"
                  "请现在调用对应工具获取本轮事实；缺少信息请明确提问，不能承诺不存在的后台任务。"}]}
+        telemetry.note(outcome="rejected", rounds=state["rounds"])
         loop.llm_circuit_breaker.record_failure("completion correction exhausted")
         return {"answer": None, "route": "done"}
 
     def validate(self, state: QueryState) -> dict:
+        telemetry.note(rounds=state["rounds"])
         facts = state["facts"]
         error = self.other_error(facts)
         if error:
@@ -217,14 +218,10 @@ class QueryRun:
                 candidate = render_courses(bundle, self.tools.context.now.date())
             loop.llm_circuit_breaker.record_success()
             return {"answer": self.answer(facts, candidate), "route": "done"}
+        from .intents import REQUIRED_SKILLS
         from .orchestrator import parse_intent
         intent = parse_intent(self.question, self.tools.context.now.date())
-        required = {"QUERY_DAY": {"query_day_courses", "query_other_day_courses"},
-                    "QUERY_AVAILABILITY": {"query_day_courses", "query_other_day_courses", "check_group_availability"},
-                    "QUERY_COURSE_ON_DAY": {"query_day_courses", "query_other_day_courses"},
-                    "QUERY_WEEK": {"query_week_courses"},
-                    "QUERY_NEXT": {"get_next_course"}, "FIND_COURSE": {"find_course"}, "QUERY_WEATHER": {"get_weather"}}
-        expected_skills = required.get(intent.name)
+        expected_skills = REQUIRED_SKILLS.get(intent.name)
         missing = bool(expected_skills) and not any(f["skill"] in expected_skills for f in facts)
         if promises_work(content) or (missing and loop._facts_grounded(
                 content, facts, self.question, today=self.tools.context.now.date())
@@ -240,10 +237,12 @@ class QueryRun:
                 answer["_completion_status"] = completion_status
             return {"answer": answer, "route": "done"}
         loop.logger.warning("Agent response rejected: %s", "empty" if not content else "grounding_validation")
+        telemetry.note(outcome="rejected")
         loop.llm_circuit_breaker.record_failure("empty or ungrounded LLM response")
         return {"answer": None, "route": "done"}
 
     def recover(self, state: QueryState) -> dict:
+        telemetry.note(outcome="recovered", rounds=state.get("rounds", 0))
         return {"answer": self.saved_answer(state.get("facts", self.facts))}
 
     def guarded(self, node):
