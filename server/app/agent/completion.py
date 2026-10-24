@@ -8,12 +8,20 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 ARCHIVE_TOOLS = {
     "query_day_courses", "query_week_courses", "get_next_course", "find_course",
     "query_other_day_courses", "check_group_availability", "list_other_people", "add_other_schedule",
+    "remove_other_schedule", "clear_other_schedules",
+    "compare_other_week_courses",
 }
-AMBIGUOUS_ERRORS = {"AMBIGUOUS_SCHEDULE", "AMBIGUOUS_PERSON", "ADD_NEEDS_INPUT", "NO_OTHER_SCHEDULES", "PERSON_NOT_FOUND"}
+AMBIGUOUS_ERRORS = {"AMBIGUOUS_SCHEDULE", "AMBIGUOUS_PERSON", "ADD_NEEDS_INPUT", "NO_OTHER_SCHEDULES",
+                    "PERSON_NOT_FOUND", "CLEAR_NEEDS_CONFIRM"}
 OTHER_SCHEDULES_PROMPT = (
+    "\n- 用户问某位同学本周/下周哪些课和我不一样时，用 compare_other_week_courses，日期传目标自然周内一天；差异正文由服务端生成。"
     "\n- 查询已保存的同学（室友、搭子等）某天课程用 query_other_day_courses，查询已保存同学列表用 list_other_people；"
     "\n- 询问某个时段“谁有空”或“我和某人/室友什么时候都有空（共同空闲）”用 check_group_availability；"
     "\n- 用户要求添加/保存某位同学的课表时，调用 add_other_schedule（若返回 status=ambiguous 候选列表，使用 needs_input 原样转达候选，请用户回复序号、班级或完整学号确认；若已唯一定位并保存成功，使用 completed 告知已添加）。"
+    "\n- 用户要求删除/移除某位同学课表时，调用 remove_other_schedule（按备注或姓名匹配；未保存或匹配多人时按返回提示与候选转达）；"
+    "\n- 用户要求清空全部同学课表时，调用 clear_other_schedules：首次不带 confirm，把待确认名单与人数原样转达；"
+    "仅当用户在收到名单后明确回复确认（如“确认”“确定清空”），才带 confirm=true 和 expected_count=返回的 count 再次调用执行，"
+    "用户否定、犹豫或改口时不得执行。"
 )
 COMPLETION_PROMPT = (
     '\n最终回复请输出 JSON 对象，固定字段为 status（completed、pending、needs_input 或 failed）、answer（给用户的文字）、task_id（无任务时为 null）。'
@@ -61,7 +69,10 @@ def query_failed(facts: list[dict]) -> bool:
         except (ValueError, TypeError):
             arguments = str(arguments)
         latest[(fact.get("skill"), arguments)] = fact.get("result") or {}
-    return any(result.get("error") for result in latest.values())
+    # ok=False 且 status 为 ambiguous/needs_input 的结果是设计内的追问（如清空确认握手），
+    # 不是查询失败，不应把同轮稍后已成功执行的操作判成 failed。
+    return any(result.get("error") and result.get("status") not in {"ambiguous", "needs_input"}
+               for result in latest.values())
 
 
 def finalize(result: dict) -> dict:
@@ -74,8 +85,8 @@ def finalize(result: dict) -> dict:
     if isinstance(data, dict):
         for fact in reversed(data.get("skills") or []):
             item = fact.get("result") or {}
-            if fact.get("skill") == "add_other_schedule" and item.get("ok") is False:
-                result["answer"] = item.get("message") or "未能保存同学课表，请重试。"
+            if fact.get("skill") in {"add_other_schedule", "clear_other_schedules"} and item.get("ok") is False:
+                result["answer"] = item.get("message") or "未能完成同学课表操作，请重试。"
                 reported_status = "needs_input" if item.get("status") in {"ambiguous", "needs_input"} else "failed"
                 break
             if item.get("error") in AMBIGUOUS_ERRORS and item.get("candidates"):
@@ -94,7 +105,7 @@ def finalize(result: dict) -> dict:
         status = reported_status
     if result.get("error"):
         status = "needs_input" if result["error"].get("code") in AMBIGUOUS_ERRORS else "failed"
-    elif result.get("intent") == "SYNC_SCHEDULE":
+    elif result.get("intent") == "SYNC_SCHEDULE" or (result.get("intent") == "SYNC_OTHER_SCHEDULE" and data):
         if not data.get("ok") or data.get("state") == "failed":
             status = "failed"
         elif data.get("state") in {"queued", "running"} and data.get("job_id"):

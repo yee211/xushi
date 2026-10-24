@@ -3,6 +3,7 @@
 # ruff: noqa: F811 -- imported pytest fixtures are referenced by test parameters
 import json
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,22 @@ def question(text="你想查本周一还是下周一？"):
     return reply_message(
         content=json.dumps({"status": "needs_input", "answer": text, "task_id": None}, ensure_ascii=False)
     )
+
+
+@pytest.mark.parametrize("text", ["计科7班的", "计科7班", "24计科7班的", "计科7班那个",
+                                 "计科7班的那个", "24计科7班", " 计科 7 班的 "])
+def test_person_selection_accepts_class_followups(text):
+    people = [clarification.PersonChoice(student_id="a", name="刘菲", class_name="24会计4班"),
+              clarification.PersonChoice(student_id="b", name="刘菲", class_name="24计科7班")]
+    assert clarification.selected_person(SimpleNamespace(people=people), text) is people[1]
+
+
+@pytest.mark.parametrize("text", ["计科7班的", "计科", "7班的", "不是计科7班的", "26计科7班的"])
+def test_class_followups_never_guess_ambiguous_or_partial_matches(text):
+    people = [clarification.PersonChoice(student_id="a", class_name="24计科7班"),
+              clarification.PersonChoice(student_id="b", class_name="25计科7班")]
+    assert clarification.selected_person(SimpleNamespace(people=people), text) is None
+    assert clarification.selected_person(SimpleNamespace(people=people), "25计科7班的") is people[1]
 
 
 def test_graph_can_ask_for_date_without_querying_or_waiting(monkeypatch):

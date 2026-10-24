@@ -2,13 +2,16 @@ import hashlib
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from ..db import db_ctx
 from ..services.academic_others import (
     check_group_availability,
+    clear_saved_others,
     list_saved_summary,
     query_other_courses_by_date,
+    remove_saved_other,
+    resolve_saved_person,
     search_and_save_other,
 )
 from ..services.schedule_query import (
@@ -34,8 +37,11 @@ class ScheduleTools:
         self._db_or_factory = db_or_factory
         self.context = context
         self.sync_authorized = False
+        self.other_sync_authorized = None
+        self._other_sync_result = None
         self._sync_result = None
         self.sync_followup = None
+        self.clear_student_ids = None
 
     @property
     def db(self):
@@ -89,6 +95,44 @@ class ScheduleTools:
         with self._connection() as db:
             return check_group_availability(db, self.context.user_id, target_date, period,
                                             people, include_me, self.context.default_schedule_id)
+
+    def remove_other_schedule(self, person: str = "", student_id: str = "") -> dict:
+        with self._connection() as db:
+            return remove_saved_other(db, self.context.user_id, person, student_id)
+
+    def compare_other_week_courses(self, person: str, anchor_date: date) -> dict:
+        from ..services.academic_others import _load_saved_rows, _materialize_other_row, _person_meta
+
+        if not person.strip():
+            raise ValueError("请指定要比较的同学姓名或备注")
+        monday = anchor_date - timedelta(days=anchor_date.weekday())
+        def signature(course):
+            return tuple(str(course.get(k) or "").strip() for k in
+                         ("name", "start_time", "end_time", "teacher", "room"))
+
+        days = []
+        with self._connection() as db:
+            row = resolve_saved_person(_load_saved_rows(db, self.context.user_id), person)
+            for offset in range(7):
+                target = monday + timedelta(days=offset)
+                other = _materialize_other_row(row, target)
+                mine = query_courses_by_date(db, self.context.user_id, target, "all",
+                                             self.context.default_schedule_id)
+                other_keys = {signature(c) for c in other["courses"]}
+                my_keys = {signature(c) for c in mine["courses"]}
+                days.append({"date": target.isoformat(),
+                             "other": {**other, "courses": [c for c in other["courses"] if signature(c) not in my_keys]},
+                             "me": {**mine, "courses": [c for c in mine["courses"] if signature(c) not in other_keys]}})
+        return {"person": _person_meta(row), "start_date": monday.isoformat(),
+                "end_date": (monday + timedelta(days=6)).isoformat(), "days": days}
+
+    def clear_other_schedules(self, confirm=False, expected_count: int | None = None) -> dict:
+        # 不在此处 bool()：字符串 "false" 会被误判为真，收敛逻辑在 service 入口。
+        with self._connection() as db:
+            # 授权只能来自渠道入口中已持久化的上一轮追问，模型参数不能授权删除。
+            return clear_saved_others(db, self.context.user_id,
+                                      confirm if self.clear_student_ids is not None else False,
+                                      expected_count, expected_student_ids=self.clear_student_ids)
 
     def add_other_schedule(self, keyword: str = "", remark: str | None = None,
                            term: str = "", student_id: str = "") -> dict:
@@ -183,3 +227,69 @@ class ScheduleTools:
                       "message": "暂时无法确认同步是否提交，请先查询同步进度，稍后再试。"}
         self._sync_result = result
         return result
+
+    def sync_other_schedule(self, person: str) -> dict:
+        return self._sync_others(("person", person.strip()))
+
+    def sync_all_other_schedules(self) -> dict:
+        return self._sync_others(("all", ""))
+
+    def _sync_others(self, scope) -> dict:
+        from fastapi import HTTPException
+
+        from ..services import academic, academic_other_jobs, academic_others
+        from ..services.schedule_query import ScheduleQueryError
+
+        if self.other_sync_authorized != scope:
+            return {"ok": False, "error": "explicit_request_required",
+                    "message": "请明确发送“同步某某的课表”或“同步全部同学课表”。"}
+        if self._other_sync_result is not None:
+            return self._other_sync_result
+        try:
+            student_ids = None
+            if scope[0] == "person":
+                with self._connection() as db:
+                    row = resolve_saved_person(academic_others._load_saved_rows(db, self.context.user_id), scope[1])
+                student_ids = [row["student_id"]]
+            job = academic_other_jobs.enqueue(self.context.user_id, student_ids=student_ids)
+            data = {"ok": True, "scope": "others", "job_id": job["id"], **job,
+                    "message": (f"同学课表同步任务已提交，共{job['total']}人，正在后台同步，尚未完成。"
+                                if job["state"] in {"queued", "running"} else
+                                f"同学课表任务已结束，更新{job['updated']}人，失败{job['failed']}人，跳过{job['skipped']}人。")}
+        except ScheduleQueryError as error:
+            data = {"ok": False, "error": error.code,
+                    "message": error.message + " 请重新发送“同步姓名或唯一备注的课表”。"}
+        except academic.AcademicError as error:
+            data = {"ok": False, "error": error.code, "message": error.message}
+        except HTTPException as error:
+            data = {"ok": False, "error": "sync_rejected", "message": str(error.detail)}
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Agent peer sync submission failed")
+            data = {"ok": False, "error": "submission_unknown",
+                    "message": "暂时无法确认同学课表同步是否提交，请在小程序查看同步进度。"}
+        self._other_sync_result = data
+        return data
+
+    def get_other_schedule_status(self, job_id: str | None = None, person: str = "") -> dict:
+        from fastapi import HTTPException
+
+        from ..services import academic_other_jobs, academic_others
+        from ..services.schedule_query import ScheduleQueryError
+
+        try:
+            student_id = None
+            if person:
+                with self._connection() as db:
+                    row = resolve_saved_person(academic_others._load_saved_rows(db, self.context.user_id), person)
+                student_id = row["student_id"]
+            job = academic_other_jobs.read(self.context.user_id, job_id)
+            if job and student_id and student_id not in {i["student_id"] for i in job["items"]}:
+                return {"ok": False, "error": "person_not_in_job", "message": "最近的同学同步任务不包含这位同学，请在小程序查看历史记录，或明确发起此人的同步。"}
+            return {"ok": True, "job": job}
+        except ScheduleQueryError as error:
+            return {"ok": False, "error": error.code, "message": error.message}
+        except HTTPException as error:
+            return {"ok": False, "error": "job_unavailable", "message": str(error.detail)}
+        except Exception:
+            return {"ok": False, "error": "service_unavailable", "message": "暂时无法查询同学课表同步进度，请稍后重试。"}

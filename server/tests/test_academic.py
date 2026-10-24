@@ -227,7 +227,7 @@ def test_restart_and_expired_connection_preserve_complete_schedule(monkeypatch):
         raise academic.AcademicError("connection_expired", "过期", 409)
     monkeypatch.setattr(academic, "CcsutClient", fail)
     assert academic.available_terms(student["id"]) == {"terms": ["2026-2027-1"], "stale": True}
-    result = academic.get_schedule(student["id"], "2026-2027-1")
+    result = academic.get_schedule(student["id"], "2026-2027-1", refresh=True)
     assert result["stale"] and result["complete"] and result["fetched_at"] == snapshot["fetched_at"]
     directory = academic.search_students("2024", "同学", "24计科")
     assert directory["stale"] and directory["students"] == [student]
@@ -239,6 +239,36 @@ def test_cache_rotation_keeps_selected_students(monkeypatch, tmp_path):
     academic.CONFIG_FILE.write_bytes(b"rotated")
     academic._sync_connection_version()
     assert academic.student_context("selected123")["id"] == "selected123"
+
+
+@pytest.mark.parametrize("age,complete,refresh,hit", [(0, True, False, True),
+                                                    (899, True, False, True),
+                                                    (901, True, False, False),
+                                                    (0, False, False, False),
+                                                    (0, True, True, False)])
+def test_persisted_preview_cache_respects_freshness_completeness_and_refresh(monkeypatch, age, complete, refresh, hit):
+    academic._cache.clear()
+    sid, term = "preview-cache-student", "2026-2027-1"
+    academic._persist("schedule", sid + ":" + term, {"complete": complete, "courses": []})
+    with academic._database() as db:
+        db.execute("UPDATE snapshots SET updated=? WHERE kind='schedule'", (academic.time.time() - age,))
+    monkeypatch.setattr(academic, "student_context", lambda value: {"default_term": term})
+    calls = []
+    class School:
+        def __enter__(self):
+            calls.append(True)
+            return self
+        def __exit__(self, *args):
+            pass
+        def terms(self, *args):
+            return [term]
+        def schedule(self, *args):
+            return {"complete": True, "courses": []}
+    monkeypatch.setattr(academic, "CcsutClient", School)
+    result = academic.get_schedule(sid, term, refresh=refresh)
+    assert result["cached"] is hit
+    assert result["stale"] is False
+    assert bool(calls) is not hit
 
 
 def test_worker_status_does_not_expose_extra_fields(tmp_path):

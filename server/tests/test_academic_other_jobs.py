@@ -171,3 +171,15 @@ def test_job_without_pending_items_closes_instead_of_looping(queue):
     ready(queue)
     assert jobs.process_one()
     assert jobs.read(1)["state"] == "completed"
+
+
+def test_single_refresh_scope_and_active_conflict(queue):
+    others.save(1, "student-a", "2026-2027-1", "室友")
+    others.save(1, "student-b", "2026-2027-1", "搭子")
+    job = jobs.enqueue(1, student_ids=["student-a"])
+    assert [item["student_id"] for item in job["items"]] == ["student-a"]
+    assert jobs.enqueue(1, student_ids=["student-a"])["id"] == job["id"]
+    for ids in (None, ["student-b"]):
+        with pytest.raises(HTTPException) as caught:
+            jobs.enqueue(1, student_ids=ids)
+        assert caught.value.status_code == 409

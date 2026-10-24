@@ -66,11 +66,27 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
                                  people: list[str] | None = None, include_me: bool = True) -> dict:
         return tools.check_group_availability(date_type.fromisoformat(date), period, people, bool(include_me))
 
+    def compare_other_week_courses(person: str, date: str) -> dict:
+        return tools.compare_other_week_courses(person, date_type.fromisoformat(date))
+
     def add_other_schedule(keyword: str = "", remark: str | None = None, term: str = "", student_id: str = "") -> dict:
         return tools.add_other_schedule(keyword, remark, term, student_id)
 
+    def remove_other_schedule(person: str = "", student_id: str = "") -> dict:
+        return tools.remove_other_schedule(person, student_id)
+
+    def clear_other_schedules(confirm: bool = False, expected_count: int | None = None) -> dict:
+        return tools.clear_other_schedules(confirm, expected_count)
+
     return [
-        Skill("sync_schedule", "仅在用户明确要求同步/更新课表时提交后台任务；立即返回，不能代表同步完成",
+        Skill("get_other_schedule_status", "查询同学课表后台同步任务进度，不查询自己的同步任务，不发起同步",
+              {}, (), tools.get_other_schedule_status),
+        Skill("sync_other_schedule", "同步已保存的一位同学课表，按姓名或唯一备注定位；只提交后台任务，不代表完成；不修改自己的课表",
+              {"person": {"type": "string", "description": "已保存同学的姓名或唯一备注"}},
+              ("person",), tools.sync_other_schedule),
+        Skill("sync_all_other_schedules", "同步全部已保存同学课表，不含自己的课表；只提交后台任务，不代表完成",
+              {}, (), tools.sync_all_other_schedules),
+        Skill("sync_schedule", "仅同步用户自己的课表，不包含同学；仅在用户明确要求同步/更新课表时提交后台任务；立即返回，不能代表同步完成",
               {}, (), tools.sync_schedule),
         Skill("get_schedule_status", "查询已导入课表、学校绑定、最近同步时间和同步任务进度；不发起同步",
               {}, (), tools.get_schedule_status),
@@ -91,6 +107,10 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
         Skill("query_other_day_courses", "查询已保存的某位同学/室友在某一天的课程列表（按备注或姓名匹配）",
               {"person": {"type": "string", "description": "同学备注（如“室友”）或姓名（如“张三”）"},
                "date": _DATE, "period": _PERIOD}, ("person", "date"), query_other_day_courses),
+        Skill("compare_other_week_courses", "比较某位已保存同学与我在某一自然周的课程差异，例如某某下周有什么课和我不一样；返回双方不同的课程，不能用共同空闲替代",
+              {"person": {"type": "string", "description": "同学姓名或备注"},
+               "date": {**_DATE, "description": "目标周内任意一天，YYYY-MM-DD"}},
+              ("person", "date"), compare_other_week_courses),
         Skill("check_group_availability", "查询某天某时段谁有空、或者我与已保存同学的共同空闲时间段",
               {"date": _DATE, "period": _PERIOD,
                "people": {"type": "array", "items": {"type": "string"},
@@ -103,6 +123,14 @@ def build_skills(tools: ScheduleTools) -> list[Skill]:
                "term": {"type": "string", "description": "可选学期，如 2025-2026-2，留空自动使用当前学期"},
                "student_id": {"type": "string", "description": "可选学生唯一ID（从多候选确认时传入）"}},
               (), add_other_schedule),
+        Skill("remove_other_schedule", "从已保存的“同学课表”名单中移除某位同学（按备注或姓名匹配；未保存或匹配多人时返回候选与提示；不影响用户自己的课表）",
+              {"person": {"type": "string", "description": "同学备注（如“室友”）或姓名（如“张三”）"},
+               "student_id": {"type": "string", "description": "可选学生唯一ID（从候选确认时传入）"}},
+              (), remove_other_schedule),
+        Skill("clear_other_schedules", "清空全部已保存的同学课表。首次调用必须不带 confirm（或 false），把返回的待确认名单原样转达用户；仅当用户明确回复确认后才带 confirm=true 并把返回的 count 原样作为 expected_count 再次调用执行；用户否定或改口时不得执行",
+              {"confirm": {"type": "boolean", "description": "用户已明确确认清空时为 true，否则省略或 false"},
+               "expected_count": {"type": "integer", "description": "待确认结果返回的人数 count，确认执行时原样传入"}},
+              (), clear_other_schedules),
     ]
 
 

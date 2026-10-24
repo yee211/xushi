@@ -38,6 +38,7 @@ class PendingQuestion(BaseModel):
     courses: list[Choice] = Field(default_factory=list, max_length=30)
     people: list[PersonChoice] = Field(default_factory=list, max_length=8)
     person_request: dict = Field(default_factory=dict)
+    clear_student_ids: list[str] = Field(default_factory=list, max_length=50)
     course_query: str = Field(default="", max_length=80)
 
     def history(self):
@@ -111,14 +112,26 @@ def schedule_choices(result):
 
 
 def person_choices(result):
+    """提取候选与回放参数；add 走 ambiguous 返回，remove 走折叠的 AMBIGUOUS_PERSON 错误。"""
     import json
     for fact in reversed((result.get("tool_result") or {}).get("skills", [])):
         item = fact.get("result") or {}
-        if fact.get("skill") == "add_other_schedule" and item.get("status") == "ambiguous":
-            args = fact.get("arguments") or {}
+        if not ((fact.get("skill") == "add_other_schedule" and item.get("status") == "ambiguous")
+                or (fact.get("skill") == "remove_other_schedule" and item.get("error") == "AMBIGUOUS_PERSON")):
+            continue
+        args = fact.get("arguments") or {}
+        try:
             args = json.loads(args) if isinstance(args, str) else args
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(args, dict):
+            continue
+        if fact.get("skill") == "add_other_schedule" and item.get("status") == "ambiguous":
             return ([PersonChoice.model_validate(c) for c in item["candidates"][:8]],
                     {k: v for k, v in args.items() if k in {"keyword", "remark", "term"}})
+        if fact.get("skill") == "remove_other_schedule" and item.get("error") == "AMBIGUOUS_PERSON":
+            return ([PersonChoice.model_validate(c) for c in (item.get("candidates") or [])[:8]],
+                    {"action": "remove", **{k: v for k, v in args.items() if k in {"person"}}})
     return [], {}
 
 
@@ -156,6 +169,21 @@ def selected_person(pending, text):
         return pending.people[index - 1] if 1 <= index <= len(pending.people) else None
     matches = [p for p in pending.people if text in {
         p.student_id, p.name, p.class_name, p.student_number_display, p.class_name + "那个"}]
+    if matches:
+        return matches[0] if len(matches) == 1 else None
+
+    def class_text(value):
+        value = re.sub(r"\s+", "", value)
+        return re.sub(r"(?:的那个|的那位|那个|那位|这个|这位|的)$", "", value)
+
+    needle = class_text(text)
+    if not needle:
+        return None
+    # 先保留用户明确指定的年级；只有用户省略年级时才允许省略候选的年级前缀。
+    matches = [p for p in pending.people if class_text(p.class_name) == needle]
+    if not matches and not re.match(r"\d", needle):
+        matches = [p for p in pending.people if re.sub(
+            r"^(?:20\d{2}|\d{2})(?:级)?(?=\D)", "", class_text(p.class_name)) == needle]
     return matches[0] if len(matches) == 1 else None
 
 

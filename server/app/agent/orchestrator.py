@@ -171,7 +171,12 @@ def _log_turn(started: float) -> None:
 
 
 def _handle_message(message: str, tools: ScheduleTools, history: list | None = None) -> dict:
+    from .peer_sync import handle as handle_peer_sync
     from .sync import query_status, reply, requested, status_requested
+    peer_result = handle_peer_sync(message, tools, history)
+    if peer_result is not None:
+        telemetry.note(path="sync")
+        return peer_result
     if requested(message):
         telemetry.note(path="sync")
         tools.sync_authorized = True

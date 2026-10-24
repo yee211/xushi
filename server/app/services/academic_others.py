@@ -203,6 +203,76 @@ def query_other_courses_by_date(db, user_id: int, person_query: str, target_date
     return _materialize_other_row(matched, target_date, period)
 
 
+def remove_saved_other(db, user_id: int, person_query: str = "", student_id: str = "") -> dict:
+    """从已保存名单移除一位同学；定位规则与查询一致（学号精确、备注/姓名精确优先）。"""
+    db.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"{user_id}:academic-others",))
+    rows = _load_saved_rows(db, user_id)
+    sid = str(student_id or "").strip().lower()
+    if not sid and not str(person_query or "").strip():
+        if not rows:
+            resolve_saved_person(rows, "")
+        raise ScheduleQueryError("AMBIGUOUS_PERSON", "请说明要移除哪位同学的课表，回复姓名、备注或学号。",
+                                 [_person_meta(r) for r in rows])
+    if sid:
+        matched = next((r for r in rows if str(r.get("student_id") or "").lower() == sid), None)
+        if matched is None:
+            raise ScheduleQueryError("PERSON_NOT_FOUND",
+                                     f"名单里已经没有这位同学（{sid}），可能刚被移除。",
+                                     [_person_meta(r) for r in rows])
+    else:
+        matched = resolve_saved_person(rows, person_query)
+    meta = _person_meta(matched)
+    remaining = [_person_meta(r)["display_name"] for r in rows
+                 if str(r.get("student_id") or "") != meta["student_id"]]
+    db.execute("DELETE FROM academic_others WHERE user_id=%s AND student_id=%s", (user_id, meta["student_id"]))
+    return {
+        "ok": True,
+        "status": "removed",
+        "removed": meta,
+        "remaining": remaining,
+        "message": f"已移除 {meta['display_name']} 的课表。"
+                   + (f"名单里还有：{'、'.join(remaining[:10])}"
+                      + (f"等 {len(remaining)} 位。" if len(remaining) > 10 else "。")
+                      if remaining else "名单现在是空的。"),
+    }
+
+
+def clear_saved_others(db, user_id: int, confirm: bool = False, expected_count: int | None = None,
+                      *, expected_student_ids: list[str] | None = None) -> dict:
+    """清空全部已保存的同学课表；必须先返回待确认名单，用户确认且人数未变时才执行。"""
+    # 模型偶发传字符串（"true"/"3"），在入口统一收敛，避免类型比较永远不相等。
+    if isinstance(confirm, str):
+        confirm = confirm.strip().lower() in {"true", "1", "yes", "是"}
+    if expected_count is not None:
+        try:
+            expected_count = int(expected_count)
+        except (TypeError, ValueError):
+            expected_count = None
+    db.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"{user_id}:academic-others",))
+    metas = [_person_meta(r) for r in _load_saved_rows(db, user_id)]
+    if not metas:
+        return {"ok": True, "status": "cleared", "removed_count": 0, "removed": [],
+                "message": "当前没有保存任何同学课表，无需清空。"}
+    names = [m["display_name"] for m in metas]
+    if (not confirm or expected_count != len(metas)
+            or (expected_student_ids is not None
+                and set(expected_student_ids) != {m["student_id"] for m in metas})):
+        summary = "、".join(names[:10]) + (f" 等 {len(metas)} 位" if len(metas) > 10 else "")
+        return {
+            "ok": False,
+            "error": "CLEAR_NEEDS_CONFIRM",
+            "status": "needs_input",
+            "count": len(metas),
+            "people": names,
+            "student_ids": [m["student_id"] for m in metas],
+            "message": f"将清空全部 {len(metas)} 位同学的课表（{summary}），删除后需要重新添加才能再查。"
+                       "确认清空请回复“确认”，放弃请回复“取消”。",
+        }
+    db.execute("DELETE FROM academic_others WHERE user_id=%s", (user_id,))
+    return {"ok": True, "status": "cleared", "removed_count": len(metas), "removed": names,
+            "message": f"已清空全部 {len(metas)} 位同学的课表。"}
+
+
 def _contiguous_slots(sections: Sequence[int]) -> list[dict]:
     sorted_nums = sorted({int(s) for s in sections if int(s) in SECTION_BY_NUMBER})
     if not sorted_nums:
@@ -392,17 +462,18 @@ def search_and_save_other(db_or_factory, user_id: int, keyword: str, remark: str
                         }
                         for s in students[:8]
                     ]
-                    summary = "；".join(
-                        f"{i}. {c['name']}（{c['grade']}级 {c['class_name']} {c['student_number_display']}）"
+                    # 展示仅保留姓名与班级，原始候选仍保留学号用于匹配。
+                    summary = "\n".join(
+                        f"{i}. {c['name']}（{c['grade']}级 {c['class_name']}）"
                         for i, c in enumerate(candidates, 1)
                     )
                     if fuzzy:
                         # 读音兜底命中可能是猜的，即使唯一也先经用户确认再保存
-                        message = (f"没有找到与“{kw}”完全匹配的同学，按读音相近找到 {len(students)} 位：{summary}。"
+                        message = (f"没有找到与“{kw}”完全匹配的同学，按读音相近找到 {len(students)} 位：\n{summary}\n"
                                    "是哪一位？请回复序号确认，或直接发完整的姓名/班级/学号。")
                     else:
                         tail = "若不在以上名单，请直接回复完整学号。" if len(students) > 8 else ""
-                        message = (f"找到 {len(students)} 位匹配“{kw}”的同学：{summary}。"
+                        message = (f"找到 {len(students)} 位匹配“{kw}”的同学：\n{summary}\n"
                                    f"请回复序号、班级或完整学号来确认添加哪一位？{tail}")
                     return {
                         "ok": False,

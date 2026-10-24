@@ -44,7 +44,11 @@ class Db:
             self.rows[uid, sid] = row
             return Result(row)
         if sql.startswith("DELETE"):
-            self.rows.pop(tuple(params), None)
+            if len(params) == 2:
+                self.rows.pop(tuple(params), None)
+            else:
+                for key in [k for k in self.rows if k[0] == params[0]]:
+                    self.rows.pop(key, None)
             return Result(None)
         return Result([v for (uid, sid), v in self.rows.items() if uid == params[0]])
 
@@ -375,3 +379,75 @@ def test_ambiguous_candidates_hint_full_number_beyond_eight(db, monkeypatch):
     assert result["status"] == "ambiguous"
     assert "序号" in result["message"] and "完整学号" in result["message"]
     assert len(result["candidates"]) == 8
+
+
+def _save_named(db, monkeypatch, uid, sid, name, remark=None, class_name="软件2401"):
+    monkeypatch.setattr(service.academic, "get_schedule",
+                        lambda *a: _sample_snapshot(name, class_name, []))
+    service.save(uid, sid, "2026-2027-1", remark)
+
+
+def test_remove_saved_other_by_name_keeps_other_users(db, monkeypatch):
+    _save_named(db, monkeypatch, 1, "sid-a", "张三", "室友")
+    _save_named(db, monkeypatch, 1, "sid-b", "李四")
+    _save_named(db, monkeypatch, 2, "sid-a", "张三", "室友")
+    result = service.remove_saved_other(db, 1, "张三")
+    assert result["ok"] is True and result["removed"]["display_name"] == "室友（张三）"
+    assert result["remaining"] == ["李四"]
+    assert (1, "sid-a") not in db.rows
+    assert (1, "sid-b") in db.rows and (2, "sid-a") in db.rows
+
+
+def test_remove_saved_other_student_id_wins_and_unknown_raises(db, monkeypatch):
+    from app.services.schedule_query import ScheduleQueryError
+
+    _save_named(db, monkeypatch, 1, "sid-a", "张三")
+    result = service.remove_saved_other(db, 1, person_query="随便", student_id="sid-a")
+    assert result["ok"] is True and result["removed"]["name"] == "张三"
+    with pytest.raises(ScheduleQueryError) as caught:
+        service.remove_saved_other(db, 1, "", "sid-gone")
+    assert caught.value.code == "PERSON_NOT_FOUND"
+
+
+def test_remove_saved_other_ambiguous_and_not_found_keep_rows(db, monkeypatch):
+    from app.services.schedule_query import ScheduleQueryError
+
+    _save_named(db, monkeypatch, 1, "sid-1", "张三", class_name="软件2401")
+    _save_named(db, monkeypatch, 1, "sid-2", "张三", class_name="软件2402")
+    with pytest.raises(ScheduleQueryError) as caught:
+        service.remove_saved_other(db, 1, "张三")
+    assert caught.value.code == "AMBIGUOUS_PERSON" and len(caught.value.candidates) == 2
+    with pytest.raises(ScheduleQueryError) as caught:
+        service.remove_saved_other(db, 1, "王五")
+    assert caught.value.code == "PERSON_NOT_FOUND" and caught.value.candidates
+    assert len(db.rows) == 2  # 上述失败均不得改动名单
+    db.rows.clear()
+    with pytest.raises(ScheduleQueryError) as caught:
+        service.remove_saved_other(db, 1, "")
+    assert caught.value.code == "NO_OTHER_SCHEDULES"
+
+
+def test_clear_saved_others_requires_matching_confirmation(db, monkeypatch):
+    _save_named(db, monkeypatch, 1, "sid-a", "张三")
+    _save_named(db, monkeypatch, 1, "sid-b", "李四")
+    first = service.clear_saved_others(db, 1)
+    assert first["ok"] is False and first["error"] == "CLEAR_NEEDS_CONFIRM" and first["count"] == 2
+    assert len(db.rows) == 2
+    # 确认但人数对不上（期间名单变化）→ 重新确认而不是误删
+    stale = service.clear_saved_others(db, 1, confirm=True, expected_count=3)
+    assert stale["ok"] is False and stale["count"] == 2 and len(db.rows) == 2
+
+
+def test_clear_saved_others_executes_with_confirmed_count(db, monkeypatch):
+    _save_named(db, monkeypatch, 1, "sid-a", "张三")
+    _save_named(db, monkeypatch, 1, "sid-b", "李四")
+    # 模型偶发传字符串参数也不应导致确认失败
+    result = service.clear_saved_others(db, 1, confirm="true", expected_count="2")
+    assert result["ok"] is True and result["removed_count"] == 2
+    assert db.rows == {}
+
+
+def test_clear_saved_others_empty_list_is_ok(db):
+    result = service.clear_saved_others(db, 1)
+    assert result["ok"] is True and result["removed_count"] == 0
+    assert "无需清空" in result["message"]
