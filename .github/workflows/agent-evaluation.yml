@@ -43,7 +43,6 @@ jobs:
   agent-live:
     if: >-
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-      && secrets.AGENT_BASE_URL != '' && secrets.AGENT_API_KEY != '' && secrets.AGENT_MODEL != ''
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -62,15 +61,30 @@ jobs:
       run:
         working-directory: server
     steps:
+      - name: Check live evaluation configuration
+        id: config
+        working-directory: .
+        shell: bash
+        run: |
+          if [ -n "$AGENT_BASE_URL" ] && [ -n "$AGENT_API_KEY" ] && [ -n "$AGENT_MODEL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Live evaluation skipped: model secrets are not configured."
+          fi
       - uses: actions/checkout@v4
+        if: steps.config.outputs.configured == 'true'
       - uses: actions/setup-python@v5
+        if: steps.config.outputs.configured == 'true'
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
+        if: steps.config.outputs.configured == 'true'
       - name: Run live evaluation against the configured model
+        if: steps.config.outputs.configured == 'true'
         run: python -m scripts.evaluate_agent --live
       - name: Upload evaluation report
-        if: always()
+        if: always() && steps.config.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: agent-eval-report-${{ github.run_id }}

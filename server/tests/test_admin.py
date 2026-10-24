@@ -508,7 +508,6 @@ def test_admin_overview_active_users_uses_bound_filter(monkeypatch, mock_admin_e
     from collections import defaultdict
 
     captured = []
-    inner = mock_admin_environment
 
     class LooseRow(defaultdict):
         def __init__(self):
