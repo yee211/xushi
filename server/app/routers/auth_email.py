@@ -31,6 +31,7 @@ def register(payload: RegisterIn, request: Request):
             db.execute("INSERT INTO schedules(user_id,name,term) VALUES(%s,%s,%s)", (user["id"], "我的课表", ""))
     except UniqueViolation as error:
         raise HTTPException(409, "邮箱或用户名已被占用") from error
+    request.state.authenticated_user_id = user["id"]
     return {
         "token": create_token(user["id"], user["username"]),
         "user": {"id": user["id"], "email": user["email"], "username": user["username"]},
@@ -47,6 +48,7 @@ def login(payload: EmailLoginIn, request: Request):
         ).fetchone()
     if not user or not user["password_hash"] or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(401, "邮箱或密码错误")
+    request.state.authenticated_user_id = user["id"]
     return {
         "token": create_token(user["id"], user["username"]),
         "user": {"id": user["id"], "email": user["email"], "username": user["username"]},

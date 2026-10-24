@@ -51,6 +51,7 @@ def init_db():
         # 旧网页母版库：users 原本 email NOT NULL，本补列语句在其上无副作用
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS openid VARCHAR(128)")
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ")
         # 旧小程序版库：users 原本 openid NOT NULL，补上邮箱体系三列
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(254)")
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40)")

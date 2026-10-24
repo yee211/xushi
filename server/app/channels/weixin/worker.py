@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from ...agent.service import build_agent_reply
 from ...db import close_pool, connect, init_db, init_pool
 from ...rate_limit import clawbot_limiter
-from ...services import agent_metrics
+from ...services import agent_metrics, user_activity
 from .client import ILinkClient, ILinkError, reply_client_id
 from .protocol import Credentials, InboundText, extract_text_items
 from .store import (
@@ -136,6 +136,10 @@ def process_message(client: ILinkClient, message: InboundText) -> bool:
     with connect() as db:
         if not claim_message(db, message.account_id, message.message_id):
             return True
+        bound = db.execute("""SELECT user_id FROM user_identities
+            WHERE provider='weixin_ilink' AND provider_user_id=%s""", (message.sender_id,)).fetchone()
+        if bound:
+            user_activity.touch(db, bound["user_id"])
         if message.context_token:
             db.execute("""UPDATE user_identities SET last_seen_at=CURRENT_TIMESTAMP, context_token=%s
                 WHERE provider='weixin_ilink' AND provider_user_id=%s""",

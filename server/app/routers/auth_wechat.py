@@ -38,4 +38,5 @@ def wechat_login(payload: WechatLoginIn, request: Request):
     ttl_seconds = int(session_days * 86400)
     user_dict = {"id": user["id"], "openid": user["openid"], "email": user["email"], "username": user["username"]}
     redis_set(f"xushi:session:{digest}", json.dumps(user_dict), ex=ttl_seconds)
+    request.state.authenticated_user_id = user["id"]
     return {"token": token, "expires_at": expires.isoformat()}

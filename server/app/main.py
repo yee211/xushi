@@ -162,7 +162,8 @@ async def request_metrics(request, call_next):
         if is_pool_ready() and not path.startswith("/admin/static") and not path.endswith((".ico", ".png", ".jpg", ".css", ".js")):
             try:
                 duration = round((time.perf_counter() - started) * 1000)
-                metrics_writer.enqueue(request.method, path, status_code, duration)
+                metrics_writer.enqueue(request.method, path, status_code, duration,
+                                       getattr(request.state, "authenticated_user_id", None))
             except Exception:
                 pass
 

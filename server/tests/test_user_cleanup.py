@@ -73,6 +73,8 @@ def test_cleanup_deletes_inert_users_and_invalidates_sessions(monkeypatch, captu
         assert "user_identities" in low and "academic_bindings" in low
         # 有课表或反馈的用户不允许删
         assert "from schedules" in low and "from feedbacks" in low
+        assert "from academic_others" in low and "from schedule_backups" in low
+        assert "from channel_accounts" in low
         # 会话仍未过期的活跃用户不允许删（缓存 token 可直接复用）
         assert "sessions se" in low and "se.expires_at > current_timestamp" in low
         assert "u.last_login_at < current_timestamp" in low

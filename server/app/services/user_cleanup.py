@@ -2,7 +2,7 @@
 
 判定条件（全部满足才删除）：
 - 有 openid 且无邮箱、无用户名（即从未注册过账号）；
-- 无助手渠道绑定、无教务绑定、无课表、无反馈（不含任何用户数据）；
+- 无助手渠道绑定、无教务绑定、无课表、无反馈、无他人课表、无课表备份、无自有渠道账号；
 - 不存在未过期会话（小程序缓存 token 可直接复用的用户不算过期，见 sessions.expires_at）；
 - 超过保留期未登录（last_login_at 仅在 /api/auth/wechat 刷新，但缓存 token 期间
   请求全部 401 失败前不会重登，故保留期可以短于 SESSION_DAYS）。
@@ -37,6 +37,9 @@ INERT_USER_SQL = f"""u.openid IS NOT NULL
     AND NOT {BOUND_USER_FILTER}
     AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.user_id = u.id)
     AND NOT EXISTS (SELECT 1 FROM feedbacks f WHERE f.user_id = u.id)
+    AND NOT EXISTS (SELECT 1 FROM academic_others ao WHERE ao.user_id = u.id)
+    AND NOT EXISTS (SELECT 1 FROM schedule_backups sb WHERE sb.user_id = u.id)
+    AND NOT EXISTS (SELECT 1 FROM channel_accounts ca WHERE ca.owner_user_id = u.id)
     AND NOT EXISTS (SELECT 1 FROM sessions se WHERE se.user_id = u.id AND se.expires_at > CURRENT_TIMESTAMP)
     AND u.last_login_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 day')"""
 

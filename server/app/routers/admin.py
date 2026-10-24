@@ -162,7 +162,7 @@ def overview(_: str = Depends(current_admin)):
             (SELECT COUNT(*) FROM users u WHERE {BOUND_USER_FILTER}) AS users,
             (SELECT COUNT(*) FROM users u WHERE NOT {BOUND_USER_FILTER}) AS unbound_users,
             (SELECT COUNT(*) FROM users u WHERE {BOUND_USER_FILTER}
-                AND u.last_login_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS active_users,
+                AND u.last_active_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS active_users,
             (SELECT COUNT(*) FROM schedules) AS schedules,
             (SELECT COUNT(*) FROM feedbacks WHERE status IN ('pending','processing')) AS open_feedback,
             (SELECT COUNT(*) FROM user_identities) AS agent_bindings""").fetchone()

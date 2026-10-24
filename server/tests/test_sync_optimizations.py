@@ -96,6 +96,27 @@ def test_metrics_are_queued_without_waiting_for_database(monkeypatch):
         return await main.request_metrics(Request({"type": "http", "method": "GET", "path": "/api/test", "headers": []}), respond)
 
     assert asyncio.run(run()).status_code == 200
-    method, path, status, duration = pending.get_nowait()
+    method, path, status, duration, user_id = pending.get_nowait()
     assert (method, path, status) == ("GET", "/api/test", 200)
     assert duration >= 0
+    assert user_id is None
+
+
+def test_authenticated_request_queues_activity_without_database_wait(monkeypatch):
+    import queue
+
+    from app import main
+    from app.services import request_metrics
+
+    pending = queue.Queue()
+    monkeypatch.setattr(request_metrics, "_pending", pending)
+    monkeypatch.setattr(main, "is_pool_ready", lambda: True)
+
+    async def run():
+        async def respond(request):
+            request.state.authenticated_user_id = 7
+            return Response(status_code=200)
+        return await main.request_metrics(Request({"type": "http", "method": "GET", "path": "/api/me", "headers": []}), respond)
+
+    assert asyncio.run(run()).status_code == 200
+    assert pending.get_nowait()[4] == 7

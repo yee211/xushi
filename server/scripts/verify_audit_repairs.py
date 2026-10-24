@@ -15,7 +15,7 @@ from app.db import DATABASE_URL  # noqa: E402
 def main():
     name = 'xushi_audit_' + uuid.uuid4().hex
     env = dict(os.environ, DATABASE_URL=DATABASE_URL, APP_ENV='test',
-               TEST_ACADEMIC_QUEUE_DB='1', TEST_ACADEMIC_DIRECTORY_DB='1',
+               TEST_ACADEMIC_QUEUE_DB='1', TEST_ACADEMIC_DIRECTORY_DB='1', TEST_ACTIVITY_DB='1',
                AGENT_REDIS_URL='', REDIS_URL='', PYTHONIOENCODING='utf-8')
     root = Path(__file__).resolve().parents[1]
     with psycopg.connect(DATABASE_URL, autocommit=True) as admin:

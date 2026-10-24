@@ -536,6 +536,8 @@ def test_admin_overview_active_users_uses_bound_filter(monkeypatch, mock_admin_e
     # users 与 active_users 两处都套绑定口径
     assert totals_sql.count(bound) >= 2
     assert "as active_users" in totals_sql
+    assert "u.last_active_at >=" in totals_sql
+    assert "last_login_at >=" not in totals_sql
 
 
 def test_admin_get_user_detail():
