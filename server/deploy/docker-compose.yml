@@ -179,6 +179,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      # agent 在 worker 进程内直接查询教务；admin 面板写入的教务连接配置(data/academic)必须与 api 共享
+      - ../../data:/app/data
 
 volumes:
   pgdata:
