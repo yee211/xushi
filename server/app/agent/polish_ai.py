@@ -103,7 +103,7 @@ def polish_config() -> tuple[str, str, str, float, int, bool]:
     base_url = (config.get("base_url") or "").strip().rstrip("/")
     api_key = (config.get("api_key") or "").strip()
     model = (config.get("model") or "").strip()
-    if not (base_url and api_key and model):
+    if config.get("source") != "database" and not (base_url and api_key and model):
         agent_base, agent_key, agent_mod = agent_config()
         base_url = base_url or agent_base
         api_key = api_key or agent_key
@@ -137,7 +137,9 @@ def polish_answer(message: str, answer: str, tool_result, history: list | None =
         text = choice["message"]["content"].strip()
         text = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", text, flags=re.DOTALL).strip()
         text = text.replace("😂", "").strip()
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError, AttributeError) as error:
+        from .circuit_breaker import llm_circuit_breaker
+        llm_circuit_breaker.record_failure(error)
         return None
     if text and text != answer and _grounded(text, answer, tool_result):
         return text
@@ -163,7 +165,9 @@ def small_talk(message: str, history: list | None = None) -> str | None:
         text = choice["message"]["content"].strip()
         text = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", text, flags=re.DOTALL).strip()
         text = text.replace("😂", "").strip()
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError, AttributeError) as error:
+        from .circuit_breaker import llm_circuit_breaker
+        llm_circuit_breaker.record_failure(error)
         return None
     if text and len(text) <= 300 and not any(token in text.lower() for token in FORBIDDEN_TOKENS):
         return text

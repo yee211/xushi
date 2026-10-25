@@ -82,13 +82,43 @@ class QueryRun:
             except (ValueError, TypeError):
                 return fact["skill"], str(args)
 
+        # “再/顺便”单独处理：它们既可能是第二次请求，也可能只是单对象重试，
+        # 不能仅凭连接词就放弃用后来的成功纠正旧错误（见下方人名比对）。
+        multiple_requests = bool(re.search(r"和|与|、|以及|还有|另外|分别|各自", self.scope_question))
         for index, fact in enumerate(relevant):
             item = fact["result"]
             if not (item.get("error") and item.get("message")):
                 continue
-            # 只有相同参数的重试成功才覆盖旧错误，其他人的成功不代表本项成功。
-            if any(operation(f) == operation(fact) and not (f["result"] or {}).get("error")
-                   for f in relevant[index + 1:]):
+            def corrected(later, fact=fact, item=item):
+                if (later.get("result") or {}).get("error"):
+                    return False
+                if operation(later) == operation(fact):
+                    return True
+                if (item.get("error") not in {"PERSON_NOT_FOUND", "AMBIGUOUS_PERSON"}
+                        or later["skill"] != fact["skill"]
+                        or multiple_requests):
+                    return False
+                try:
+                    before = json.loads(fact["arguments"]) if isinstance(fact.get("arguments"), str) else dict(fact.get("arguments") or {})
+                    after = json.loads(later["arguments"]) if isinstance(later.get("arguments"), str) else dict(later.get("arguments") or {})
+                    before_person = str(before.pop("person", "") or "")
+                    after_person = str(after.pop("person", "") or "")
+                    if before_person and after_person and before_person != after_person:
+                        asked_before = before_person in self.scope_question
+                        asked_after = after_person in self.scope_question
+                        if asked_before or asked_after:
+                            # 只有“先查了没人点名的人、后来点名的人成功”才算纠正重试；
+                            # 两个名字都被点名时各自独立，后面的成功不能掩盖前面的失败。
+                            return not asked_before and asked_after
+                        # 人名与提问对不上（如存了带班级的全名）时无法判断归属：
+                        # 出现顺序词说明更可能是两次请求，保守保留旧错误。
+                        if re.search(r"再|顺便", self.scope_question):
+                            return False
+                    return before == after
+                except (ValueError, TypeError):
+                    return False
+            if any(corrected(f) for f in relevant[index + 1:]):
+                fact["_superseded"] = True
                 continue
             answer = self.answer(facts, item["message"])
             answer["_completion_status"] = "needs_input" if item["error"] in {
@@ -149,6 +179,8 @@ class QueryRun:
             telemetry.note(outcome="truncated", rounds=state["rounds"] + 1)
             return {"rounds": state["rounds"] + 1, "route": "recover"}
         reply = choice["message"]
+        if not isinstance(reply, dict):
+            raise ValueError("Invalid model message")
         return {"rounds": state["rounds"] + 1, "reply": reply,
                 "route": "tools" if reply.get("tool_calls") else "validate"}
 
@@ -185,6 +217,7 @@ class QueryRun:
         facts = state["facts"]
         error = self.other_error(facts)
         if error:
+            loop.llm_circuit_breaker.record_success()
             return {"answer": error, "route": "done"}
         content = str(state["reply"].get("content") or "").strip()
         content = re.sub(r"\s*\[消息时间[:：].*?\]\s*$", "", content, flags=re.DOTALL).strip()
@@ -217,6 +250,7 @@ class QueryRun:
             return self.unfinished(state)
         rendered = render_other_facts(facts, self.tools.context.now.date())
         if rendered:
+            loop.llm_circuit_breaker.record_success()
             return {"answer": self.answer(facts, rendered), "route": "done"}
         if bundle is not None:
             try:
@@ -258,7 +292,11 @@ class QueryRun:
 
     def recover(self, state: QueryState) -> dict:
         telemetry.note(outcome="recovered", rounds=state.get("rounds", 0))
-        return {"answer": self.saved_answer(state.get("facts", self.facts))}
+        answer = self.saved_answer(state.get("facts", self.facts))
+        from .circuit_breaker import CircuitState
+        if answer and loop.llm_circuit_breaker.state == CircuitState.HALF_OPEN:
+            loop.llm_circuit_breaker.record_success()
+        return {"answer": answer}
 
     def guarded(self, node):
         def invoke(state: QueryState) -> dict:

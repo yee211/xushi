@@ -256,12 +256,19 @@ def unlink_wechat(db, user_id: int) -> dict:
                     (wx_id, sched["name"], sched["term"], sched["start_date"], sched["end_date"], sched.get("background") or "", sched.get("variant_type") or "draft")
                 ).fetchone()
                 if new_sched:
-                    db.execute(
-                        """INSERT INTO courses(schedule_id, name, teacher, room, weekday, start_section, end_section, weeks, color)
-                           SELECT %s, name, teacher, room, weekday, start_section, end_section, weeks, color
-                           FROM courses WHERE schedule_id=%s""",
-                        (new_sched["id"], sched["id"])
-                    )
+                    source_courses = db.execute("SELECT * FROM courses WHERE schedule_id=%s", (sched["id"],)).fetchall()
+                    for course in source_courses:
+                        copied = db.execute("""INSERT INTO courses
+                            (schedule_id,name,teacher,room,weekday,start_section,end_section,weeks,color)
+                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s) RETURNING id""",
+                            (new_sched["id"], course["name"], course["teacher"], course["room"],
+                             course["weekday"], course["start_section"], course["end_section"],
+                             json.dumps(course["weeks"]), course.get("color"))).fetchone()
+                        db.execute("""INSERT INTO course_adjustments
+                            (course_id,week,weekday,start_section,end_section,room)
+                            SELECT %s,week,weekday,start_section,end_section,room
+                            FROM course_adjustments WHERE course_id=%s""", (copied["id"], course["id"]))
+
 
         _move_other_schedules(db, user_id, wx_id)
 

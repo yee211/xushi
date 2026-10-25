@@ -82,7 +82,10 @@ function suggestSemesterDates(termStr) {
 }
 function weekCount(schedule) {
   const start = localDate(schedule && schedule.start_date), end = localDate(schedule && schedule.end_date)
-  if (start && end) return Math.max(1, Math.min(30, Math.ceil(((end-start)/86400000+1)/7)))
+  if (start && end) {
+    start.setDate(start.getDate() - ((start.getDay() || 7) - 1))
+    return Math.max(1, Math.min(30, Math.ceil(((end-start)/86400000+1)/7)))
+  }
   const weeks = (schedule && schedule.courses || []).reduce((all, item) => all.concat(item.weeks || []), [])
   return Math.min(30, Math.max(20, ...weeks, 20))
 }
@@ -675,10 +678,10 @@ Page({
     try {
       const schedules = await app.request('/api/schedules')
       if (this.closed || generation !== this.loadGeneration) return false
+      // Commit the data before changing its freshness label.
+      wx.setStorageSync('schedules_cache', schedules)
       wx.setStorageSync('schedules_cache_at', new Date().toISOString())
       this.setData({ cacheNotice: '' })
-      // 缓存最近一次完整课表：刷新更快，断网时也能兜底展示
-      wx.setStorageSync('schedules_cache', schedules)
       this.applySchedules(schedules, preferredId)
       return true
     } catch (error) {
@@ -1121,7 +1124,11 @@ Page({
         result = await submit(true)
       }
       if (result.imported) {
-        this.setData({ importOpen: false, importFile: null }); await this.load(result.schedule_id)
+        this.setData({ importOpen: false, importFile: null });
+        if (await this.load(result.schedule_id) === false) {
+          this.setData({ notice: '导入已完成，但课表刷新失败，请稍后刷新确认' });
+          return;
+        }
         // 与“切换课表”口径一致：同名的多时段/单双周记录只计 1 门课。
         const importedCount = scheduleMeta(this.data.schedule).unique
         this.toast(result.replaced ? `已覆盖当前学期，共 ${importedCount} 门课程`

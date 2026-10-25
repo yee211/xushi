@@ -83,11 +83,13 @@ def test_failed_dump_never_publishes_success_and_cleans_pending(tmp_path):
     assert not list(destination.iterdir())
 
 
-def test_empty_source_never_reports_success(tmp_path):
+def test_empty_source_preserves_database_backup_with_warning(tmp_path):
     result, destination = run_backup(tmp_path, empty=True)
-    assert result.returncode == 1
-    assert "empty" in result.stderr
-    assert not list(destination.iterdir())
+    assert result.returncode == 0, result.stderr
+    assert "database backup retained" in result.stderr
+    bundle, = destination.glob("xushi_bundle_*Z")
+    assert (bundle / "database.dump").exists()
+    assert (bundle / "data-unavailable.txt").exists()
 
 
 @pytest.mark.parametrize("failure", [None, "restore", "tables", "checksum"])

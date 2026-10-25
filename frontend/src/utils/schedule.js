@@ -93,6 +93,7 @@ export function scheduleWeekCount(schedule) {
   const start = localDate(schedule?.start_date);
   const end = localDate(schedule?.end_date);
   if (start && end) {
+    start.setDate(start.getDate() - ((start.getDay() || 7) - 1));
     const daysDiff = Math.floor((end - start) / 86400000) + 1;
     return Math.max(1, Math.min(30, Math.ceil(daysDiff / 7)));
   }
@@ -178,6 +179,7 @@ export function termWeek(startDate, totalWeeks = 20, schedule = null) {
 export function weekRange(startDate, weekNumber) {
   const start = localDate(startDate);
   if (!start) return '日期待设置';
+  start.setDate(start.getDate() - ((start.getDay() || 7) - 1));
   start.setDate(start.getDate() + (weekNumber - 1) * 7);
   const end = new Date(start);
   end.setDate(end.getDate() + 6);
@@ -188,6 +190,7 @@ export function weekRange(startDate, weekNumber) {
 export function weekDayDate(startDate, dayNumber, weekNumber) {
   const start = localDate(startDate);
   if (!start) return '日期待设置';
+  start.setDate(start.getDate() - ((start.getDay() || 7) - 1));
   start.setDate(start.getDate() + (weekNumber - 1) * 7 + dayNumber - 1);
   return `${String(start.getMonth() + 1).padStart(2, '0')}.${String(start.getDate()).padStart(2, '0')}`;
 }
@@ -195,6 +198,7 @@ export function weekDayDate(startDate, dayNumber, weekNumber) {
 export function weekMonth(startDate, weekNumber) {
   const start = localDate(startDate);
   if (!start) return '';
+  start.setDate(start.getDate() - ((start.getDay() || 7) - 1));
   start.setDate(start.getDate() + (weekNumber - 1) * 7);
   return `${String(start.getMonth() + 1).padStart(2, '0')}月`;
 }
@@ -202,6 +206,7 @@ export function weekMonth(startDate, weekNumber) {
 export function weekDayNumber(startDate, dayNumber, weekNumber) {
   const start = localDate(startDate);
   if (!start) return '';
+  start.setDate(start.getDate() - ((start.getDay() || 7) - 1));
   start.setDate(start.getDate() + (weekNumber - 1) * 7 + dayNumber - 1);
   return String(start.getDate()).padStart(2, '0');
 }
@@ -216,6 +221,7 @@ export function isDayToday(startDate, dayNumber, weekNumber, schedule = null) {
   }
   const start = localDate(startDate);
   if (!start) return false;
+  start.setDate(start.getDate() - ((start.getDay() || 7) - 1));
   start.setDate(start.getDate() + (weekNumber - 1) * 7 + dayNumber - 1);
   const now = new Date();
   return start.getFullYear() === now.getFullYear()

@@ -278,6 +278,8 @@ def _grid_to_rows(grid: list[list[tuple[str, int, int]]]) -> tuple[list[tuple[in
         for text, colspan, rowspan in row:
             while (row_index, column) in occupied:
                 column += 1
+            if rowspan > 1000 or colspan > 256 or (row_index + rowspan) * (column + colspan) > 100000:
+                raise ValueError("HTML table dimensions exceed import limits")
             for down in range(rowspan):
                 for across in range(colspan):
                     occupied.add((row_index + down, column + across))
@@ -294,7 +296,11 @@ def _read_html(path: Path) -> list[Sheet]:
     parser.feed(_decode(path))
     parser.close()
     sheets = []
+    expanded_cells = 0
     for index, grid in enumerate(parser.grids, 1):
+        expanded_cells += sum(colspan * rowspan for row in grid for _, colspan, rowspan in row)
+        if expanded_cells > 100000:
+            raise ValueError("HTML tables exceed total import limits")
         rows, max_column = _grid_to_rows(grid)
         if not rows:
             continue

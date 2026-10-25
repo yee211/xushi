@@ -35,6 +35,9 @@ course_name 填课程候选中最接近的完整名称；候选中没有与用�
 
 def agent_config() -> tuple[str, str, str]:
     config = get_llm_config("agent")
+    if config.get("source") == "database":
+        return (str(config.get("base_url") or "").strip().rstrip("/"),
+                str(config.get("api_key") or "").strip(), str(config.get("model") or "").strip())
     base_url = (config.get("base_url") or os.getenv("AGENT_BASE_URL") or os.getenv("AI_BASE_URL", "")).strip().rstrip("/")
     api_key = (config.get("api_key") or os.getenv("AGENT_API_KEY") or os.getenv("AI_API_KEY", "")).strip().strip('"').strip("'")
     model = (config.get("model") or os.getenv("AGENT_MODEL") or os.getenv("AI_MODEL", "")).strip()
@@ -101,5 +104,7 @@ def extract_intent(message: str, today: date, *, received_at: str = "",
             return None
         return {"name": intent, "target_date": target, "period": period, "weekday": weekday,
                 "course_name": course_name}
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError, AttributeError) as error:
+        from .circuit_breaker import llm_circuit_breaker
+        llm_circuit_breaker.record_failure(error)
         return None

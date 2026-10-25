@@ -21,7 +21,7 @@ xushi/
 │   │   └── ai.py adjustment_ai.py    # OpenAI 兼容 AI 解析（支持管理后台动态配置）
 │   ├── admin/              # 管理后台静态页（/admin）
 │   ├── tests/              # 单元测试与可选 PostgreSQL 集成测试
-│   ├── migrations/         # alembic 迁移（0001~0015）
+│   ├── migrations/         # alembic 迁移（0001~0027）
 │   ├── deploy/             # Dockerfile + docker-compose（api+worker+db+redis+备份）
 │   └── scripts/            # e2e / 备份 / 发版 / A/B 对比脚本
 ├── frontend/               # Vue3 网页端 + Capacitor Android 工程
@@ -108,6 +108,31 @@ Vite 默认代理到 `http://127.0.0.1:8000`，可通过启动环境变量 `VITE
 
 The default Compose deployment serves the frontend built into the image. Rebuild the API image to publish frontend changes. For host-side hot updates, run `npm ci && npm run build` in `frontend` first, then include `server/deploy/docker-compose.frontend-hot-reload.yml` as a Compose override. An empty host directory must never replace the image assets.
 
-Model connection tests use configured public endpoints. Private or additional endpoints require the comma-separated `LLM_ALLOWED_BASE_URLS` deployment setting. Testing a different URL requires an explicit API key.
+Saving model configuration and testing connections use configured public endpoints. Private or additional endpoints require the comma-separated `LLM_ALLOWED_BASE_URLS` deployment setting. Saving or testing a different URL requires an explicit API key.
+
+Behind a reverse proxy, set `TRUST_PROXY_HEADERS=true` and restrict `TRUSTED_PROXY_CIDRS` to the actual proxy addresses (including the Docker gateway if applicable). The edge Nginx must overwrite `X-Forwarded-For` with `$remote_addr`.
+
+The Compose stack pins its bridge network to `172.30.240.0/24` (gateway `172.30.240.1`) so the host Nginx can address the published API port through a stable gateway. If that range is already taken on the host (`Pool overlaps with other one on this address space`), remove the leftover network or override `XUSHI_DOCKER_SUBNET`, `XUSHI_DOCKER_GATEWAY` and `TRUSTED_PROXY_CIDRS` together.
+
+The admin session-clear action revokes both stored miniapp sessions and older JWTs. JWT authentication now checks a durable per-user revocation boundary; apply database migration `0026_auth_revocation` before starting the updated API.
+
+### 微信死信消息运维
+
+应用 migration `0027_message_dead_letters`（全新库由 `init_db()` 自动建表）。iLink 消息连续失败 3 次后被移入死信：`channel_messages.status='dead_letter'` 并在 `channel_message_dead_letters` 落一条 `resolved_at IS NULL` 的记录，之后游标才允许前进，worker 不会再投递该消息。同步完成通知的领取同样接受死信来源消息，用户仍能收到同步结果。
+
+列出待处理死信（含原始 payload 与最后错误）：
+
+```sql
+SELECT account_id, message_id, error, attempts, created_at
+FROM channel_message_dead_letters WHERE resolved_at IS NULL ORDER BY created_at;
+```
+
+人工重放一条（不回退 bot 游标）：
+
+```bash
+docker compose exec api python scripts/replay_weixin_message.py --account <account_id> --message <message_id>
+```
+
+重放成功会把死信标记为已解决；重放失败消息会恢复 `dead_letter` 状态、可再次执行重放。保留策略：已解决死信随已完成消息一样保留 30 天，无未解决死信的 `failed`/`dead_letter` 消息行保留 90 天，未解决死信一直保留等待人工处理，均由启动期清理自动执行。
 
 School credential encryption can use a dedicated `ACADEMIC_CREDENTIAL_SECRET` (at least 32 characters). When unset, the first use persists the legacy key as `data/academic/credential.key`, keeping existing ciphertext compatible and future admin-session rotation independent. Back up this private key with the academic data directory. Configure the dedicated secret before saving school credentials; changing it requires re-saving the school connection and login phone. This keeps future admin session rotation independent of school credentials.

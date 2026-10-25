@@ -853,7 +853,17 @@ async function removeCourseAdjustment(course) {
 }
 
 async function restoreCourseRecord(record) {
-  if (!record.course_id) return;
+  if (!record.course_id) {
+    if (!record.can_revoke) return;
+    if (!await confirmAction('确认撤销这批仍在生效的调课？', { title: '撤销调课', confirmText: '撤销', danger: true })) return;
+    try {
+      const result = await adjustmentsApi.revokeRecord(record.id);
+      notify(result.revoked ? `已撤销 ${result.revoked} 项调课` : '该记录已无可撤销的调课');
+      await load(schedule.value.id);
+      await loadChangeLogs();
+    } catch (error) { notify(error.message); }
+    return;
+  }
   const course = (schedule.value?.courses || []).find(c => c.id === record.course_id);
   if (!course) {
     notify('原课程已不存在');
@@ -861,7 +871,9 @@ async function restoreCourseRecord(record) {
   }
   const timeDiff = Array.isArray(record.details) ? record.details.find(d => d.field === 'time') : null;
   const roomDiff = Array.isArray(record.details) ? record.details.find(d => d.field === 'room') : null;
-  if (!timeDiff && !roomDiff) {
+  const nameDiff = Array.isArray(record.details) ? record.details.find(d => d.field === 'name') : null;
+  const teacherDiff = Array.isArray(record.details) ? record.details.find(d => d.field === 'teacher') : null;
+  if (!timeDiff && !roomDiff && !nameDiff && !teacherDiff) {
     notify('未找到可恢复的变更项');
     return;
   }
@@ -900,8 +912,8 @@ async function restoreCourseRecord(record) {
       // All-weeks course update
       const payload = {
         schedule_id: schedule.value.id,
-        name: course.name,
-        teacher: course.teacher || '',
+        name: nameDiff ? nameDiff.old : course.name,
+        teacher: teacherDiff ? (teacherDiff.old === '未设置' ? '' : teacherDiff.old || '') : course.teacher || '',
         room: targetRoom,
         weekday: targetWeekday,
         start_section: targetStart,
@@ -915,7 +927,8 @@ async function restoreCourseRecord(record) {
     // Clean up this record and all subsequent records for this course (chain rollback)
     const subsequentLogs = (changeLogs.value || []).filter(l => {
       const cid = l.course_id || (Array.isArray(l.details) ? l.details[0]?.course_id : null);
-      return cid === course.id && l.id >= record.id;
+      const logWeek = l.week || (Array.isArray(l.details) ? l.details.find(d => d.week)?.week : null);
+      return cid === course.id && l.id >= record.id && (!recordWeek || logWeek === recordWeek);
     });
     for (const sub of subsequentLogs) {
       const subWeek = sub.week || (Array.isArray(sub.details) ? sub.details.find(d => d.week)?.week : null);

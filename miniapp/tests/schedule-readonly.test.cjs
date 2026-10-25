@@ -21,7 +21,7 @@ function harness(request = async () => []) {
   }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/index/index.js'), 'utf8'), sandbox)
   page.setData = value => Object.assign(page.data, value)
-  return { page, storage, navigations }
+  return { page, storage, navigations, wx: sandbox.wx }
 }
 
 test('old adjusted copy cannot remain the selected timetable', () => {
@@ -126,4 +126,26 @@ test('fallback semester end date uses local calendar in a negative UTC offset', 
     if (previous === undefined) delete process.env.TZ
     else process.env.TZ = previous
   }
+})
+
+
+test('non-Monday semester preserves its partial final week', () => {
+  const { page } = harness()
+  page.applySchedules([{ id: 2, courses: [], start_date: '2026-10-07', end_date: '2026-10-13' }])
+  page.applyWeek(2)
+  assert.equal(page.data.week, 2)
+})
+
+test('failed cache write cannot give old data a fresh timestamp', async () => {
+  const { page, storage, wx } = harness(async () => [{ id: 3, courses: [] }])
+  storage.set('schedules_cache', [{ id: 2, courses: [] }])
+  storage.set('schedules_cache_at', '2026-10-01T00:00:00Z')
+  const write = wx.setStorageSync
+  wx.setStorageSync = (key, value) => {
+    if (key === 'schedules_cache') throw new Error('storage quota')
+    return write(key, value)
+  }
+  assert.equal(await page.load(), false)
+  assert.equal(storage.get('schedules_cache_at'), '2026-10-01T00:00:00Z')
+  assert.equal(page.data.schedule.id, 2)
 })

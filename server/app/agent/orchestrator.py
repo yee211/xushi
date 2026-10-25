@@ -42,7 +42,7 @@ class ParsedIntent:
 def _target_day(text: str, today: date) -> date | None:
     if "后天" in text:
         return today + timedelta(days=2)
-    if "明天" in text or "明日" in text:
+    if "明天" in text or "明日" in text or "明早" in text:
         return today + timedelta(days=1)
     if "今天" in text or "今日" in text:
         return today
@@ -237,8 +237,7 @@ def _fallback_reply(message: str, tools: ScheduleTools, history: list | None = N
             people = tools.list_other_people().get("people") or []
             other_scope = bool(people) and (mentions_others(text, people) or group_request(text))
         except Exception:
-            return {"intent": "HELP", "answer": "暂时无法确认查询对象，请稍后重试。",
-                    "error": {"code": "service_unavailable", "message": "无法读取已保存的同学课表名单"}}
+            other_scope = group_request(text)
     if other_scope:
         return {"intent": "HELP", "answer": "本次未能完成同学课表或多人空闲查询，请稍后重试。",
                 "error": {"code": "other_query_unavailable", "message": "同学课表查询暂不可用"}}

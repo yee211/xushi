@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import psycopg
 from dotenv import load_dotenv
@@ -8,7 +9,7 @@ from psycopg import sql
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
-database_name = "class_schedule"
+database_name = urlsplit(os.getenv("DATABASE_URL", "")).path.lstrip("/") or os.getenv("PGDATABASE", "xushi_schedule")
 admin_url = os.environ["POSTGRES_ADMIN_URL"]
 
 with psycopg.connect(admin_url, autocommit=True) as connection:

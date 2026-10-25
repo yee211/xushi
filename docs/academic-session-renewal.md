@@ -41,7 +41,7 @@ API 启动时只恢复此前启用的维护；正常服务关闭保留设置，�
 ## 已准备的可运行脚本
 
 server/scripts/academic_session_worker.py。它使用正常浏览器导航，不调用猜测的续期接口。
-独立学校账户通过 CCSUT_EXPECTED_ACCOUNT 指定；若浏览器账户不匹配，不导出会话。
+独立脚本的 CCSUT_EXPECTED_ACCOUNT 必须是教务 username Cookie 的准确值（通常为学号），不是验证码登录手机号。手机号与学号不是同一标识；若不一致，脚本拒绝导出，不会跳过校验。手机号登录应优先使用管理端托管流程。
 正常到达课表页后，用独立 HTTP 查询验证，再调用现有加密连接保存逻辑。
 Cookie 不写日志；完整浏览器 profile 自带凭据，应仅供运行账户访问。
 
@@ -52,7 +52,7 @@ python -m pip install playwright
 python -m playwright install --with-deps chromium
 
 # 首次登录需要可见浏览器 / 桌面会话：在服务器桌面中执行
-export CCSUT_EXPECTED_ACCOUNT='<你的学校账号>'
+export CCSUT_EXPECTED_ACCOUNT='<教务 username Cookie 对应的学号>'
 python scripts/academic_session_worker.py --login
 
 # 登录后常驻检查；600 秒只是初始检查间隔，不是实测有效期

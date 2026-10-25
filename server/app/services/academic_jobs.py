@@ -191,7 +191,7 @@ def process_one(db):
                     academic_mail.connection_event("query_unavailable")
                 except Exception:
                     logger.warning("School query failure notification unavailable")
-            if (isinstance(error, academic.AcademicError) and error.code == 'connection_expired') or '学校连接暂不可用' in message:
+            if isinstance(error, academic.AcademicError) and error.code in {'connection_expired', 'connection_not_configured', 'connection_unreadable'}:
                 db.execute("UPDATE academic_sync_control SET pause_until=CURRENT_TIMESTAMP + INTERVAL '60 seconds' WHERE id=1")
             db.execute("""UPDATE academic_sync_jobs SET state=%s,phase=%s,error=%s,error_code=%s,
                 available_at=CURRENT_TIMESTAMP + (%s * INTERVAL '1 second'),updated_at=CURRENT_TIMESTAMP WHERE id=%s AND state='running'""",

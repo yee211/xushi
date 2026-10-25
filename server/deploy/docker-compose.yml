@@ -55,11 +55,16 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql://xushi:${DB_PASSWORD}@db:5432/xushi_schedule
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: xushi
+      PGDATABASE: xushi_schedule
+      PGPASSWORD: ${DB_PASSWORD:?请通过环境变量注入数据库密码}
       # 网页端鉴权
       JWT_SECRET: ${JWT_SECRET:?请配置至少32字符随机密钥}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-10080}
       TRUST_PROXY_HEADERS: "true"
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-127.0.0.1/32,::1/128,172.30.240.1/32}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost,http://localhost,capacitor://localhost}
       # 演示账号（接管无主数据）
       DEFAULT_USERNAME: ${DEFAULT_USERNAME:-demo}
@@ -126,7 +131,7 @@ services:
       # 仅绑定回环，由外层 Nginx 统一对外；网页端与小程序 API 可共用同一域名
       - "127.0.0.1:8010:8000"
     volumes:
-      # APK 分发包、版本元数据与网页端构建产物挂载，git pull + npm build 后即刻热更生效
+      # APK 与版本元数据持久挂载；网页产物随镜像发布，宿主机热更需启用 override
       - ../../static:/app/static
       - ../../data:/app/data
     healthcheck:
@@ -144,7 +149,11 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.channels.weixin", "worker"]
     environment:
-      DATABASE_URL: postgresql://xushi:${DB_PASSWORD}@db:5432/xushi_schedule
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: xushi
+      PGDATABASE: xushi_schedule
+      PGPASSWORD: ${DB_PASSWORD:?请通过环境变量注入数据库密码}
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
       AGENT_BASE_URL: ${AGENT_BASE_URL:-}
       AGENT_API_KEY: ${AGENT_API_KEY:-}
@@ -184,3 +193,12 @@ services:
 volumes:
   pgdata:
   redisdata:
+
+# The host Nginx reaches the published API port through this explicit bridge gateway.
+# Override subnet/gateway/trusted proxies together if this range conflicts locally.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${XUSHI_DOCKER_SUBNET:-172.30.240.0/24}
+          gateway: ${XUSHI_DOCKER_GATEWAY:-172.30.240.1}

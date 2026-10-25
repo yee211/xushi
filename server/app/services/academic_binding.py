@@ -85,7 +85,7 @@ def sync(user_id, term, refresh=False, expected_binding=None):
             raise academic.AcademicError(refresh_error["code"], refresh_error.get("message") or "学校暂不可用，原课表已保留",
                                          transient[refresh_error["code"]])
     if snapshot.get("stale") or not snapshot.get("complete"):
-        raise HTTPException(409, "学校连接暂不可用，未更新主课表，请恢复连接后重试")
+        raise HTTPException(409, "学校返回的课表不完整，未更新主课表，请稍后重试")
     digest = snapshot_hash(snapshot)
     academic_runtime.stage('writing')
     with connect() as db, academic_runtime.transaction(db):

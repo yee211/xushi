@@ -202,16 +202,20 @@ def list_records(schedule_id: int, user=Depends(get_current_user)):
         active_keys = {(a["course_id"], a["week"]) for a in active_adjustments}
 
         results = []
+        seen_keys = set()
         for row in rows:
             item = row_dict(row)
             details = item.get("details") or []
             if isinstance(details, list):
                 for sub in details:
                     if isinstance(sub, dict) and sub.get("course_id") and sub.get("week"):
-                        sub["can_revoke"] = (sub["course_id"], sub["week"]) in active_keys
+                        key = (sub["course_id"], sub["week"])
+                        sub["can_revoke"] = key in active_keys and key not in seen_keys
             item["details"] = details
             item["can_revoke"] = any(isinstance(sub, dict) and sub.get("can_revoke") for sub in details)
             results.append(item)
+            seen_keys.update((sub["course_id"], sub["week"]) for sub in details
+                             if isinstance(sub, dict) and sub.get("course_id") and sub.get("week"))
         return results
 
 
@@ -219,6 +223,20 @@ def list_records(schedule_id: int, user=Depends(get_current_user)):
 def delete_record(record_id: int, user=Depends(get_current_user)):
     """删除指定的调课或课程修改历史记录。"""
     with connect() as db:
+        active = db.execute("""SELECT 1 FROM course_change_logs l
+            JOIN schedules s ON s.id=l.schedule_id,
+            LATERAL jsonb_array_elements(l.details) d
+            WHERE l.id=%s AND s.user_id=%s AND EXISTS (
+                SELECT 1 FROM course_adjustments a JOIN courses c ON c.id=a.course_id
+                WHERE c.schedule_id=s.id AND d->>'course_id'=a.course_id::text
+                  AND d->>'week'=a.week::text)
+            AND NOT EXISTS (SELECT 1 FROM course_change_logs newer,
+                LATERAL jsonb_array_elements(newer.details) nd
+                WHERE newer.schedule_id=s.id AND newer.id>l.id
+                  AND nd->>'course_id'=d->>'course_id' AND nd->>'week'=d->>'week')""",
+            (record_id, user["id"])).fetchone()
+        if active:
+            raise HTTPException(409, "请先撤销当前生效的调课，再删除记录")
         row = db.execute(
             """DELETE FROM course_change_logs
                WHERE id=%s AND schedule_id IN (SELECT id FROM schedules WHERE user_id=%s)
@@ -236,7 +254,7 @@ def revoke_adjustment_record(record_id: int, user=Depends(get_current_user)):
         record = db.execute(
             """SELECT l.* FROM course_change_logs l
                JOIN schedules s ON s.id=l.schedule_id
-               WHERE l.id=%s AND s.user_id=%s""",
+               WHERE l.id=%s AND s.user_id=%s FOR UPDATE OF s""",
             (record_id, user["id"]),
         ).fetchone()
         if not record:
@@ -250,8 +268,13 @@ def revoke_adjustment_record(record_id: int, user=Depends(get_current_user)):
                        USING courses c, schedules s
                        WHERE a.course_id=%s AND a.week=%s
                          AND c.id=a.course_id AND s.id=c.schedule_id AND s.user_id=%s
+                         AND s.id=%s AND NOT EXISTS (
+                             SELECT 1 FROM course_change_logs newer,
+                                 LATERAL jsonb_array_elements(newer.details) d
+                             WHERE newer.schedule_id=s.id AND newer.id>%s
+                               AND d->>'course_id'=a.course_id::text AND d->>'week'=a.week::text)
                        RETURNING a.id""",
-                    (item["course_id"], item["week"], user["id"]),
+                    (item["course_id"], item["week"], user["id"], record["schedule_id"], record_id),
                 ).fetchone()
                 if deleted:
                     revoked += 1

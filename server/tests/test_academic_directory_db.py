@@ -11,6 +11,7 @@ from app.services import academic_directory as directory
 
 original_search = directory.search
 original_student = directory.student
+original_collect = directory.collect
 pytestmark = pytest.mark.skipif(os.getenv('TEST_ACADEMIC_DIRECTORY_DB') != '1', reason='Requires PostgreSQL')
 
 
@@ -169,3 +170,26 @@ def test_by_number_pattern_resolves_masked_number(database):
     twin = dict(record('m3', '赵六'), student_number_display='2024****0706')
     seed(database, [masked, other, twin])
     assert directory.by_number_pattern('202412340706') is None  # 掩码撞车时不选定
+
+
+def test_ambiguous_empty_class_preserves_old_class_and_refreshes_others(database, monkeypatch):
+    seed(database, [dict(record('old-student'), class_id='a')])
+    class Client:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def grades(self): return ['2024']
+        def json(self, *args, **kwargs):
+            return [{'id': 'dept', 'zyxxList': [{'id': 'major', 'bjxxList': [{'id': 'a'}, {'id': 'b'}]}]}]
+        def request(self, *args, **kwargs):
+            if kwargs['params']['bjid'] == 'a':
+                return '<div>暂无数据</div>'
+            return '<a class="xskb-link" data-id="newstudent123" data-name="新同学" data-xnxq="2026-2027-1"></a>'
+    monkeypatch.setattr(academic, 'CcsutClient', Client)
+    directory._stop.clear()
+    grades, students = original_collect(lambda *args: None)
+    by_id = {row['id']: row for row in students}
+    assert by_id['old-student']['directory_stale']
+    assert 'newstudent123' in by_id
+    with database() as db:
+        directory.publish(db, grades, students)
+    assert directory.student('old-student')['directory_stale']

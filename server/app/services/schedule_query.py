@@ -130,7 +130,7 @@ def next_course(db, user_id: int, now: datetime | None = None, lookahead_days: i
     timezone = ZoneInfo(APP_TIMEZONE)
     current = now.astimezone(timezone) if now and now.tzinfo else (
         now.replace(tzinfo=timezone) if now else datetime.now(timezone))
-    for offset in range(max(0, min(int(lookahead_days), 30)) + 1):
+    for offset in range(max(1, min(int(lookahead_days), 30))):
         target = current.date() + timedelta(days=offset)
         try:
             result = query_courses_by_date(db, user_id, target, "all", default_schedule_id)
@@ -161,7 +161,8 @@ def query_courses_by_week(db, user_id: int, anchor_date: date,
             result = query_courses_by_date(db, user_id, target, "all", default_schedule_id)
         except ScheduleQueryError as error:
             if error.code == "OUTSIDE_TERM":
-                days.append({"date": target.isoformat(), "weekday": target.isoweekday(), "courses": []})
+                days.append({"date": target.isoformat(), "weekday": target.isoweekday(), "courses": [],
+                             "outside_term": True, "schedule_id": default_schedule_id})
                 continue
             raise
         days.append(result)

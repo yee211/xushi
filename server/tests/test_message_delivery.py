@@ -17,6 +17,7 @@ def delivery(monkeypatch):
     monkeypatch.setattr(worker, "connect", lambda: db)
     monkeypatch.setattr(worker, "claim_message", lambda *args: True)
     monkeypatch.setattr(worker, "complete_message", MagicMock())
+    monkeypatch.setattr(worker, "quarantine_message", lambda *args: False)
     replies = {}
     monkeypatch.setattr(worker, "load_reply", lambda db, a, m: replies.get((a, m)))
     def save(db, a, m, text):
@@ -67,6 +68,7 @@ def test_persistence_failure_never_sends_unrecoverable_reply(delivery, monkeypat
 def test_completed_duplicate_does_not_send_again(delivery, monkeypatch):
     client, message, agent, limiter, replies = delivery
     monkeypatch.setattr(worker, "claim_message", lambda *args: False)
+    monkeypatch.setattr(worker, "message_completed", lambda *args: True)
     assert worker.process_message(client, message)
     client.send_text.assert_not_called()
     agent.assert_not_called()
@@ -138,3 +140,12 @@ def test_send_succeeded_but_ack_failed_retries_same_reply(delivery, monkeypatch)
     assert worker.process_message(client, message)
     assert client.send_text.call_args == sent
     agent.assert_called_once()
+
+
+def test_busy_message_prevents_cursor_advance(delivery, monkeypatch):
+    client, message, agent, _, _ = delivery
+    monkeypatch.setattr(worker, "claim_message", lambda *args: False)
+    monkeypatch.setattr(worker, "message_completed", lambda *args: False)
+    assert worker.process_message(client, message) is False
+    client.send_text.assert_not_called()
+    agent.assert_not_called()

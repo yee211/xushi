@@ -50,7 +50,7 @@ Page({
       } catch (_) {}
       this.setData({ savedPeople: [] })
       return []
-    } finally { if (current()) this.setData({ loadingSaved: false }) }
+    } finally { if (!this.closed && revision === this._savedRevision) this.setData({ loadingSaved: false }) }
   },
   async selectSavedPerson(person, saved = true) {
     if (this.data.busy) return

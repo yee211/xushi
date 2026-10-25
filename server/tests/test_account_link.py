@@ -112,7 +112,13 @@ class FakeLinkDb:
             return FakeResult([{"id": 1, "name": "默认课表", "term": "2026秋", "start_date": "2026-09-01", "end_date": "2027-01-20", "background": "", "variant_type": "original"}])
         if sql.startswith("INSERT INTO schedules"):
             return FakeResult([{"id": 101}])
+        if sql.startswith("SELECT * FROM courses WHERE schedule_id"):
+            return FakeResult([{"id": 11, "name": "test", "teacher": "", "room": "A101",
+                                "weekday": 1, "start_section": 1, "end_section": 2, "weeks": [1]}])
         if sql.startswith("INSERT INTO courses"):
+            return FakeResult([{"id": 111}], rowcount=1)
+        if sql.startswith("INSERT INTO course_adjustments"):
+            self.copied_adjustments = params
             return FakeResult([], rowcount=1)
         if sql.startswith("INSERT INTO academic_others"):
             target, source = params
@@ -308,7 +314,8 @@ def test_unlink_migrates_identities_and_preserves_schedule():
     assert call("UPDATE user_identities SET user_id=%s WHERE id=%s", db) == [(99, 3)]
     assert call("UPDATE channel_accounts SET owner_user_id=%s WHERE owner_user_id=%s AND provider='weixin_ilink'", db) == [(99, 9)]
     assert call("INSERT INTO schedules(user_id, name, term, start_date, end_date, background, variant_type)", db)
-    assert call("INSERT INTO courses(schedule_id, name, teacher, room, weekday, start_section, end_section, weeks, color)", db)
+    assert call("INSERT INTO courses", db)
+    assert db.copied_adjustments == (111, 11)
 
 
 def test_unlink_requires_bound_wechat():

@@ -14,6 +14,7 @@ def create_token(user_id: int, username: str) -> str:
     """签发包含用户标识与过期时间的 HS256 JWT。"""
     payload = {
         "sub": str(user_id),
+        "auth_issued_at": datetime.now(UTC).timestamp(),
         "username": username,
         "exp": datetime.now(UTC) + timedelta(minutes=JWT_EXPIRE_MINUTES),
     }

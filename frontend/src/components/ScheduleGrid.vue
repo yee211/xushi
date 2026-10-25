@@ -196,16 +196,11 @@ function computeGridMetrics() {
 function updateDragTarget(clientX, clientY) {
   if (!cachedMetrics) cachedMetrics = computeGridMetrics();
   if (!cachedMetrics || !drag.course) return;
-  const { rect, leftWidth, headerHeight, dayWidth, rowHeight } = cachedMetrics;
-  const rawDuration = drag.course.end_section - drag.course.start_section + 1;
-  const duration = rawDuration <= 2 ? 2 : rawDuration;
-  drag.weekday = Math.max(1, Math.min(7, Math.floor((clientX - rect.left - leftWidth) / dayWidth) + 1));
-  const rawSection = Math.floor((clientY - rect.top - headerHeight) / rowHeight) + 1;
-  // 默认对齐 2 节制大课时 (1-2, 3-4, 5-6, 7-8, 9-10)，起始节只能是奇数 1, 3, 5, 7, 9...
-  // 严格禁止出现跨大节的 2-3, 4-5, 6-7, 8-9
-  const blockIndex = Math.floor((rawSection - 1) / 2);
-  const maxStart = 2 * Math.floor((maxSections.value - duration) / 2) + 1;
-  drag.start = Math.max(1, Math.min(maxStart, blockIndex * 2 + 1));
+  const { dayWidth, rowHeight } = cachedMetrics;
+  const duration = drag.course.end_section - drag.course.start_section + 1;
+  drag.weekday = Math.max(1, Math.min(7, drag.course.weekday + Math.round((clientX - drag.x) / dayWidth)));
+  drag.start = Math.max(1, Math.min(maxSections.value - duration + 1,
+    drag.course.start_section + Math.round((clientY - drag.y) / rowHeight)));
   drag.dx = clientX - drag.x;
   drag.dy = clientY - drag.y;
 }
@@ -292,11 +287,7 @@ function beginDrag(event, course) {
   drag.x = event.clientX;
   drag.y = event.clientY;
   drag.weekday = course.weekday;
-  const rawDuration = course.end_section - course.start_section + 1;
-  const duration = rawDuration <= 2 ? 2 : rawDuration;
-  const blockIndex = Math.floor((course.start_section - 1) / 2);
-  const maxStart = 2 * Math.floor((maxSections.value - duration) / 2) + 1;
-  drag.start = Math.max(1, Math.min(maxStart, blockIndex * 2 + 1));
+  drag.start = course.start_section;
   drag.dx = 0;
   drag.dy = 0;
   drag.settling = false;
@@ -319,7 +310,7 @@ function finishDrag(event, cancelled = false) {
     const targetWeekday = drag.weekday;
     const targetStart = drag.start;
     const rawDuration = drag.course.end_section - drag.course.start_section + 1;
-    const duration = rawDuration <= 2 ? 2 : rawDuration;
+    const duration = rawDuration;
     const end = targetStart + duration - 1;
     const conflict = activeCourses.value.some(course => course.id !== sourceCourse.id
       && course.weekday === targetWeekday

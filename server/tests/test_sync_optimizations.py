@@ -11,6 +11,7 @@ from app.services import academic
 
 
 def test_cached_query_does_not_wait_for_refresh(monkeypatch):
+    academic._sync_connection_version()
     key = (academic._generation, "student01", "2026-2027-1")
     lock = threading.Lock()
     lock.acquire()

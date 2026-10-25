@@ -1,10 +1,10 @@
 """统一鉴权依赖：同一套 Bearer 头兼容两种令牌通道。
 
-- 网页/Android：/api/login、/api/register 签发的 HS256 JWT（无状态，形如 a.b.c）；
+- 网页/Android：/api/login、/api/register 签发的 HS256 JWT（形如 a.b.c，校验数据库吊销时间）；
 - 小程序：/api/auth/wechat 签发的随机 token（token_urlsafe，不含点），
   摘要存 sessions 表（可撤销、有过期）。
 
-分发规则：令牌形如 JWT（恰含两个点）直接走 JWT 校验，不产生数据库查询；
+分发规则：令牌形如 JWT（恰含两个点）直接走 JWT 校验并检查用户的吊销时间；
 其余令牌先查 sessions 表（主键命中），未命中再按 JWT 兜底解析——两类令牌
 空间不重叠，互不干扰。
 """
@@ -74,6 +74,13 @@ def _user_from_jwt(token: str) -> dict:
             raise ValueError("invalid user id")
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, KeyError, TypeError, ValueError):
         raise HTTPException(401, "无效的登录凭证")
+    with connect() as db:
+        row = db.execute("SELECT auth_revoked_at FROM users WHERE id=%s", (user_id,)).fetchone()
+    if not row:
+        raise HTTPException(401, "无效的登录凭证")
+    revoked_at = row.get("auth_revoked_at")
+    if revoked_at and float(payload.get("auth_issued_at", 0)) <= revoked_at.timestamp():
+        raise HTTPException(401, "登录已失效，请重新登录")
     return {"id": user_id, "openid": None, "email": None, "username": payload.get("username", "")}
 
 

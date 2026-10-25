@@ -206,8 +206,9 @@ def class_students(client, grade, dept, major, cls):
         'sznj': grade, 'yxid': dept['id'], 'zyid': major['id'], 'bjid': cls['id']})
     soup = BeautifulSoup(html, 'html.parser')
     links = soup.select('.xskb-link')
-    if not links and not re.search(r'暂无学生|暂无数据|没有学生|无学生', soup.get_text()):
-        raise academic.AcademicError('directory_invalid', '学生列表为空且无法确认完整性，保留原目录')
+    if not links and not re.search(r'暂无学生|没有学生|无学生', soup.get_text()):
+        code = 'directory_class_unavailable' if '暂无数据' in soup.get_text() else 'directory_invalid'
+        raise academic.AcademicError(code, '学生列表为空且无法确认完整性，保留原目录')
     result = []
     for link in links:
         sid, name, term = (link.get(k, '') for k in ('data-id', 'data-name', 'data-xnxq'))
@@ -234,7 +235,10 @@ def collect(progress):
                 raise academic.AcademicError('directory_invalid', '年级目录为空或格式异常，保留原目录')
             grade_classes = []
             for dept in tree:
-                for major in dept['zyxxList']:
+                majors = dept.get('zyxxList') if isinstance(dept, dict) else None
+                if not isinstance(majors, list):
+                    raise academic.AcademicError('directory_invalid', '专业目录缺失，保留原目录')
+                for major in majors:
                     # The school omits bjxxList for majors with no classes.
                     class_list = major.get('bjxxList', [])
                     if not isinstance(class_list, list):
@@ -250,7 +254,20 @@ def collect(progress):
         for index, (grade, dept, major, cls) in enumerate(classes, 1):
             if _stop.is_set():
                 raise academic.AcademicError('directory_stopped', '目录同步已中止，可重新刷新', 503)
-            for item in class_students(client, grade, dept, major, cls):
+            try:
+                class_rows = class_students(client, grade, dept, major, cls)
+            except academic.AcademicError as error:
+                if error.code != 'directory_class_unavailable':
+                    raise
+                with connect() as db:
+                    prior = db.execute("""SELECT payload FROM academic_directory_students
+                        WHERE grade=%s AND payload->>'class_id'=%s""", (grade, str(cls['id']))).fetchall()
+                if not prior:
+                    raise  # No safe fallback for a class that has never been published.
+                class_rows = [dict(row['payload'], directory_stale=True) for row in prior]
+                logger.warning("School class temporarily unavailable; preserved %s students grade=%s class=%s",
+                               len(class_rows), grade, cls['id'])
+            for item in class_rows:
                 if item['id'] in students and students[item['id']] != item:
                     raise academic.AcademicError('directory_invalid', '目录中学生标识冲突，保留原目录')
                 students[item['id']] = item

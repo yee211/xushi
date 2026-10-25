@@ -56,8 +56,7 @@ def export_verified(context, page, expected_account):
     if not username:
         raise ValueError("account_mismatch")
     if expected_account and username != expected_account:
-        if not (len(expected_account) == 11 and expected_account.isdigit()):
-            raise ValueError("account_mismatch")
+        raise ValueError("account_mismatch")
     cookie = "; ".join(item["name"] + "=" + item["value"] for item in cookies)
     agent = page.evaluate("navigator.userAgent")
     # Playwright's sync API runs its own asyncio loop in this thread.
@@ -85,10 +84,11 @@ def main():
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--interval", type=int, default=600, help="Health-check interval; not a proven school expiry time")
     parser.add_argument("--login-timeout", type=int, default=600)
-    parser.add_argument("--account", default=os.getenv("CCSUT_EXPECTED_ACCOUNT", ""))
+    parser.add_argument("--account", default=os.getenv("CCSUT_EXPECTED_ACCOUNT", ""),
+                        help="Exact school username cookie value (usually student ID), not the SMS login phone")
     args = parser.parse_args()
     if not args.account:
-        parser.error("Set CCSUT_EXPECTED_ACCOUNT or --account to your school account.")
+        parser.error("Set CCSUT_EXPECTED_ACCOUNT or --account to the exact school username cookie (usually student ID).")
     if len(os.getenv("ADMIN_SESSION_SECRET", "")) < 32:
         parser.error("Use the same ADMIN_SESSION_SECRET as the API, at least 32 characters.")
     try:

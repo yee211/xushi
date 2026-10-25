@@ -127,8 +127,8 @@
             </div>
           </div>
           <div class="glass panel">
-            <h2>会话缓存清除 (Force Re-auth)</h2>
-            <p class="meta mb-14">清除指定用户在 Redis 中的所有 Session 鉴权缓存。对应用户下次请求将重新读取数据库并刷新缓存。</p>
+            <h2>吊销用户会话</h2>
+            <p class="meta mb-14">吊销指定用户的小程序登录会话及此前签发的网页/Android 令牌。用户需要重新登录。</p>
             <div class="action-input-row">
               <input id="sessionUserIdInput" type="number" placeholder="输入目标用户 ID，例如 10001">
               <button id="sessionSubmitBtn" type="button" class="ghost danger-text">清除会话</button>

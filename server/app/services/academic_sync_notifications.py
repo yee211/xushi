@@ -45,7 +45,7 @@ def classify_error(error) -> str:
             return "binding_changed"
         if "绑定学校" in detail:
             return "school_not_bound"
-        if "学校连接暂不可用" in detail:
+        if "学校连接暂不可用" in detail or "学校返回的课表不完整" in detail:
             return "snapshot_incomplete"
         return "sync_rejected"
     return "internal_error"
@@ -68,7 +68,7 @@ FAILURES = {
     "snapshot_incomplete": "未能取得完整的学校课表，请检查教务连接后重试。",
     "worker_interrupted": "同步多次被中断，请重新发起同步。",
 }
-INVALID_DATA = {"schedule_invalid", "schedule_mismatch", "upstream_invalid", "calendar_invalid",
+INVALID_DATA = {"schedule_incomplete", "schedule_invalid", "schedule_mismatch", "upstream_invalid", "calendar_invalid",
                 "terms_invalid", "report_invalid", "upstream_url_invalid", "upstream_too_large"}
 
 
@@ -113,16 +113,16 @@ def subscribe(db, job: dict, target: dict | None) -> bool:
             (job["id"], job["user_id"], target["provider"], target["sender_id"],
              target["account_id"], target["message_id"])).fetchone()
         return bool(existing and existing.get("followup") == plan)
-    db.execute("""INSERT INTO academic_sync_notifications(id,job_id,user_id,provider,sender_id,account_id,message_id)
+    row = db.execute("""INSERT INTO academic_sync_notifications(id,job_id,user_id,provider,sender_id,account_id,message_id)
         VALUES(%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT(job_id,provider,sender_id,account_id) DO UPDATE SET message_id=EXCLUDED.message_id
         WHERE academic_sync_notifications.state='pending' AND academic_sync_notifications.followup IS NULL AND NOT EXISTS (
             SELECT 1 FROM channel_messages m WHERE m.provider=academic_sync_notifications.provider
             AND m.account_id=academic_sync_notifications.account_id
-            AND m.message_id=academic_sync_notifications.message_id AND m.status='done')""",
+            AND m.message_id=academic_sync_notifications.message_id AND m.status='done') RETURNING id""",
         (uuid.uuid4(), job["id"], job["user_id"], target["provider"], target["sender_id"],
-         target["account_id"], target["message_id"]))
-    return True
+         target["account_id"], target["message_id"])).fetchone()
+    return bool(row)
 
 
 def claim(db):
@@ -138,7 +138,8 @@ def claim(db):
             AND n.available_at<=CURRENT_TIMESTAMP
             AND EXISTS (SELECT 1 FROM channel_messages m WHERE m.provider=n.provider
                 AND m.account_id=n.account_id AND m.message_id=n.message_id
-                AND (m.status='done' OR (m.status='failed' AND m.attempts>=3)))
+                AND (m.status='done' OR m.status='dead_letter'
+                     OR (m.status='failed' AND m.attempts>=3)))
             ORDER BY n.created_at LIMIT 1 FOR UPDATE OF n SKIP LOCKED)
         RETURNING *""", (uuid.uuid4(),)).fetchone()
     if not row:

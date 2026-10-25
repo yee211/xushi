@@ -23,8 +23,9 @@ def database(monkeypatch):
     if not dsn:
         pytest.skip("dedicated local PostgreSQL not configured")
     parsed = urlsplit(dsn)
-    if parsed.hostname not in {"127.0.0.1", "localhost"} or parsed.port != 55439:
-        pytest.fail("followup integration requires isolated localhost:55439")
+    expected_port = int(os.getenv("XUSHI_FOLLOWUP_TEST_PORT", "55439"))
+    if parsed.hostname not in {"127.0.0.1", "localhost"} or parsed.port != expected_port:
+        pytest.fail(f"followup integration requires isolated localhost:{expected_port}")
     schema = "followup_test_" + uuid.uuid4().hex
     with psycopg.connect(dsn, autocommit=True) as admin:
         admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))

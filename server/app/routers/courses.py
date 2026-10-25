@@ -180,7 +180,7 @@ def upsert_adjustment(
     with connect() as db:
         course = db.execute(
             """SELECT c.*,s.variant_type FROM courses c JOIN schedules s ON s.id=c.schedule_id
-               WHERE c.id=%s AND s.user_id=%s FOR UPDATE OF c""",
+               WHERE c.id=%s AND s.user_id=%s FOR UPDATE OF c,s""",
             (course_id, user["id"]),
         ).fetchone()
         if not course:

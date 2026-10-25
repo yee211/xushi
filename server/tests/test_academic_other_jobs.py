@@ -17,6 +17,7 @@ pytestmark = pytest.mark.skipif(os.getenv("TEST_ACADEMIC_DIRECTORY_DB") != "1", 
 def queue(database, monkeypatch):
     monkeypatch.setattr(jobs, "connect", database)
     with database() as db:
+        db.execute("CREATE TABLE academic_sync_control(id INTEGER PRIMARY KEY,pause_until TIMESTAMPTZ)")
         for statement in jobs.SCHEMA:
             db.execute(statement)
     return database
@@ -143,7 +144,7 @@ def test_stale_active_batch_is_expired_and_replaced(queue):
     others.save(1, "student-a", "2026-2027-1", "室友")
     old = jobs.enqueue(1)
     with queue() as db:
-        db.execute("""UPDATE academic_other_sync_jobs SET updated_at=CURRENT_TIMESTAMP-INTERVAL '20 minutes'
+        db.execute("""UPDATE academic_other_sync_jobs SET state='running',updated_at=CURRENT_TIMESTAMP-INTERVAL '20 minutes'
             WHERE id=%s""", (old["id"],))
     expired = jobs.read(1)
     assert expired["state"] == "failed" and expired["failed"] == 1
@@ -183,3 +184,24 @@ def test_single_refresh_scope_and_active_conflict(queue):
         with pytest.raises(HTTPException) as caught:
             jobs.enqueue(1, student_ids=ids)
         assert caught.value.status_code == 409
+
+
+def test_queued_batch_does_not_expire_while_globally_paused(queue):
+    others.save(1, "student-a", "2026-2027-1")
+    job = jobs.enqueue(1)
+    with queue() as db:
+        db.execute("UPDATE academic_other_sync_jobs SET updated_at=CURRENT_TIMESTAMP-INTERVAL '20 minutes'")
+        db.execute("INSERT INTO academic_sync_control VALUES(1,CURRENT_TIMESTAMP+INTERVAL '1 hour')")
+    assert jobs.read(1)["state"] == "queued"
+    assert not jobs.process_one()
+    assert jobs.read(1)["id"] == job["id"]
+
+
+def test_queued_batch_eventually_expires_and_can_be_replaced(queue):
+    others.save(1, "student-a", "2026-2027-1")
+    old = jobs.enqueue(1)
+    with queue() as db:
+        db.execute("UPDATE academic_other_sync_jobs SET created_at=CURRENT_TIMESTAMP-INTERVAL '25 hours'")
+        db.execute("INSERT INTO academic_sync_control VALUES(1,CURRENT_TIMESTAMP+INTERVAL '1 day')")
+    assert jobs.read(1)["state"] == "failed"
+    assert jobs.enqueue(1)["id"] != old["id"]

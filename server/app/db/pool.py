@@ -10,6 +10,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from psycopg import connect as pg_connect
+from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -17,7 +18,10 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
 load_dotenv(ROOT / ".env")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres@127.0.0.1:5432/xushi_schedule")
+DATABASE_URL = os.getenv("DATABASE_URL", "") or make_conninfo(
+    host=os.getenv("PGHOST", "127.0.0.1"), port=os.getenv("PGPORT", "5432"),
+    user=os.getenv("PGUSER", "postgres"), dbname=os.getenv("PGDATABASE", "xushi_schedule"),
+    password=os.getenv("PGPASSWORD", ""))
 
 _pool: ConnectionPool | None = None
 

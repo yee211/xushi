@@ -378,3 +378,18 @@ test('term picker switches schedules in mine scope when multiple exist', async (
   assert.match(actionItems[1].text, /📅 2026-2027-1/)
   assert.equal(page.data.schedule.id, 102)
 })
+
+
+test('automatic session renewal always releases saved-list loading state', async () => {
+  let storage
+  const harness = searchHarness(async () => {
+    storage.set('session_token', 'renewed-session')
+    return { people: [person] }
+  })
+  storage = harness.storage
+  await harness.page.loadSavedPeople()
+  assert.equal(harness.page.data.loadingSaved, false)
+  assert.equal(harness.page.data.savedPeople.length, 0)
+  await harness.page.loadSavedPeople()
+  assert.equal(harness.page.data.savedPeople.length, 1)
+})

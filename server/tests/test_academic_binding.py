@@ -98,6 +98,11 @@ def db(monkeypatch):
 
 
 def test_android_and_miniapp_share_binding_and_sync_contract(db, monkeypatch):
+    from unittest.mock import MagicMock
+    auth_db = MagicMock()
+    auth_db.__enter__.return_value = auth_db
+    auth_db.execute.return_value.fetchone.return_value = {"auth_revoked_at": None}
+    monkeypatch.setattr(deps, "connect", lambda: auth_db)
     monkeypatch.setattr(deps, "_user_from_session", lambda token: {"id": 5 if token == "wx-shared" else 6})
     app = FastAPI()
     app.include_router(routes.router)

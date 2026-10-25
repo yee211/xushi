@@ -48,7 +48,7 @@ def snapshot_note(person):
 def render_other_facts(facts, today: date):
     if not any(f.get("skill") in OTHER_TOOLS for f in facts):
         return None
-    relevant = [f for f in facts if f.get("skill") in OTHER_TOOLS | {"query_day_courses"}]
+    relevant = [f for f in facts if not f.get("_superseded") and f.get("skill") in OTHER_TOOLS | {"query_day_courses"}]
     if any(f["result"].get("error") for f in relevant):
         return None
     parts = []
@@ -60,14 +60,18 @@ def render_other_facts(facts, today: date):
             parts.append(f"{result['start_date']} 至 {result['end_date']}，{name}和我的不同课程："
                          + snapshot_note(person))
             parts.append("按同一天的课程名、上课时间、教师和教室比较，任一不同即列出；基于已保存课表。")
+            if result.get("skipped_dates"):
+                parts.append("以下日期在学期范围外，未参与比较：" + "、".join(result["skipped_dates"]) + "。")
             different = False
             for day in result["days"]:
                 for role, label in (("other", name), ("me", "我")):
                     if day[role]["courses"]:
                         different = True
                         parts.append(label + "：\n" + render_day(DayCourses.model_validate(day[role]), today))
-            if not different:
-                parts.append("这一周双方课程完全一致，没有不同的课程。")
+            if not result["days"]:
+                parts.append("这一周没有双方均在学期内的可比较日期。")
+            elif not different:
+                parts.append("可比较日期的双方课程完全一致，没有不同的课程。")
         elif fact["skill"] == "check_group_availability":
             period = {"all": "全天", "morning": "上午", "afternoon": "下午", "evening": "晚上"}[result["period"]]
             parts.append(f"{result['date']}{period}（按已保存课表的上课节次比对）：")

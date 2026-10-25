@@ -261,6 +261,7 @@ def test_admin_requires_complete_configuration(monkeypatch):
 
 
 def test_llm_configs_get_and_update(monkeypatch):
+    monkeypatch.setenv("LLM_ALLOWED_BASE_URLS", "https://api.openai.com/v1")
     configure(monkeypatch)
     db = MockAdminDb()
     monkeypatch.setattr(admin, "connect", lambda: db)

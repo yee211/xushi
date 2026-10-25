@@ -14,6 +14,8 @@ from app.services.academic import AcademicError
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_SESSION_SECRET", "test-key-" + "x" * 40)
     monkeypatch.setattr(login, "DIRECTORY", tmp_path)
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "managed-browser-profile")
+    monkeypatch.setattr("app.services.academic.CONFIG_FILE", tmp_path / "connection.enc")
     monkeypatch.setattr(login, "CREDENTIALS", tmp_path / "credentials.enc")
     monkeypatch.setattr(login, "BROWSER_SESSION", tmp_path / "browser-session.enc")
     monkeypatch.setattr(login, "MAINTENANCE", tmp_path / "maintenance.json")
@@ -205,7 +207,7 @@ def test_login_run_recovers_gateway_and_waits_for_navigation(school_page, monkey
         login._commands.put(("stop", ""))
 
     monkeypatch.setattr(sync_api, "sync_playwright", Engine)
-    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "managed-browser-profile")
     monkeypatch.setattr(login, "credentials", lambda: {})
     monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry, export_verified=export))
     timeout = threading.Timer(8, lambda: login._commands.put(("stop", "")))
@@ -304,7 +306,7 @@ def test_portal_redirect_loop_ends_without_reopening_timetable(school_page, monk
         def __exit__(self, *_):
             pass
     monkeypatch.setattr(sync_api, "sync_playwright", Engine)
-    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "managed-browser-profile")
     monkeypatch.setattr(login, "credentials", lambda: {})
     monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry))
     timeout = threading.Timer(8, lambda: login._commands.put(("stop", "")))
@@ -344,7 +346,7 @@ def test_home_session_is_validated_through_timetable(school_page, monkeypatch, t
         exported.append(args[1].url)
         login._commands.put(("stop", ""))
     monkeypatch.setattr(sync_api, "sync_playwright", Engine)
-    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "managed-browser-profile")
     monkeypatch.setattr(login, "credentials", lambda: {})
     monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry, export_verified=export))
     timeout = threading.Timer(8, lambda: login._commands.put(("stop", "")))
@@ -463,7 +465,7 @@ def test_stalled_school_gateway_recovers_once_then_reports_timeout(school_page, 
         def __exit__(self, *_):
             pass
     monkeypatch.setattr(sync_api, "sync_playwright", Engine)
-    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "managed-browser-profile")
     monkeypatch.setattr(login, "credentials", lambda: {})
     monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry))
     monkeypatch.setattr(login, "GATEWAY_RECOVERY_SECONDS", 0.1)
@@ -539,7 +541,7 @@ def test_course_selection_redirect_navigates_to_timetable(school_page, monkeypat
         login._commands.put(("stop", ""))
 
     monkeypatch.setattr(sync_api, "sync_playwright", Engine)
-    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "managed-browser-profile")
     monkeypatch.setattr(login, "credentials", lambda: {})
     monkeypatch.setattr(login, "LANDING_SETTLE_SECONDS", 0.1)
     monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry, export_verified=export))
@@ -585,7 +587,7 @@ def test_intercepted_timetable_falls_back_to_http_verification(school_page, monk
         login._commands.put(("stop", ""))
 
     monkeypatch.setattr(sync_api, "sync_playwright", Engine)
-    monkeypatch.setattr(login, "PROFILE", tmp_path / "profile")
+    monkeypatch.setattr(login, "PROFILE", tmp_path / "managed-browser-profile")
     monkeypatch.setattr(login, "credentials", lambda: {"account": "13800138000"})
     monkeypatch.setattr(login, "LANDING_SETTLE_SECONDS", 0.05)
     monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry, export_verified=export))
@@ -598,3 +600,39 @@ def test_intercepted_timetable_falls_back_to_http_verification(school_page, monk
     assert exported == [xk_page]
     assert requests.count(entry) == login.MAX_TIMETABLE_REDIRECTS
 
+
+
+def test_changing_phone_clears_all_previous_session_state(monkeypatch):
+    login.save_credentials("13800138000")
+    login.BROWSER_SESSION.write_bytes(b"old-session")
+    login.PROFILE.mkdir()
+    (login.PROFILE / "cookies").write_text("old-cookies")
+    from app.services import academic
+    academic.CONFIG_FILE.write_bytes(b"old-connection")
+    login.save_credentials("13900139000")
+    assert not login.BROWSER_SESSION.exists()
+    assert not login.PROFILE.exists()
+    assert not academic.CONFIG_FILE.exists()
+    assert login.credentials()["account"] == "13900139000"
+    monkeypatch.setenv("CCSUT_COOKIE", "username=old-account")
+    with pytest.raises(AcademicError):
+        academic.connection_headers()
+    academic.save_connection("username=new-account", "test-agent")
+    assert academic.connection_headers()["Cookie"] == "username=new-account"
+
+
+def test_deleting_phone_also_clears_browser_profile():
+    login.save_credentials("13800138000")
+    login.PROFILE.mkdir()
+    (login.PROFILE / "cookies").write_text("old-cookies")
+    login.delete_credentials()
+    assert not login.PROFILE.exists()
+
+
+def test_changing_phone_clears_persisted_and_visible_verified_time():
+    login.save_credentials("13800138000")
+    login.save_maintenance(last_verified_at="2026-10-01T00:00:00+00:00")
+    login._state["last_verified_at"] = "2026-10-01T00:00:00+00:00"
+    login.save_credentials("13900139000")
+    assert login.maintenance_settings().get("last_verified_at") is None
+    assert login.status()["last_verified_at"] is None
