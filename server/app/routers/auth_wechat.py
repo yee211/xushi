@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from ..auth import get_openid, token_hash
 from ..db import connect
 from ..rate_limit import client_ip, login_limiter
-from ..redis import redis_set
+from ..redis import redis_get, redis_set
 from ..schemas import WechatLoginIn
 from ..settings import settings
 
@@ -37,6 +37,7 @@ def wechat_login(payload: WechatLoginIn, request: Request):
 
     ttl_seconds = int(session_days * 86400)
     user_dict = {"id": user["id"], "openid": user["openid"], "email": user["email"], "username": user["username"]}
-    redis_set(f"xushi:session:{digest}", json.dumps(user_dict), ex=ttl_seconds)
+    generation = redis_get(f"xushi:session:{digest}:generation") or "initial"
+    redis_set(f"xushi:session:{digest}:{generation}", json.dumps(user_dict), ex=ttl_seconds)
     request.state.authenticated_user_id = user["id"]
     return {"token": token, "expires_at": expires.isoformat()}

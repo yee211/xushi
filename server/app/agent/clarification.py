@@ -33,6 +33,7 @@ class PendingQuestion(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     version: str
     created_at: datetime
+    updated_at: datetime | None = None
     turns: list[tuple[str, str]] = Field(default_factory=list, max_length=3)
     schedules: list[Choice] = Field(default_factory=list, max_length=30)
     courses: list[Choice] = Field(default_factory=list, max_length=30)
@@ -67,7 +68,7 @@ def load(scope, version, now):
         if (
             pending.version != version
             or pending.created_at.tzinfo is None
-            or not timedelta(0) <= now - pending.created_at < timedelta(seconds=TTL)
+            or not timedelta(0) <= now - (pending.updated_at or pending.created_at) < timedelta(seconds=TTL)
         ):
             clear(scope)
             conversation._note_redis_recovery()
@@ -126,12 +127,11 @@ def person_choices(result):
             continue
         if not isinstance(args, dict):
             continue
-        if fact.get("skill") == "add_other_schedule" and item.get("status") == "ambiguous":
+        if fact.get("skill") == "add_other_schedule":
             return ([PersonChoice.model_validate(c) for c in item["candidates"][:8]],
                     {k: v for k, v in args.items() if k in {"keyword", "remark", "term"}})
-        if fact.get("skill") == "remove_other_schedule" and item.get("error") == "AMBIGUOUS_PERSON":
-            return ([PersonChoice.model_validate(c) for c in (item.get("candidates") or [])[:8]],
-                    {"action": "remove", **{k: v for k, v in args.items() if k in {"person"}}})
+        return ([PersonChoice.model_validate(c) for c in (item.get("candidates") or [])[:8]],
+                {"action": "remove", **{k: v for k, v in args.items() if k == "person"}})
     return [], {}
 
 

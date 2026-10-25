@@ -62,3 +62,11 @@ test('empty responses and authentication expiry keep existing behavior', async (
   assert.equal(storage.size, 0);
   assert.deepEqual(events, ['auth:expired']);
 });
+
+
+test('validation arrays expose actionable field errors', async () => {
+  globalThis.fetch = async () => ({ ok: false, status: 422, json: async () => ({
+    detail: [{ loc: ['body', 'name'], msg: '课程名不能为空' }],
+  }) });
+  await assert.rejects(api('/test'), /课程名不能为空/);
+});

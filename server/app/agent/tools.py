@@ -15,6 +15,7 @@ from ..services.academic_others import (
     search_and_save_other,
 )
 from ..services.schedule_query import (
+    ScheduleQueryError,
     find_course,
     list_course_catalog,
     next_course,
@@ -110,21 +111,28 @@ class ScheduleTools:
             return tuple(str(course.get(k) or "").strip() for k in
                          ("name", "start_time", "end_time", "teacher", "room"))
 
-        days = []
+        days, skipped_dates = [], []
         with self._connection() as db:
             row = resolve_saved_person(_load_saved_rows(db, self.context.user_id), person)
             for offset in range(7):
                 target = monday + timedelta(days=offset)
-                other = _materialize_other_row(row, target)
-                mine = query_courses_by_date(db, self.context.user_id, target, "all",
-                                             self.context.default_schedule_id)
+                try:
+                    other = _materialize_other_row(row, target)
+                    mine = query_courses_by_date(db, self.context.user_id, target, "all",
+                                                 self.context.default_schedule_id)
+                except ScheduleQueryError as error:
+                    if error.code == "OUTSIDE_TERM":
+                        skipped_dates.append(target.isoformat())
+                        continue
+                    raise
                 other_keys = {signature(c) for c in other["courses"]}
                 my_keys = {signature(c) for c in mine["courses"]}
                 days.append({"date": target.isoformat(),
                              "other": {**other, "courses": [c for c in other["courses"] if signature(c) not in my_keys]},
                              "me": {**mine, "courses": [c for c in mine["courses"] if signature(c) not in other_keys]}})
         return {"person": _person_meta(row), "start_date": monday.isoformat(),
-                "end_date": (monday + timedelta(days=6)).isoformat(), "days": days}
+                "end_date": (monday + timedelta(days=6)).isoformat(), "days": days,
+                **({"skipped_dates": skipped_dates} if skipped_dates else {})}
 
     def clear_other_schedules(self, confirm=False, expected_count: int | None = None) -> dict:
         # 不在此处 bool()：字符串 "false" 会被误判为真，收敛逻辑在 service 入口。

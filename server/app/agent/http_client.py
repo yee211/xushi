@@ -69,7 +69,8 @@ def get_llm_client() -> httpx.Client:
                         max_connections=50,
                         keepalive_expiry=30.0,
                     ),
-                    follow_redirects=True,
+                    follow_redirects=False,
+                    trust_env=False,
                 )
     return _client
 

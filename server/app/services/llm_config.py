@@ -101,7 +101,11 @@ def public_config(scope: str) -> dict:
 
 def save_llm_config(scope: str, values: dict, api_key: str | None, clear_api_key: bool = False) -> dict:
     current = get_llm_config(scope)
-    key = "" if clear_api_key else (api_key.strip() if api_key is not None else current["api_key"])
+    url = values["base_url"].strip().rstrip("/")
+    supplied_key = (api_key or "").strip()
+    if url:
+        validate_test_target(url, current["base_url"], not supplied_key or clear_api_key)
+    key = "" if clear_api_key else (supplied_key or current["api_key"])
     encrypted = encrypt_key(key)
     with connect() as db:
         db.execute("""INSERT INTO llm_configs(scope,base_url,api_key_encrypted,model,timeout_seconds,max_tokens,enable_thinking)
@@ -148,7 +152,8 @@ def test_llm_connection(scope: str, base_url: str = "", api_key: str | None = No
         raise ValueError("未知 LLM 配置分组")
     current = get_llm_config(scope)
     url = (base_url or current.get("base_url", "")).strip().rstrip("/")
-    key = api_key if api_key is not None else current.get("api_key", "")
+    supplied_key = (api_key or "").strip()
+    key = supplied_key or current.get("api_key", "")
     key = str(key or "").strip()
     target_model = (model or current.get("model", "")).strip()
 
@@ -162,7 +167,7 @@ def test_llm_connection(scope: str, base_url: str = "", api_key: str | None = No
         return {"ok": False, "error": "未指定模型名称 (model)"}
 
     try:
-        validate_test_target(url, current.get('base_url', ''), api_key is None)
+        validate_test_target(url, current.get('base_url', ''), not supplied_key)
     except (ValueError, OSError) as error:
         return {'ok': False, 'error': str(error)}
 

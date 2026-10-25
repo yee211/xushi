@@ -145,7 +145,7 @@ def admin_login(payload: AdminLoginIn, request: Request):
         raise HTTPException(429, "登录尝试过于频繁，请稍后再试", headers={"Retry-After": str(retry_after)})
     username, password, _ = _settings()
     # 优先匹配系统环境变量根管理员
-    if hmac.compare_digest(payload.username, username) and hmac.compare_digest(payload.password, password):
+    if hmac.compare_digest(payload.username.encode("utf-8"), username.encode("utf-8")) and hmac.compare_digest(payload.password.encode("utf-8"), password.encode("utf-8")):
         return {"token": issue_token(username), "username": username}
     # 匹配数据库管理员账号
     with connect() as db:
@@ -287,6 +287,8 @@ def update_llm_config(scope: str, payload: LlmConfigIn, admin: str = Depends(req
         raise HTTPException(400, "接口地址必须以 http:// 或 https:// 开头")
     try:
         result = save_llm_config(scope, payload.model_dump(), payload.api_key, payload.clear_api_key)
+    except (ValueError, OSError) as error:
+        raise HTTPException(400, str(error)) from error
     except RuntimeError as error:
         raise HTTPException(503, str(error)) from error
     with connect() as db:
@@ -660,10 +662,12 @@ def clear_ratelimit(payload: ClearRateLimitIn, admin: str = Depends(require_supe
 
 @router.post("/system/redis/clear-session")
 def clear_user_sessions(payload: ClearSessionIn, admin: str = Depends(require_superadmin)):
-    """清除指定用户的 Redis 会话缓存（强制重新鉴权）。"""
+    """吊销指定用户的小程序会话和此前签发的 JWT。"""
     from ..auth.deps import invalidate_session_cache
     with connect() as db:
         sessions = db.execute("SELECT token_hash FROM sessions WHERE user_id=%s", (payload.user_id,)).fetchall()
+        db.execute("DELETE FROM sessions WHERE user_id=%s", (payload.user_id,))
+        db.execute("UPDATE users SET auth_revoked_at=clock_timestamp() WHERE id=%s", (payload.user_id,))
         db.execute("""INSERT INTO admin_audit_logs(admin_name,action,target_type,target_id,details)
             VALUES(%s,'session_cache.clear','user',%s,%s::jsonb)""",
             (admin, str(payload.user_id), json.dumps({'cleared_count': len(sessions)})))

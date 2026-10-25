@@ -88,7 +88,7 @@ export async function api(url, options = {}) {
       // 服务端暂不可达：与断网同走离线兜底（区别于鉴权失败）
       throw offlineError((body.detail?.message || (typeof body.detail === 'string' ? body.detail : '服务暂不可用，请稍后重试')));
     }
-    throw new Error((body.detail?.message || (typeof body.detail === 'string' ? body.detail : '请求失败')));
+    throw new Error((body.detail?.message || (Array.isArray(body.detail) ? body.detail.map(item => item.msg).filter(Boolean).join('；') : (typeof body.detail === 'string' ? body.detail : '请求失败'))));
   }
 
   return response.status === 204 ? null : body;

@@ -220,6 +220,13 @@
         </view>
       </view>
 
+      <view class="mine-service-item card" wx:if="{{schedule && scheduleScope === 'mine' && !schedule.academic_student_id}}" bindtap="openSemester" hover-class="mine-service-item-hover">
+        <view class="service-text-col">
+          <text class="service-title">学期设置</text>
+          <text class="service-desc">修改备用课表学期日期或删除课表</text>
+        </view>
+        <text class="service-arrow">›</text>
+      </view>
       <!-- 模块 2：同学课表 -->
       <view class="mine-service-item card" hover-class="mine-service-item-hover" hover-stay-time="80" bindtap="openOtherFromMine">
         <view class="service-icon-box icon-purple">

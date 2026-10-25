@@ -95,7 +95,7 @@
     <text>助手仅用于为你查询当前绑定的个人课表与提醒，数据严格隔离且仅限本人访问，不会修改你的课表内容。</text>
   </view>
 
-  <view class="feedback-entry" bindtap="openFeedback" hover-class="feedback-entry-hover" wx:if="{{false}}">
+  <view class="feedback-entry" bindtap="openFeedback" hover-class="feedback-entry-hover">
     <view class="feedback-entry-copy">
       <text class="feedback-entry-title">遇到问题？</text>
       <text class="feedback-entry-desc">提交问题反馈，帮助我们继续改进序时</text>

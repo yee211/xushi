@@ -1,11 +1,16 @@
 """Encrypted iLink credentials and durable polling/message state."""
 import base64
 import hashlib
+import json
+import logging
 import os
+from dataclasses import asdict
 
 from Crypto.Cipher import AES
 
-from .protocol import Credentials
+from .protocol import Credentials, InboundText
+
+MAX_MESSAGE_ATTEMPTS = 3
 
 
 def credential_key() -> bytes:
@@ -66,7 +71,11 @@ def load_accounts(db) -> list[tuple[Credentials, str, str]]:
         FROM channel_accounts WHERE provider='weixin_ilink' AND status='active' ORDER BY id""").fetchall()
     accounts = []
     for row in rows:
-        token = decrypt_token(row["bot_token_encrypted"])
+        try:
+            token = decrypt_token(row["bot_token_encrypted"])
+        except RuntimeError:
+            logging.getLogger(__name__).error("Skipping unreadable iLink credentials account=%s", row["account_id"])
+            continue
         fingerprint = hashlib.sha256(token.encode()).hexdigest()[:16]
         accounts.append((Credentials(row["account_id"], token, row["api_base_url"],
                                      row["admin_user_id"] or ""), row["update_cursor"] or "", fingerprint))
@@ -87,8 +96,66 @@ def claim_message(db, account_id: str, message_id: str) -> bool:
         row = db.execute("""UPDATE channel_messages SET status='processing',error='',processed_at=NULL,
             received_at=CURRENT_TIMESTAMP,attempts=attempts+1
             WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s
-            AND attempts<3 AND (status='failed' OR (status='processing' AND received_at<CURRENT_TIMESTAMP-INTERVAL '5 minutes'))
-            RETURNING message_id""", (account_id, message_id)).fetchone()
+            AND attempts<%s AND (status='failed' OR (status='processing' AND received_at<CURRENT_TIMESTAMP-INTERVAL '5 minutes'))
+            RETURNING message_id""", (account_id, message_id, MAX_MESSAGE_ATTEMPTS)).fetchone()
+    return bool(row)
+
+
+def message_completed(db, account_id: str, message_id: str) -> bool:
+    row = db.execute("""SELECT status FROM channel_messages
+        WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s""",
+        (account_id, message_id)).fetchone()
+    return bool(row and row["status"] in {"done", "dead_letter"})
+
+
+def quarantine_message(db, message: InboundText) -> bool:
+    """Persist exhausted messages before allowing the polling cursor to advance."""
+    row = db.execute("""SELECT attempts,error FROM channel_messages
+        WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s AND attempts>=%s
+        AND (status='failed' OR (status='processing' AND received_at<CURRENT_TIMESTAMP-INTERVAL '5 minutes'))
+        FOR UPDATE""", (message.account_id, message.message_id, MAX_MESSAGE_ATTEMPTS)).fetchone()
+    if not row:
+        return False
+    db.execute("""INSERT INTO channel_message_dead_letters(provider,account_id,message_id,payload,error,attempts)
+        VALUES('weixin_ilink',%s,%s,%s::jsonb,%s,%s)
+        ON CONFLICT(provider,account_id,message_id) DO UPDATE SET payload=EXCLUDED.payload,
+        error=EXCLUDED.error,attempts=EXCLUDED.attempts,resolved_at=NULL""",
+        (message.account_id, message.message_id, json.dumps(asdict(message), default=str, ensure_ascii=False),
+         row["error"], row["attempts"]))
+    db.execute("""UPDATE channel_messages SET status='dead_letter',processed_at=CURRENT_TIMESTAMP
+        WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s""",
+        (message.account_id, message.message_id))
+    logging.getLogger(__name__).error("Message quarantined for manual replay account=%s message=%s attempts=%s",
+                                     message.account_id, message.message_id, row["attempts"])
+    return True
+
+
+def prepare_replay(db, account_id: str, message_id: str) -> InboundText:
+    from datetime import datetime
+    # 接受 failed：重放中途崩溃会留下 failed + 未解决死信，必须仍可再次领取。
+    row = db.execute("""SELECT d.payload FROM channel_message_dead_letters d
+        JOIN channel_messages m USING(provider,account_id,message_id)
+        WHERE d.provider='weixin_ilink' AND d.account_id=%s AND d.message_id=%s
+        AND d.resolved_at IS NULL AND m.status IN ('dead_letter','failed') FOR UPDATE OF m""",
+        (account_id, message_id)).fetchone()
+    if not row:
+        raise ValueError("Message is not an unresolved dead letter")
+    payload = dict(row["payload"])
+    payload["received_at"] = datetime.fromisoformat(payload["received_at"])
+    message = InboundText(**payload)
+    db.execute("""UPDATE channel_messages SET status='failed',attempts=0,processed_at=NULL
+        WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s""", (account_id, message_id))
+    return message
+
+
+def restore_dead_letter(db, account_id: str, message_id: str) -> bool:
+    """重放失败后放回死信态：游标不会回退，failed 无人再投递，必须回到可重放、可排查的口径。"""
+    row = db.execute("""UPDATE channel_messages m SET status='dead_letter'
+        FROM channel_message_dead_letters d
+        WHERE d.provider=m.provider AND d.account_id=m.account_id AND d.message_id=m.message_id
+        AND m.provider='weixin_ilink' AND m.account_id=%s AND m.message_id=%s
+        AND d.resolved_at IS NULL AND m.status='failed' RETURNING m.message_id""",
+        (account_id, message_id)).fetchone()
     return bool(row)
 
 
@@ -101,7 +168,8 @@ def reset_stale_processing(db) -> int:
     """
     rows = db.execute("""UPDATE channel_messages SET status='failed',
         error='worker 上次运行未完成', received_at=CURRENT_TIMESTAMP
-        WHERE provider='weixin_ilink' AND status='processing' RETURNING message_id""").fetchall()
+        WHERE provider='weixin_ilink' AND status='processing'
+        AND received_at<CURRENT_TIMESTAMP-INTERVAL '5 minutes' RETURNING message_id""").fetchall()
     return len(rows)
 
 
@@ -109,6 +177,10 @@ def complete_message(db, account_id: str, message_id: str, error: str = "") -> N
     db.execute("""UPDATE channel_messages SET status=%s,error=%s,processed_at=CURRENT_TIMESTAMP
         WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s""",
         ("failed" if error else "done", error[:1000], account_id, message_id))
+    if not error:
+        db.execute("""UPDATE channel_message_dead_letters SET resolved_at=CURRENT_TIMESTAMP
+            WHERE provider='weixin_ilink' AND account_id=%s AND message_id=%s AND resolved_at IS NULL""",
+            (account_id, message_id))
 
 
 def load_reply(db, account_id: str, message_id: str) -> str | None:

@@ -1,4 +1,5 @@
 """Administrator-controlled normal school login in a dedicated browser thread."""
+import hashlib
 import importlib.util
 import json
 import logging
@@ -6,6 +7,7 @@ import os
 import queue
 import re
 import secrets
+import shutil
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -90,9 +92,9 @@ def resume():
         return
     try:
         start()
-    except AcademicError as error:
+    except (AcademicError, OSError) as error:
         update("needs_login", "无法自动恢复，请检查浏览器依赖和学校手机号后重新发起维护",
-               error_type=error.code)
+               error_type=getattr(error, "code", type(error).__name__))
 
 
 def shutdown():
@@ -103,17 +105,28 @@ def shutdown():
 
 
 def save_credentials(account):
-    account = account.strip()
-    if not re.fullmatch(r"1[0-9]{10}", account):
-        raise AcademicError("credentials_invalid", "请输入学校绑定的 11 位手机号", 422)
-    cipher = AES.new(_key(), AES.MODE_GCM, nonce=os.urandom(12))
-    raw, tag = cipher.encrypt_and_digest(json.dumps({"account": account}).encode())
-    DIRECTORY.mkdir(parents=True, exist_ok=True)
-    temporary = CREDENTIALS.with_name("credentials-" + secrets.token_hex(8) + ".tmp")
-    temporary.write_bytes(cipher.nonce + tag + raw)
-    if os.name != "nt":
-        temporary.chmod(0o600)
-    temporary.replace(CREDENTIALS)
+    with _lock:
+        account = account.strip()
+        if not re.fullmatch(r"1[0-9]{10}", account):
+            raise AcademicError("credentials_invalid", "请输入学校绑定的 11 位手机号", 422)
+        try:
+            changed = credentials()["account"] != account
+        except AcademicError:
+            changed = True
+        if changed:
+            if _thread and _thread.is_alive():
+                raise AcademicError("login_running", "请先停止登录维护，再更换手机号", 409)
+            clear_login_state()
+            save_maintenance(last_verified_at=None)
+            _state.pop("last_verified_at", None)
+        cipher = AES.new(_key(), AES.MODE_GCM, nonce=os.urandom(12))
+        raw, tag = cipher.encrypt_and_digest(json.dumps({"account": account}).encode())
+        DIRECTORY.mkdir(parents=True, exist_ok=True)
+        temporary = CREDENTIALS.with_name("credentials-" + secrets.token_hex(8) + ".tmp")
+        temporary.write_bytes(cipher.nonce + tag + raw)
+        if os.name != "nt":
+            temporary.chmod(0o600)
+        temporary.replace(CREDENTIALS)
 
 
 def credentials():
@@ -251,13 +264,26 @@ def stop(preserve_enabled=False):
         update("stopped", "已停止学校登录维护", next_retry_at=None, visible=False)
 
 
-def delete_credentials():
-    if status()["running"]:
-        raise AcademicError("login_running", "请先停止登录维护，再删除凭据", 409)
-    CREDENTIALS.unlink(missing_ok=True)
+def clear_login_state():
+    from . import academic
     BROWSER_SESSION.unlink(missing_ok=True)
-    save_maintenance(enabled=False, last_verified_at=None)
-    update("not_started", "学校手机号已删除")
+    # Resolve and check the fixed profile path before recursive removal.
+    profile = PROFILE.resolve()
+    if profile.parent != DIRECTORY.resolve() or profile.name != "managed-browser-profile":
+        raise RuntimeError("Unexpected browser profile path")
+    if profile.exists():
+        shutil.rmtree(profile)
+    academic.clear_connection()
+
+
+def delete_credentials():
+    with _lock:
+        if status()["running"]:
+            raise AcademicError("login_running", "请先停止登录维护，再删除凭据", 409)
+        CREDENTIALS.unlink(missing_ok=True)
+        clear_login_state()
+        save_maintenance(enabled=False, last_verified_at=None)
+        update("not_started", "学校手机号已删除")
 
 
 def school_module():
@@ -345,7 +371,10 @@ def _has_school_account_cookie(context, worker):
 
 
 def _verify_and_mark_connected(context, page, worker, account):
-    worker.export_verified(context, page, account)
+    # Phone-based SSO uses a student ID in the username cookie. Only the managed,
+    # account-isolated profile may verify that session without comparing unlike IDs.
+    expected = "" if re.fullmatch(r"1[0-9]{10}", account or "") else account
+    worker.export_verified(context, page, expected)
     save_browser_session(context)
     verified_at = datetime.now(UTC).isoformat()
     save_maintenance(last_verified_at=verified_at)
@@ -363,6 +392,17 @@ def run(job, visible=False):
             saved = credentials()
         except AcademicError:
             pass
+        if saved.get("account"):
+            owner = hashlib.sha256(saved["account"].encode()).hexdigest()
+            marker = PROFILE / "xushi-owner"
+            try:
+                previous_owner = marker.read_text(encoding="utf-8")
+            except OSError:
+                previous_owner = None
+            if previous_owner != owner:
+                clear_login_state()
+            PROFILE.mkdir(parents=True, exist_ok=True)
+            marker.write_text(owner, encoding="utf-8")
         PROFILE.mkdir(parents=True, exist_ok=True)
         if os.name != "nt":
             PROFILE.chmod(0o700)

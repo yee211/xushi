@@ -6,6 +6,7 @@ settings（网页母版的 AUTH_RATE_LIMIT / AUTH_RATE_WINDOW_SECONDS），
 并支持 TRUST_PROXY_HEADERS 场景下从 X-Forwarded-For 取真实来源。
 多实例部署时需替换为 Redis 共享实现。
 """
+import ipaddress
 import logging
 import os
 import threading
@@ -52,6 +53,8 @@ class SlidingWindowLimiter:
         with self._lock:
             for stale in [k for k, hits in self._hits.items() if not hits or now - hits[-1] > self.window]:
                 del self._hits[stale]
+            if key not in self._hits and len(self._hits) >= 10000:
+                key = "__overflow__"
             hits = [stamp for stamp in self._hits.get(key, []) if now - stamp < self.window]
             if len(hits) >= self.limit:
                 retry_after = int(self.window - (now - hits[0])) + 1
@@ -94,8 +97,23 @@ agent_daily_limiter = SlidingWindowLimiter(
 
 
 def client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip() if settings.trust_proxy_headers else ""
-    return forwarded or (request.client.host if request.client else "unknown")
+    peer = request.client.host if request.client else "unknown"
+    if not settings.trust_proxy_headers:
+        return peer
+    # Only explicitly trusted reverse proxies may supply forwarding headers.
+    networks = os.getenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32,::1/128").split(",")
+    try:
+        trusted = [ipaddress.ip_network(value.strip()) for value in networks if value.strip()]
+        address = ipaddress.ip_address(peer)
+        if not any(address in network for network in trusted):
+            return peer
+        for value in reversed(request.headers.get("x-forwarded-for", "").split(",")):
+            address = ipaddress.ip_address(value.strip())
+            if not any(address in network for network in trusted):
+                return str(address)
+    except ValueError:
+        return peer
+    return peer
 
 
 _auth_limiters = {

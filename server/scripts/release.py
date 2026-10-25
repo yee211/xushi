@@ -308,9 +308,14 @@ def sync_git_tag(version_name: str) -> None:
             run_cmd(["git", "push", "origin", tag], cwd=ROOT_DIR)
             print(f"  -> 已推送 Git Tag 至远程: {tag}")
         else:
-            print(f"  -> Git Tag {tag} 已存在，跳过创建")
+            tagged_commit = run_capture(["git", "rev-list", "-n", "1", tag], cwd=ROOT_DIR).strip()
+            current_commit = run_capture(["git", "rev-parse", "HEAD"], cwd=ROOT_DIR).strip()
+            if tagged_commit != current_commit:
+                raise RuntimeError("现有版本标签不指向当前提交，请检查版本号")
+            run_cmd(["git", "push", "origin", tag], cwd=ROOT_DIR)
+            print(f"  -> Git Tag {tag} 已核验并推送")
     except Exception as e:
-        print(f"  [!] Git Tag 处理提示: {e}")
+        raise RuntimeError("Git Tag 创建或推送失败，停止发布") from e
 
 
 def generate_release_notes(version_name: str, version_code: int, changelog: list[str], apk_info: dict) -> str:
@@ -371,6 +376,8 @@ def publish_github_release(
 
     owner, repo = get_github_repo()
     tag_name = f"v{version_name}"
+    if run_capture(["git", "status", "--porcelain"], cwd=ROOT_DIR).strip():
+        raise RuntimeError("请先提交并推送已验证的版本文件，再发布 GitHub Release")
     sync_git_tag(version_name)
 
     notes = generate_release_notes(version_name, version_code, changelog, apk_info)
@@ -470,9 +477,9 @@ def publish_github_release(
                 if resp.status in (200, 201):
                     print(f"  -> 附件上传成功: {asset_name} ({len(data) / (1024 * 1024):.2f} MB)")
                 else:
-                    print(f"  [!] 附件上传异常: {asset_name} (HTTP {resp.status})")
+                    raise RuntimeError(f"附件上传异常: {asset_name} (HTTP {resp.status})")
         except Exception as e:
-            print(f"  [!] 上传附件 {asset_name} 失败: {e}")
+            raise RuntimeError(f"上传附件 {asset_name} 失败，保留历史 Release") from e
 
     # 清理 GitHub 历史版本 Release，仅保留当前最新发行版
     try:

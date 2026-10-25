@@ -471,7 +471,7 @@ async function loadSystemStatus() {
   const auditActions = {
     'feedback.update': '更新反馈', 'llm_config.update': '修改模型配置', 'llm_config.reset': '重置模型配置',
     'admin.create': '创建管理员', 'admin.delete': '删除管理员', 'user.unbind_wechat': '解绑用户微信',
-    'ratelimit.clear': '清除限流', 'session_cache.clear': '清除会话缓存'
+    'ratelimit.clear': '清除限流', 'session_cache.clear': '吊销用户会话'
   }
   try {
     const audits = await api('/audit?limit=30')
@@ -513,13 +513,13 @@ async function clearUserSession() {
     toast('请输入合法的用户 ID')
     return
   }
-  if (!confirm(`确定清除 UID: ${userId} 的所有 Redis 会话缓存吗？`)) return
+  if (!confirm(`确定清除 UID: ${userId} 的全部登录会话吗？用户需要重新登录。`)) return
   try {
     const res = await api('/system/redis/clear-session', {
       method: 'POST',
       body: JSON.stringify({ user_id: userId })
     })
-    toast(`已清除 ${res.cleared_count} 个会话缓存，用户需重新鉴权`)
+    toast(`已吊销 ${res.cleared_count} 个小程序会话及此前的网页令牌，用户需重新登录`)
     input.value = ''
   } catch (error) {
     toast(error.message)

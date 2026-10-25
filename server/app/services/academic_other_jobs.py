@@ -10,6 +10,7 @@ from . import academic, academic_others, academic_runtime
 
 logger = logging.getLogger(__name__)
 ACTIVE_STALE_SECONDS = 900
+MAX_QUEUE_WAIT_SECONDS = 86400
 RETENTION_DAYS = 30
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS academic_other_sync_jobs (
@@ -39,10 +40,11 @@ def public_job(row):
 def _expire_stale(db, user_id):
     """Release a user blocked by a batch whose worker/lease disappeared."""
     row = db.execute("""SELECT * FROM academic_other_sync_jobs
-        WHERE user_id=%s AND state IN ('queued','running')
-        AND updated_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
-        AND (leased_until IS NULL OR leased_until < CURRENT_TIMESTAMP)
-        FOR UPDATE SKIP LOCKED""", (user_id, ACTIVE_STALE_SECONDS)).fetchone()
+        WHERE user_id=%s AND (
+            (state='running' AND updated_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+             AND (leased_until IS NULL OR leased_until < CURRENT_TIMESTAMP))
+            OR (state='queued' AND created_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')))
+        FOR UPDATE SKIP LOCKED""", (user_id, ACTIVE_STALE_SECONDS, MAX_QUEUE_WAIT_SECONDS)).fetchone()
     if not row:
         return
     items = [dict(item) for item in row["items"]]
@@ -106,12 +108,13 @@ def process_one():
     with connect() as db:
         row = db.execute("""SELECT * FROM academic_other_sync_jobs
             WHERE state IN ('queued','running') AND available_at<=CURRENT_TIMESTAMP
+            AND NOT EXISTS (SELECT 1 FROM academic_sync_control WHERE id=1 AND pause_until>CURRENT_TIMESTAMP)
             AND (leased_until IS NULL OR leased_until<CURRENT_TIMESTAMP)
             ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1""").fetchone()
         if not row:
             return False
         db.execute("""UPDATE academic_other_sync_jobs SET state='running',lease_token=%s,
-            leased_until=CURRENT_TIMESTAMP+INTERVAL '120 seconds' WHERE id=%s""", (token, row["id"]))
+            leased_until=CURRENT_TIMESTAMP+INTERVAL '120 seconds',updated_at=CURRENT_TIMESTAMP WHERE id=%s""", (token, row["id"]))
     items = row["items"]
     item = next((i for i in items if i["state"] == "pending"), None)
     if item is None:

@@ -91,6 +91,8 @@ def connection_headers():
     _sync_connection_version()
     cookie = os.getenv("CCSUT_COOKIE", "").strip()
     agent = os.getenv("CCSUT_USER_AGENT", "Mozilla/5.0")
+    if CONFIG_FILE.with_suffix(".disabled").exists():
+        raise AcademicError("connection_not_configured", "学校账号已变更，请重新登录教务系统", 503)
     if CONFIG_FILE.exists():
         try:
             raw = CONFIG_FILE.read_bytes()
@@ -106,6 +108,17 @@ def connection_headers():
     return {"Cookie": cookie, "User-Agent": agent, "X-Requested-With": "XMLHttpRequest"}
 
 
+def clear_connection():
+    """Disable the saved and environment fallback sessions until a new verified login."""
+    global _generation
+    with _lock:
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_FILE.with_suffix(".disabled").write_text("relogin required", encoding="utf-8")
+        CONFIG_FILE.unlink(missing_ok=True)
+        _generation += 1
+        _cache.clear()
+
+
 def save_connection(cookie, user_agent):
     global _generation
     if not cookie.strip() or "\r" in cookie or "\n" in cookie:
@@ -119,6 +132,7 @@ def save_connection(cookie, user_agent):
         if os.name != "nt":
             temporary.chmod(0o600)
         temporary.replace(CONFIG_FILE)
+        CONFIG_FILE.with_suffix(".disabled").unlink(missing_ok=True)
         _generation += 1
         _cache.clear()
 
@@ -327,7 +341,9 @@ class CcsutClient:
             if not isinstance(response, dict):
                 raise AcademicError("schedule_invalid", "学校周课表格式异常")
             if "data" not in response:
-                items = []  # Observed school contract: ret=0 with no data is an empty numbered week.
+                # The observed endpoint omits data for empty numbered weeks.
+                # Such weeks alone are insufficient evidence to erase an entire term.
+                items = []
             elif isinstance(response["data"], dict) and isinstance(response["data"].get("kckbData"), list):
                 items = response["data"]["kckbData"]
             else:
@@ -345,6 +361,8 @@ class CcsutClient:
                     raise AcademicError("schedule_invalid", "学校课程字段或周次不完整")
             rows.extend(items)
             completed.append(week)
+        if not rows:
+            raise AcademicError("schedule_incomplete", "学校返回整学期空课表，缺少独立有效证据，已保留原课表")
         verified = parse_qiangzhi_json({"data": rows}, exact=True)
         if rows and not verified:
             raise AcademicError("schedule_invalid", "学校课程数据无法识别")

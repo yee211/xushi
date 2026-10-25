@@ -52,6 +52,7 @@ def init_db():
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS openid VARCHAR(128)")
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP")
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_revoked_at TIMESTAMPTZ")
         # 旧小程序版库：users 原本 openid NOT NULL，补上邮箱体系三列
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(254)")
         db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40)")
@@ -181,6 +182,12 @@ def init_db():
         db.execute("ALTER TABLE channel_messages ADD COLUMN IF NOT EXISTS reply_text TEXT")
         db.execute("CREATE INDEX IF NOT EXISTS channel_messages_processed_idx ON channel_messages(processed_at)")
 
+        db.execute("""CREATE TABLE IF NOT EXISTS channel_message_dead_letters (
+    provider VARCHAR(32) NOT NULL,account_id VARCHAR(255) NOT NULL,message_id VARCHAR(255) NOT NULL,
+    payload JSONB NOT NULL,error TEXT NOT NULL DEFAULT '',attempts INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,resolved_at TIMESTAMPTZ,
+    PRIMARY KEY(provider,account_id,message_id))""")
+
         # ---------- 反馈（网页版 feedback 的超集） ----------
         db.execute("""CREATE TABLE IF NOT EXISTS feedbacks (
             id BIGSERIAL PRIMARY KEY,
@@ -266,7 +273,15 @@ def init_db():
         # ---------- 启动期清理 ----------
         db.execute("DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP")
         db.execute("DELETE FROM identity_binding_codes WHERE expires_at <= CURRENT_TIMESTAMP")
-        db.execute("DELETE FROM channel_messages WHERE processed_at < CURRENT_TIMESTAMP - INTERVAL '30 days'")
+        db.execute("DELETE FROM channel_messages WHERE status='done' AND processed_at < CURRENT_TIMESTAMP - INTERVAL '30 days'")
+        # 已解决死信与已完成消息同窗口清理；未解决死信保留等待人工重放。
+        db.execute("DELETE FROM channel_message_dead_letters WHERE resolved_at < CURRENT_TIMESTAMP - INTERVAL '30 days'")
+        # 无未解决死信的 failed/dead_letter 消息：游标不会回退、不会再投递，仅保留一个排查窗口。
+        db.execute("""DELETE FROM channel_messages m WHERE m.status IN ('failed','dead_letter')
+            AND m.processed_at < CURRENT_TIMESTAMP - INTERVAL '90 days'
+            AND NOT EXISTS (SELECT 1 FROM channel_message_dead_letters d
+                WHERE d.provider=m.provider AND d.account_id=m.account_id AND d.message_id=m.message_id
+                AND d.resolved_at IS NULL)""")
         db.execute("DELETE FROM api_request_logs WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'")
         db.execute("DELETE FROM agent_turn_logs WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'")
 

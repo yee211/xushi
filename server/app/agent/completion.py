@@ -54,12 +54,20 @@ WAITING = re.compile(
 
 
 def promises_work(text: str) -> bool:
-    return bool(WAITING.search(text))
+    match = WAITING.search(text)
+    if not match:
+        return False
+    # A conversational introduction followed by a concrete result is already complete.
+    tail = text[match.end():]
+    if re.search(r"[，,。\n]|(?<!\d)[:：]", tail) and re.search(r"\d{1,2}:\d{2}|第[一二三四五六七八九十0-9]+[节周]|[在有是].{0,30}\d|(?:没有|无)课", tail):
+        return bool(WAITING.search(tail))
+    return True
 
 
 def query_failed(facts: list[dict]) -> bool:
     """Evaluate the latest result of each requested operation, excluding catalog help."""
     latest = {}
+    facts = [fact for fact in facts if not fact.get("_superseded")]
     core = [fact for fact in facts if fact.get("skill") != "list_course_catalog"]
     for fact in core or facts:
         arguments = fact.get("arguments") or "{}"
@@ -84,6 +92,8 @@ def finalize(result: dict) -> dict:
     # A backend-provided schedule conflict is a question, not a failed query.
     if isinstance(data, dict):
         for fact in reversed(data.get("skills") or []):
+            if fact.get("_superseded"):
+                continue
             item = fact.get("result") or {}
             if fact.get("skill") in {"add_other_schedule", "clear_other_schedules"} and item.get("ok") is False:
                 result["answer"] = item.get("message") or "未能完成同学课表操作，请重试。"

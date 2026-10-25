@@ -78,9 +78,14 @@ def _request_adjustments(user_content) -> list[dict]:
         config = get_llm_config("adjustment_vision")
     except RuntimeError:
         config = {}
-    base_url = (config.get("base_url") or VISION_BASE_URL).rstrip("/")
-    api_key = config.get("api_key") or VISION_API_KEY
-    model = config.get("model") or VISION_MODEL
+    if config.get("source") == "database":
+        base_url = str(config.get("base_url") or "").rstrip("/")
+        api_key = config.get("api_key") or ""
+        model = config.get("model") or ""
+    else:
+        base_url = (config.get("base_url") or VISION_BASE_URL).rstrip("/")
+        api_key = config.get("api_key") or VISION_API_KEY
+        model = config.get("model") or VISION_MODEL
     timeout = float(config.get("timeout_seconds") or VISION_TIMEOUT)
     max_tokens = int(config.get("max_tokens") or VISION_MAX_OUTPUT_TOKENS)
     enable_thinking = bool(config.get("enable_thinking", VISION_ENABLE_THINKING))

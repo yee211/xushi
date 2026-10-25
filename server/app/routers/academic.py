@@ -1,15 +1,35 @@
 """Shared read-only school timetable queries; school credentials stay admin-only."""
 
+import threading
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..auth import get_current_user
+from ..rate_limit import SlidingWindowLimiter
 from ..services import academic, academic_binding, academic_jobs, academic_login, academic_mail, schedule_backups
 from .admin import require_superadmin
 
 router = APIRouter(tags=["academic"])
+_search_slots = threading.BoundedSemaphore(4)
+_search_limiter = SlidingWindowLimiter(6, 60, "xushi:ratelimit:school-search")
+
+
+def search_invoke(user_id, fn, *args):
+    allowed, retry_after = _search_limiter.hit(str(user_id))
+    if not allowed:
+        raise HTTPException(429, "搜索过于频繁，请稍后再试", headers={"Retry-After": str(retry_after)})
+    if not _search_slots.acquire(blocking=False):
+        raise HTTPException(429, "搜索繁忙，请稍后再试")
+    try:
+        with academic.academic_runtime.execution(20):
+            return invoke(fn, *args)
+    except academic.academic_runtime.SyncTimeout as error:
+        raise HTTPException(504, "搜索超时，请缩小查询范围后重试") from error
+    finally:
+        _search_slots.release()
+
 
 
 def invoke(fn, *args, **kwargs):
@@ -29,13 +49,13 @@ def students(grade: str | None = Query(default=None, pattern=r"^20\d{2}$"), name
              class_name: str = Query(default="", max_length=80),
              major: str = Query(default="", max_length=80), q: str = Query(default="", max_length=80), user=Depends(get_current_user)):
     if q.strip():
-        return invoke(academic.search_keyword, q.strip())
+        return search_invoke(user["id"], academic.search_keyword, q.strip())
     if not grade:
         raise HTTPException(422, "请输入搜索关键词")
     name, class_name = name.strip(), class_name.strip()
     if not name and not class_name and not major.strip():
         raise HTTPException(422, "请输入专业、班级或姓名")
-    return invoke(academic.search_students, grade, name, class_name, major.strip())
+    return search_invoke(user["id"], academic.search_students, grade, name, class_name, major.strip())
 
 
 @router.get("/api/academic/students/{student_id}/terms")

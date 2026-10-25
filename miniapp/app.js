@@ -57,7 +57,7 @@ App({
           } else if (statusCode >= 200 && statusCode < 300) resolve(data)
           else {
             const detail = data && data.detail
-            const error = new Error((typeof detail === 'object' && detail.message) || detail || '请求失败')
+            const error = new Error((Array.isArray(detail) ? detail.map(item => item.msg).filter(Boolean).join('；') : (detail && typeof detail === 'object' ? detail.message : detail)) || '请求失败')
             error.statusCode = statusCode
             if (detail && typeof detail === 'object') { error.code = detail.code; error.data = detail }
             reject(error)
@@ -82,7 +82,7 @@ App({
           } else if (statusCode >= 200 && statusCode < 300) resolve(body)
           else {
             const detail = body && body.detail
-            const error = new Error((typeof detail === 'object' && detail.message) || detail || '上传失败')
+            const error = new Error((Array.isArray(detail) ? detail.map(item => item.msg).filter(Boolean).join('；') : (detail && typeof detail === 'object' ? detail.message : detail)) || '上传失败')
             error.statusCode = statusCode
             if (detail && typeof detail === 'object') {
               error.code = detail.code

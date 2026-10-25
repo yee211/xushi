@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv  # noqa: E402
@@ -21,11 +21,11 @@ URL = os.getenv("DATABASE_URL", "")
 def target(url: str) -> dict:
     parsed = urlparse(url)
     return {
-        "host": parsed.hostname or "127.0.0.1",
-        "port": str(parsed.port or 5432),
-        "user": parsed.username or "postgres",
-        "db": parsed.path.lstrip("/"),
-        "password": parsed.password or "",
+        "host": parsed.hostname or os.getenv("PGHOST", "127.0.0.1"),
+        "port": str(parsed.port or os.getenv("PGPORT", "5432")),
+        "user": unquote(parsed.username) if parsed.username else os.getenv("PGUSER", "postgres"),
+        "db": parsed.path.lstrip("/") or os.getenv("PGDATABASE", "xushi_schedule"),
+        "password": unquote(parsed.password) if parsed.password else os.getenv("PGPASSWORD", ""),
     }
 
 
@@ -42,7 +42,7 @@ def main() -> None:
         subprocess.run(["pg_dump", "-Fc", *common, "-f", file], env=env, check=True)
         print(f"已备份到 {file}")
     else:
-        subprocess.run(["pg_restore", "-Fc", "-c", *common, file], env=env, check=True)
+        subprocess.run(["pg_restore", "-Fc", "-c", "--if-exists", "--single-transaction", *common, file], env=env, check=True)
         print(f"已从 {file} 恢复")
 
 

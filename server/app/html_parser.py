@@ -29,6 +29,7 @@ class MatrixTableExtractor(HTMLParser):
 
     def __init__(self):
         super().__init__()
+        self._expanded_cells = 0
         self.tables = []  # list of list of dicts: [table][row][col] -> cell
         self._current_table_rows = None
         self._current_row_cells = None
@@ -99,6 +100,8 @@ class MatrixTableExtractor(HTMLParser):
                     c += 1
                 rowspan = cell["rowspan"]
                 colspan = cell["colspan"]
+                if rowspan > 1000 or colspan > 256 or (r + rowspan) * (c + colspan) > 100000:
+                    raise ValueError("HTML table dimensions exceed import limits")
                 for dr in range(rowspan):
                     for dc in range(colspan):
                         target_pos = (r + dr, c + dc)
@@ -115,6 +118,9 @@ class MatrixTableExtractor(HTMLParser):
             return []
         total_rows = max(pos[0] for pos in grid.keys()) + 1
         total_cols = max(pos[1] for pos in grid.keys()) + 1
+        self._expanded_cells += total_rows * total_cols
+        if self._expanded_cells > 100000:
+            raise ValueError("HTML tables exceed total import limits")
         res = []
         for r in range(total_rows):
             row_list = []

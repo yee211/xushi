@@ -24,6 +24,8 @@ def requested(message: str) -> bool:
 
 def status_requested(message: str, history: list | None = None) -> bool:
     text = re.sub(r"\s+", "", message)
+    if re.search(r"不要同步|别同步|别真的同步|不用同步|不需要同步|取消同步", text):
+        return False
     # A mixed course/weather question or adding someone's schedule still goes through the query agent.
     if re.search(r"有(?:什么|啥|几节|多少|几门)课|(?:课|课程).{0,8}(?:在哪|教室|几点)|教室|带伞|天气|有没有.*课", text) or re.match(
             PREFIX + r"(?:添加|加一下|保存(?!的)|绑定).{0,30}课表", text):

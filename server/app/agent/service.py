@@ -187,7 +187,7 @@ def build_agent_reply(db, content: str, provider: str, sender_id: str,
             waiting = clarification.PendingQuestion(
                 original=pending.original if pending else original_text,
                 question=result["answer"][:4000], version=snapshot,
-                created_at=pending.created_at if pending else now, turns=turns,
+                created_at=pending.created_at if pending else now, updated_at=now, turns=turns,
                 schedules=clarification.schedule_choices(result), people=people, person_request=person_request,
                 clear_student_ids=clear_ids,
                 courses=courses, course_query=course_query)

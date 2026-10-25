@@ -20,6 +20,8 @@ from .store import (
     load_accounts,
     load_reply,
     mark_session_expired,
+    message_completed,
+    quarantine_message,
     reset_stale_processing,
     save_cursor,
     save_reply,
@@ -133,18 +135,22 @@ def _received_at(raw: dict) -> datetime:
 
 
 def process_message(client: ILinkClient, message: InboundText) -> bool:
-    with connect() as db:
-        if not claim_message(db, message.account_id, message.message_id):
-            return True
-        bound = db.execute("""SELECT user_id FROM user_identities
-            WHERE provider='weixin_ilink' AND provider_user_id=%s""", (message.sender_id,)).fetchone()
-        if bound:
-            user_activity.touch(db, bound["user_id"])
-        if message.context_token:
-            db.execute("""UPDATE user_identities SET last_seen_at=CURRENT_TIMESTAMP, context_token=%s
-                WHERE provider='weixin_ilink' AND provider_user_id=%s""",
-                (message.context_token, message.sender_id))
+    claimed = False
     try:
+        with connect() as db:
+            if not claim_message(db, message.account_id, message.message_id):
+                return (message_completed(db, message.account_id, message.message_id)
+                        or quarantine_message(db, message))
+        claimed = True
+        with connect() as db:
+            bound = db.execute("""SELECT user_id FROM user_identities
+                WHERE provider='weixin_ilink' AND provider_user_id=%s""", (message.sender_id,)).fetchone()
+            if bound:
+                user_activity.touch(db, bound["user_id"])
+            if message.context_token:
+                db.execute("""UPDATE user_identities SET last_seen_at=CURRENT_TIMESTAMP, context_token=%s
+                    WHERE provider='weixin_ilink' AND provider_user_id=%s""",
+                    (message.context_token, message.sender_id))
         with connect() as db:
             reply = load_reply(db, message.account_id, message.message_id)
         if reply is None:
@@ -172,8 +178,14 @@ def process_message(client: ILinkClient, message: InboundText) -> bool:
         logger.info("replied account=%s message=%s", message.account_id, message.message_id)
         return True
     except Exception as error:
-        with connect() as db:
-            complete_message(db, message.account_id, message.message_id, str(error))
+        if claimed:
+            try:
+                with connect() as db:
+                    complete_message(db, message.account_id, message.message_id, str(error))
+                    if quarantine_message(db, message):
+                        return True
+            except Exception:
+                logger.exception("could not persist message failure")
         logger.exception("message failed account=%s message=%s", message.account_id, message.message_id)
         return False
 
