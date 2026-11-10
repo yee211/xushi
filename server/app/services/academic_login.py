@@ -323,13 +323,20 @@ def page_error(page):
                   "Captcha is wrong", "Username or Password is invalid", "Login Failed"):
         if label.lower() in text.lower():
             if "captcha" in label.lower():
-                return "验证码错误或已过期"
+                return "验证码错误"
             if "password" in label.lower() or "username" in label.lower():
                 return "账号或密码错误"
             if label == "Login Failed":
                 return "学校拒绝了本次登录，请重新获取验证码后重试"
             return label
     return ""
+
+
+def report_login_error(error):
+    if error in {"验证码错误", "验证码不正确", "验证码不能为空"}:
+        update("waiting_code", "学校提示：" + error + "，请重新输入验证码后提交", diagnostic=True)
+    else:
+        update("ready_for_code", "学校提示：" + error, diagnostic=True)
 
 
 def capture_login_page(page):
@@ -552,10 +559,9 @@ def run(job, visible=False):
                                 and saved.get("account") and prepare(page, saved["account"])):
                             update("ready_for_code", "手机号已填入，请点击获取验证码")
                         elif error and location.hostname == "auth.ccsut.cn" and not visible:
-                            prepare(page, saved["account"])
                             capture_login_page(page)
                             submitted = False
-                            update("ready_for_code", "学校提示：" + error, diagnostic=True)
+                            report_login_error(error)
                         elif not visible and time.monotonic() > submit_deadline:
                             if location.hostname == "auth.ccsut.cn":
                                 capture_login_page(page)

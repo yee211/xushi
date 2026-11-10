@@ -159,7 +159,7 @@ def test_page_error_detects_bridge_captcha_is_wrong():
         def evaluate(self, expr):
             return "Captcha is wrong."
 
-    assert login.page_error(Page()) == "验证码错误或已过期"
+    assert login.page_error(Page()) == "验证码错误"
 
 
 
@@ -636,3 +636,26 @@ def test_changing_phone_clears_persisted_and_visible_verified_time():
     login.save_credentials("13900139000")
     assert login.maintenance_settings().get("last_verified_at") is None
     assert login.status()["last_verified_at"] is None
+
+
+@pytest.mark.parametrize("error", ["验证码错误", "验证码不正确", "验证码不能为空"])
+def test_incorrect_code_allows_resubmission_without_resending(monkeypatch, error):
+    monkeypatch.setattr(login, "_thread", Running())
+    resend_after = time.monotonic() + 60
+    login._state.update(job_id="job", state="submitting", resend_after=resend_after)
+    login.report_login_error(error)
+    assert login.status()["state"] == "waiting_code"
+    assert "重新输入" in login.status()["message"]
+    assert login._state["resend_after"] == resend_after
+    login.command("submit_code", "job", "654321")
+    assert login._commands.get_nowait() == ("submit_code", "654321")
+
+
+@pytest.mark.parametrize("error", ["验证码已过期", "验证码过期", "请先获取验证码"])
+def test_expired_code_requires_new_code(monkeypatch, error):
+    monkeypatch.setattr(login, "_thread", Running())
+    login._state.update(job_id="job", state="submitting")
+    login.report_login_error(error)
+    assert login.status()["state"] == "ready_for_code"
+    with pytest.raises(AcademicError):
+        login.command("submit_code", "job", "654321")
