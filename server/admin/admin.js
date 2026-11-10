@@ -863,8 +863,13 @@ async function loadAcademicConnection() {
       $('schoolMaintenanceTag').textContent = maintenanceLabels[latest.state] || '正在登录'
       $('schoolMaintenanceTag').className = 'tag ' + (latest.state === 'connected' ? 'good' : ['needs_login', 'error'].includes(latest.state) ? 'bad' : 'processing')
       $('schoolMaintenanceSummary').textContent = `${latest.maintenance_enabled ? '已启用重启自动恢复' : '自动维护未启用'} · 最近验证成功：${timeText(latest.last_verified_at)}${latest.next_retry_at ? ' · 下次重试：' + timeText(latest.next_retry_at) : ''}${latest.error_type ? ' · 异常类型：' + latest.error_type : ''}`
-      if (latest.diagnostic && diagnosticState !== latest.state) {
-        diagnosticState = latest.state
+      if (!latest.diagnostic) {
+        diagnosticState = ''
+        $('schoolDiagnostic').hidden = true
+      }
+      const diagnosticKey = latest.state + ':' + latest.checked_at
+      if (latest.diagnostic && diagnosticState !== diagnosticKey) {
+        diagnosticState = diagnosticKey
         const response = await fetch('/api/admin/academic/login/diagnostic', { headers: { Authorization: 'Bearer ' + state.token } })
         if (response.ok && $('schoolDiagnosticImage')) {
           if (diagnosticUrl) URL.revokeObjectURL(diagnosticUrl)

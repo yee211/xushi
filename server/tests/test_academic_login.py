@@ -45,6 +45,7 @@ def test_mail_events_only_when_relogin_is_required(monkeypatch):
     login.update("retrying", "网络重试")
     assert events == []
     login.save_maintenance(last_verified_at="2026-10-09T14:00:00+00:00")
+    login._state["automatic"] = True
     login.update("waiting_code", "会话失效，需要验证码")
     login.update("connected", "恢复成功")
     login.update("stopped", "服务重启")
@@ -361,15 +362,15 @@ def test_home_session_is_validated_through_timetable(school_page, monkeypatch, t
 
 def test_restart_restores_only_enabled_maintenance(monkeypatch):
     starts = []
-    monkeypatch.setattr(login, "start", lambda: starts.append(True))
+    monkeypatch.setattr(login, "start", lambda **kwargs: starts.append(kwargs))
     login.resume()
     assert starts == []
     login.save_maintenance(enabled=True)
     login.resume()
-    assert starts == [True]
+    assert starts == [{"automatic": True}]
     login.stop()
     login.resume()
-    assert starts == [True]
+    assert starts == [{"automatic": True}]
 
 
 def test_service_shutdown_preserves_opt_in_but_manual_stop_disables_it():
@@ -659,3 +660,133 @@ def test_expired_code_requires_new_code(monkeypatch, error):
     assert login.status()["state"] == "ready_for_code"
     with pytest.raises(AcademicError):
         login.command("submit_code", "job", "654321")
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+def test_code_retry_does_not_create_mail_incident(monkeypatch, automatic):
+    events = []
+    monkeypatch.setattr(login.academic_mail, "connection_event", events.append)
+    monkeypatch.setattr(login, "_thread", Running())
+    login.save_maintenance(enabled=True, last_verified_at="2026-10-09T14:00:00+00:00")
+    login._state.update(job_id="job", state="waiting_code", automatic=automatic)
+    login.command("submit_code", "job", "wrong")
+    login.report_login_error("验证码错误")
+    login.command("submit_code", "job", "correct")
+    login.report_login_error("验证码已过期")
+    assert events == []
+
+
+def test_manual_login_does_not_send_relogin_mail(monkeypatch):
+    events = []
+    monkeypatch.setattr(login.academic_mail, "connection_event", events.append)
+    login.save_maintenance(enabled=True, last_verified_at="2026-10-09T14:00:00+00:00")
+    login.update("ready_for_code", "手动登录")
+    login.update("waiting_code", "输入验证码")
+    assert events == []
+
+
+def test_run_wrong_then_correct_code_waits_for_new_response(school_page, monkeypatch):
+    from types import SimpleNamespace
+
+    from playwright import sync_api
+
+    context = school_page.context
+    entry = "https://tls.ccsut.cn/admin/jwxtgld/kbcx/xskblist"
+    auth = "https://auth.ccsut.cn/backstage/cas/login"
+    html = '''<meta charset="utf-8">
+        <button role="tab" onclick="document.querySelector('form').hidden=false">验证码登录</button>
+        <form hidden onsubmit="event.preventDefault();
+        const wrong=this.querySelector('[formcontrolname=code]').value==='wrong';
+        setTimeout(() => location.href=wrong ? '/backstage/cas/login?failed=1' : 'ENTRY', 1400)">
+        <input formcontrolname="username"><input formcontrolname="code">
+        <button type="button">获取验证码</button><button type="submit">登录</button></form>'''.replace("ENTRY", entry)
+
+    def route_school(route):
+        url = route.request.url
+        if url == login.SCHOOL_HOME:
+            route.fulfill(body=f"<script>location.href='{auth}'</script>", content_type="text/html")
+        elif url == entry:
+            route.fulfill(body='<input id="xm"><div class="list_sslct"></div>', content_type="text/html")
+        else:
+            error = "<script>window.bridgeData={errors:['Captcha is wrong.']}</script>" if "failed=1" in url else ""
+            route.fulfill(body=html+error, content_type="text/html; charset=utf-8")
+
+    context.route("**/*", route_school)
+
+    class Engine:
+        chromium = SimpleNamespace(launch_persistent_context=lambda *a, **kw: context)
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            pass
+
+    states, messages, events = [], [], []
+    original_update = login.update
+
+    def update(state, message, **details):
+        original_update(state, message, **details)
+        states.append(state)
+        messages.append(message)
+        if state == "ready_for_code":
+            login._commands.put(("send_code", ""))
+        elif state == "waiting_code":
+            code = "wrong" if states.count("waiting_code") == 1 else "correct"
+            login.command("submit_code", "job", code)
+        elif state == "connected":
+            login._commands.put(("stop", ""))
+
+    monkeypatch.setattr(sync_api, "sync_playwright", Engine)
+    monkeypatch.setattr(login, "credentials", lambda: {"account": "13800138000"})
+    monkeypatch.setattr(login, "school_module", lambda: SimpleNamespace(ENTRY=entry, export_verified=lambda *a: None))
+    monkeypatch.setattr(login, "_thread", Running())
+    monkeypatch.setattr(login, "update", update)
+    monkeypatch.setattr(login.academic_mail, "connection_event", events.append)
+    login._state.update(job_id="job", state="starting")
+    login.save_maintenance(enabled=True, last_verified_at="2026-10-09T14:00:00+00:00")
+    timer = threading.Timer(15, login._stop_event.set)
+    timer.start()
+    try:
+        login.run("job")
+    finally:
+        timer.cancel()
+    assert states.count("submitting") == 2, (states, messages)
+    assert states.count("waiting_code") == 2, (states, messages)
+    assert "connected" in states, (states, messages)
+    assert "needs_login" not in events
+
+
+@pytest.mark.parametrize("visible_error", [False, True])
+def test_submission_ignores_old_errors_until_new_response(school_page, visible_error):
+    from types import SimpleNamespace
+
+    page = school_page
+    auth = "https://auth.ccsut.cn/backstage/cas/login"
+    body = "<script>window.bridgeData={errors:['Captcha is wrong.']}</script>"
+    if visible_error:
+        body += '<div role="alert">验证码错误</div>'
+    page.route("https://auth.ccsut.cn/**", lambda route: route.fulfill(body=body, content_type="text/html; charset=utf-8"))
+    page.goto(auth)
+    attempt = login.LoginSubmission(page)
+    try:
+        assert not attempt.error()
+        attempt._finished(SimpleNamespace(method="POST", url=auth))
+        assert not attempt.error()
+        page.goto(auth+"?new-error=1")
+        assert attempt.error() == "验证码错误"
+    finally:
+        attempt.close()
+
+
+
+def test_successful_manual_login_restores_automatic_alerts(monkeypatch):
+    from types import SimpleNamespace
+
+    events = []
+    monkeypatch.setattr(login.academic_mail, "connection_event", events.append)
+    monkeypatch.setattr(login, "save_browser_session", lambda context: None)
+    login.save_maintenance(enabled=True)
+    login._state.update(automatic=False, user_interacting=True)
+    worker = SimpleNamespace(export_verified=lambda *args: None)
+    login._verify_and_mark_connected(None, None, worker, "13800138000")
+    login.update("ready_for_code", "会话失效需要重新登录")
+    assert events == ["connected", "needs_login"]

@@ -91,7 +91,7 @@ def resume():
     if maintenance_settings().get("enabled") is not True:
         return
     try:
-        start()
+        start(automatic=True)
     except (AcademicError, OSError) as error:
         update("needs_login", "无法自动恢复，请检查浏览器依赖和学校手机号后重新发起维护",
                error_type=getattr(error, "code", type(error).__name__))
@@ -183,7 +183,8 @@ def update(state, message, **details):
                 or (state == "retrying" and details.get("retry_attempt", 0) >= 6)):
             academic_mail.connection_event("maintenance_error")
         elif settings.get("enabled") and (state == "needs_login" or
-                state in {"ready_for_code", "waiting_code"} and settings.get("last_verified_at")):
+                state in {"ready_for_code", "waiting_code"} and settings.get("last_verified_at")
+                and _state.get("automatic") and not _state.get("user_interacting")):
             academic_mail.connection_event("needs_login")
     except Exception as error:
         logging.getLogger(__name__).warning("School mail event unavailable: %s", type(error).__name__)
@@ -206,7 +207,7 @@ def status():
     return result
 
 
-def start(visible: bool = False):
+def start(visible: bool = False, automatic: bool = False):
     global _thread, _commands, _stop_event
     if not visible:
         credentials()
@@ -221,7 +222,7 @@ def start(visible: bool = False):
         job = secrets.token_urlsafe(18)
         _state.clear()
         msg = "已打开可视浏览器，请在弹出的窗口中登录…" if visible else "正在打开学校登录页面"
-        _state.update(state="starting", message=msg, job_id=job, visible=visible)
+        _state.update(state="starting", message=msg, job_id=job, visible=visible, automatic=automatic)
         _thread = threading.Thread(target=supervise, args=(job, visible), daemon=True, name="academic-login")
         _thread.start()
     return status()
@@ -239,7 +240,7 @@ def command(action, job_id, code=""):
         if action == "send_code" and time.monotonic() < _state.get("resend_after", 0):
             raise AcademicError("code_rate_limited", "验证码发送间隔为 60 秒，请稍后重试", 429)
         if action != "stop":
-            _state.update(state="processing", message="正在处理登录操作")
+            _state.update(state="processing", message="正在处理登录操作", user_interacting=True)
         else:
             save_maintenance(enabled=False)
             _stop_event.set()
@@ -309,12 +310,12 @@ def prepare(page, account):
     return True
 
 
-def page_error(page):
+def page_error(page, include_bridge_errors=True):
     messages = page.locator('[role="alert"],.ant-message-notice-content,.ant-form-item-explain-error,.el-message__content,.ivu-message-notice-content,.ivu-form-item-error-tip,.error').all_text_contents()
     text = "；".join(messages)
     try:
         bridge_errors = page.evaluate("() => (window.bridgeData && window.bridgeData.errors) ? window.bridgeData.errors.join('；') : ''")
-        if bridge_errors:
+        if bridge_errors and include_bridge_errors:
             text = text + "；" + bridge_errors
     except Exception:
         pass
@@ -330,6 +331,41 @@ def page_error(page):
                 return "学校拒绝了本次登录，请重新获取验证码后重试"
             return label
     return ""
+
+
+class LoginSubmission:
+    """Read errors only after this attempt receives a response or a new document."""
+
+    def __init__(self, page):
+        self.page = page
+        self.document = page.evaluate("() => performance.timeOrigin")
+        self.path = urlsplit(page.url).path
+        self.response_finished = False
+        self.previous_error = page_error(page, include_bridge_errors=False)
+        page.on("requestfinished", self._finished)
+
+    def _finished(self, request):
+        location = urlsplit(request.url)
+        if (request.method == "POST" and location.hostname == "auth.ccsut.cn"
+                and location.path == self.path):
+            self.response_finished = True
+
+    def error(self):
+        try:
+            document = self.page.evaluate("() => performance.timeOrigin")
+        except Exception:
+            # Navigation may replace the execution context between loop ticks.
+            return ""
+        if document != self.document:
+            return page_error(self.page)
+        if self.response_finished:
+            # bridgeData belongs to the document's previous login response.
+            error = page_error(self.page, include_bridge_errors=False)
+            return error if error != self.previous_error else ""
+        return ""
+
+    def close(self):
+        self.page.remove_listener("requestfinished", self._finished)
 
 
 def report_login_error(error):
@@ -387,7 +423,7 @@ def _verify_and_mark_connected(context, page, worker, account):
     save_maintenance(last_verified_at=verified_at)
     update("connected", "学校已连接，自动维护运行中", visible=False,
            last_verified_at=verified_at, next_retry_at=None, retry_attempt=0,
-           error_type=None, diagnostic=False, verified_this_attempt=True)
+           error_type=None, diagnostic=False, verified_this_attempt=True, automatic=True, user_interacting=False)
 
 
 def run(job, visible=False):
@@ -433,6 +469,7 @@ def run(job, visible=False):
                 next_check, ready = 0, False
                 submit_deadline, continued = 0, 0
                 submitted = False
+                submission = None
                 portal_attempts = 0
                 gateway_since, gateway_recovered = None, False
                 landing_path, landing_since = None, None
@@ -554,11 +591,12 @@ def run(job, visible=False):
                                     page.wait_for_timeout(2000)
                                     return "handoff"
                     elif status()["state"] in ("submitting", "continuing", "manual_waiting"):
-                        error = page_error(page)
+                        error = submission.error() if submitted and submission else page_error(page)
                         if (not visible and not submitted and location.hostname == "auth.ccsut.cn"
                                 and saved.get("account") and prepare(page, saved["account"])):
                             update("ready_for_code", "手机号已填入，请点击获取验证码")
                         elif error and location.hostname == "auth.ccsut.cn" and not visible:
+                            prepare(page, saved["account"])
                             capture_login_page(page)
                             submitted = False
                             report_login_error(error)
@@ -600,16 +638,16 @@ def run(job, visible=False):
                         capture_login_page(page)
                         update("waiting_code", "验证码已请求，请查看学校绑定手机并输入验证码", resend_after=time.monotonic() + 60, diagnostic=True)
                     elif action == "submit_code":
+                        prepare(page, saved["account"])
                         sms_form(page).locator('input[formcontrolname="code"]').fill(code)
+                        if submission:
+                            submission.close()
+                        submission = LoginSubmission(page)
                         submitted = True
                         submit_deadline, continued = time.monotonic() + 45, 0
-                        update("submitting", "正在验证登录并等待进入教务系统，请勿重复提交")
+                        update("submitting", "正在验证登录并等待进入教务系统，请勿重复提交", diagnostic=False)
                         sms_form(page).get_by_role("button", name="登录", exact=True).click()
                         page.wait_for_timeout(800)
-                        if urlsplit(page.url).hostname == "auth.ccsut.cn":
-                            capture_login_page(page)
-                            with _lock:
-                                _state["diagnostic"] = True
                         code = ""
             finally:
                 context.close()
